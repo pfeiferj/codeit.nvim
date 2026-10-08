@@ -37,7 +37,11 @@ plugin.setup({ provider = 'openrouter' })
 plugin.open()
 plugin.send('Show me the buffer')
 assert(requests[1].messages[2].content == 'Show me the buffer')
+local read_choice
+vim.ui.select = function(_, _, callback) read_choice = callback end
 tool_reply('read_buffer', { start_line = 1, end_line = 1 })
+assert(read_choice, 'untrusted buffer reads must request approval')
+read_choice('Approve once')
 assert(#requests == 2)
 assert(requests[2].messages[4].role == 'tool')
 assert(requests[2].messages[4].content:find('before', 1, true))

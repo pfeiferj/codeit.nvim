@@ -17,8 +17,9 @@ local function call(name, args, context)
     function() actions = actions + 1; result = 'executed' end, context)
 end
 approval.setup({ validators = {} })
+choices = { 'Approve once' }
 call('read_file', { path = 'x' })
-assert(result == 'executed' and actions == 1)
+assert(result == 'executed' and actions == 1 and #prompts == 1)
 choices = { 'Reject' }; inputs = { 'do not expose this file' }
 call('run_command', { argv = { 'echo', 'a' } })
 assert(result == 'Rejected by user: do not expose this file' and actions == 1)

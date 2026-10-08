@@ -1,6 +1,7 @@
 local ui = require('codeit.ui')
 local providers = require('codeit.providers')
 local tools = require('codeit.tools')
+local approval = require('codeit.approval')
 
 local M = {}
 local defaults = {
@@ -166,6 +167,28 @@ function M.setup(opts)
     M.send(args.args ~= '' and args.args or nil)
   end, { nargs = '*', desc = 'Send a message to codeit', force = true })
   vim.api.nvim_create_user_command('CodeitNew', M.new, { desc = 'Start a new conversation', force = true })
+  vim.api.nvim_create_user_command('CodeitTrust', function(args)
+    local workspace = vim.uv.fs_realpath(vim.fn.getcwd())
+    local function save(mode)
+      if not mode then return end
+      local ok, err = approval.set_workspace_trust(mode, workspace)
+      if not ok then return vim.notify('codeit: could not save workspace trust: ' .. err, vim.log.levels.ERROR) end
+      vim.notify('codeit: trusted ' .. workspace .. ' (' .. mode .. ')')
+    end
+    if args.args ~= '' then return save(args.args) end
+    vim.ui.select({ 'all', 'tracked' }, {
+      prompt = 'Trust workspace ' .. (workspace or vim.fn.getcwd()) .. '? (all files or Git-tracked files only)',
+    }, save)
+  end, { nargs = '?', complete = function() return { 'all', 'tracked' } end,
+    desc = 'Trust the current workspace for reads (all or tracked)', force = true })
+  vim.api.nvim_create_user_command('CodeitUntrust', function()
+    local ok, err = approval.set_workspace_trust(nil)
+    if not ok then return vim.notify('codeit: could not revoke workspace trust: ' .. err, vim.log.levels.ERROR) end
+    vim.notify('codeit: revoked trust for ' .. vim.fn.getcwd())
+  end, { desc = 'Revoke read trust for the current workspace', force = true })
+  vim.api.nvim_create_user_command('CodeitTrustStatus', function()
+    vim.notify('codeit: ' .. vim.fn.getcwd() .. ': ' .. (approval.workspace_trust() or 'untrusted'))
+  end, { desc = 'Show trust mode for the current workspace', force = true })
   vim.api.nvim_create_user_command('CodeitProvider', function(args) M.set_provider(args.args) end,
     { nargs = 1, complete = function() return { 'openrouter', 'copilot' } end, force = true })
 end

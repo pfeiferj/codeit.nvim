@@ -16,6 +16,10 @@ require('codeit').setup({
   -- system_prompt = 'You are a helpful Neovim coding assistant.',
   -- max_tool_rounds = 12,
   -- approval = {
+  --   trusted_workspaces = {
+  --     ['/absolute/path/to/project'] = 'all',     -- auto-approve reads inside this workspace
+  --     ['/absolute/path/to/other'] = 'tracked',   -- auto-approve only Git-tracked file reads
+  --   },
   --   validators = {
   --     function(name, args, context)
   --       -- return 'approve', 'ask', or 'reject', optionally with a reason
@@ -39,6 +43,7 @@ For Copilot, authenticate with `gh auth login` or set `GH_TOKEN` / `GITHUB_TOKEN
 - `:CodeitSend your question` sends a message directly. `:CodeitSend` sends the text currently in the input pane.
 - `:CodeitNew` clears the conversation and cancels outstanding responses or pending edits.
 - `:CodeitProvider openrouter` / `:CodeitProvider copilot` switches providers and starts a fresh conversation.
+- `:CodeitTrust` prompts you to trust the current workspace for **all files** or **Git-tracked files only**. `:CodeitTrust all` / `:CodeitTrust tracked` chooses directly. `:CodeitTrustStatus` shows the current mode; `:CodeitUntrust` revokes it. Choices persist across Neovim sessions.
 
 Closing the sidebar does not discard the conversation. The source buffer for buffer tools is the file buffer active when the sidebar was opened. Agent workspace tools use Neovim's current working directory as the workspace root. Messages are kept only in memory for the current Neovim session. Requests are asynchronous but responses are not streamed.
 
@@ -51,9 +56,11 @@ The assistant can:
 - Run builds, tests, or linters via `run_command` (argument vector, no implicit shell), inspect loaded-buffer diagnostics (`get_diagnostics`), and inspect workspace Git changes (`git_status`, `git_diff`). Git diff shows unstaged tracked changes, not untracked files or unsaved buffers.
 - Fetch HTTP(S) URLs using `fetch_url` (`curl` required). This is not a web search engine or an MCP integration.
 
-Read-only tools are auto-approved by default; edits, creation, commands, URL fetches, and unknown tools require approval. The prompt offers **Approve once**, **Always approve exact call**, **Reject** (with an optional explanation sent back to the agent), **Cancel task**, and **Ask reviewer**. Dismissing the prompt rejects the call. The reviewer is a separate, tool-free conversation with the configured model: ask follow-up questions, then return to the original decision. Cancelling stops the task and drops its unfinished tool-call batch, leaving earlier conversation intact.
+Read tools require approval by default. Use `:CodeitTrust` to trust Neovim's current working directory interactively; choices are stored in `stdpath('data')/codeit/trusted_workspaces.json` (mode `0600`). You can also set `approval.trusted_workspaces` to a map of absolute workspace directories to `'all'` or `'tracked'`; choices made with the commands override configuration for that workspace, including `:CodeitUntrust`. Trust applies only when the current workspace resolves to that directory; it does not extend to parent or child workspaces. In `'all'` mode, reads of files physically inside that workspace are auto-approved, including untracked files. In `'tracked'` mode, individual file/buffer reads are auto-approved only for Git-tracked files. Workspace-wide searches and file listings, unfiltered diagnostics, and Git status still ask in `'tracked'` mode because they can expose untracked content or names; Git diff and diagnostics for a tracked file are auto-approved. Buffer listings ask if any loaded named buffer points outside the allowed files. Symlinks to files outside the trusted workspace always ask. Trust is granted explicitly; there is no implicit trust for the plugin's own directory.
 
-Always-approved signatures include the workspace's resolved path, tool name, and full arguments (independent of JSON object key order); their hashes are saved across Neovim sessions in `stdpath('data')/codeit/approvals.json`. Delete that file to revoke saved approvals. Configure `approval.validators` in `setup()` with functions receiving `(name, args, context)` that return `'approve'`, `'ask'`, `'reject'`, or `nil`, optionally with a reason. Validators run for **every** call, including saved approvals; rejection wins over asking, and asking wins over approval or saved/default auto-approval. Errors or invalid decisions reject the call.
+Edits, creation, commands, URL fetches, and unknown tools require approval in either mode. The prompt offers **Approve once**, **Always approve exact call**, **Reject** (with an optional explanation sent back to the agent), **Cancel task**, and **Ask reviewer**. Dismissing the prompt rejects the call. The reviewer is a separate, tool-free conversation with the configured model: ask follow-up questions, then return to the original decision. Cancelling stops the task and drops its unfinished tool-call batch, leaving earlier conversation intact.
+
+Always-approved signatures include the workspace's resolved path, tool name, and full arguments (independent of JSON object key order); their hashes are saved across Neovim sessions in `stdpath('data')/codeit/approvals.json`. Explicit per-call approvals remain effective even if workspace trust changes; delete that file to revoke saved approvals. Configure `approval.validators` in `setup()` with functions receiving `(name, args, context)` that return `'approve'`, `'ask'`, `'reject'`, or `nil`, optionally with a reason. Validators run for **every** call, including saved approvals; rejection wins over asking, and asking wins over approval or saved/default auto-approval. Errors or invalid decisions reject the call.
 
 Buffer edits check for changes while confirmation is pending; file paths are restricted to the current workspace, including symlink targets. Commands run in that workspace but, once approved, can access the wider system. Outputs and file reads are bounded; use smaller searches or line ranges when needed. This is a local approximation of common VS Code Copilot Agent capabilities, not VS Code's exact or extension-provided tool set.
 

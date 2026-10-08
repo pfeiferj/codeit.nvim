@@ -83,7 +83,8 @@ local execute_approved
 function M.execute(name, args, source, done, active, context)
   if type(args) ~= 'table' or vim.islist(args) and #args > 0 then return done('Error: arguments must be an object') end
   local function gate(prompt, action)
-    return approval.request(name, args, prompt, active, done, action, context)
+    local request_context = vim.tbl_extend('force', context or {}, { source_buffer = source })
+    return approval.request(name, args, prompt, active, done, action, request_context)
   end
   if not gated[name] then
     return gate('Allow ' .. tostring(name) .. ' ' .. vim.json.encode(args) .. '?', function()
