@@ -1,4 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
+local prompt_ui = require('codeit.approval_prompt')
 local tools = require('codeit.tools')
 local root = vim.fn.getcwd()
 local dir = vim.fn.tempname()
@@ -7,7 +8,7 @@ vim.fn.mkdir(dir .. '/sub')
 vim.cmd.cd(dir)
 local function run(name, args, choice)
   local result
-  vim.ui.select = function(_, _, callback) callback(choice or 'Approve once') end
+  prompt_ui.show = function(_, _, callback) callback(choice or 'once') end
   vim.ui.input = function(_, callback) callback(nil) end
   tools.execute(name, args, nil, function(value) result = value end, function() return true end)
   assert(vim.wait(5000, function() return result ~= nil end), 'timed out: ' .. name)
@@ -16,14 +17,14 @@ end
 local function has(text, piece)
   assert(text:find(piece, 1, true), text .. ' did not contain ' .. piece)
 end
-has(run('create_file', { path = 'sub/demo.txt', content = 'alpha\nbeta\n' }, 'Reject'), 'Rejected')
+has(run('create_file', { path = 'sub/demo.txt', content = 'alpha\nbeta\n' }, 'reject'), 'Rejected')
 assert(vim.fn.filereadable('sub/demo.txt') == 0)
 has(run('create_file', { path = 'sub/demo.txt', content = 'alpha\nbeta\n' }), 'Created')
 has(run('create_file', { path = 'sub/demo.txt', content = '' }), 'already exists')
 local read = vim.json.decode(run('read_file', { path = 'sub/demo.txt' }))
 assert(read.lines[1] == 'alpha' and read.lines[2] == 'beta')
 has(run('read_file', { path = '../outside' }), 'outside the workspace')
-has(run('edit_file', { path = 'sub/demo.txt', old_text = 'alpha', new_text = 'gamma' }, 'Reject'), 'Rejected')
+has(run('edit_file', { path = 'sub/demo.txt', old_text = 'alpha', new_text = 'gamma' }, 'reject'), 'Rejected')
 assert(vim.json.decode(run('read_file', { path = 'sub/demo.txt' })).lines[1] == 'alpha')
 has(run('edit_file', { path = 'sub/demo.txt', old_text = 'alpha', new_text = 'gamma' }), 'not saved')
 assert(vim.json.decode(run('read_file', { path = 'sub/demo.txt' })).lines[1] == 'gamma')
@@ -38,13 +39,13 @@ vim.diagnostic.set(namespace, id, { { lnum = 0, col = 1, message = 'example warn
 has(run('get_diagnostics', { path = 'sub/demo.txt' }), 'example warning')
 vim.diagnostic.reset(namespace, id)
 local pending
-vim.ui.select = function(_, _, callback) pending = callback end
+prompt_ui.show = function(_, _, callback) pending = callback end
 local result
 local active = true
 tools.execute('edit_file', { path = 'sub/demo.txt', old_text = 'gamma', new_text = 'bad' }, nil,
   function(value) result = value end, function() return active end)
 vim.api.nvim_buf_set_lines(id, 0, 1, false, { 'manual' })
-pending('Approve once')
+pending('once')
 has(result, 'changed while awaiting confirmation')
 assert(vim.api.nvim_buf_get_lines(id, 0, 1, false)[1] == 'manual')
 result = nil
@@ -52,10 +53,10 @@ active = true
 tools.execute('edit_file', { path = 'sub/demo.txt', old_text = 'manual', new_text = 'bad' }, nil,
   function(value) result = value end, function() return active end)
 active = false
-pending('Approve once')
+pending('once')
 assert(result == nil and vim.api.nvim_buf_get_lines(id, 0, 1, false)[1] == 'manual')
 local side_effect = dir .. '/executed'
-has(run('run_command', { argv = { 'touch', side_effect } }, 'Reject'), 'Rejected')
+has(run('run_command', { argv = { 'touch', side_effect } }, 'reject'), 'Rejected')
 assert(vim.fn.filereadable(side_effect) == 0)
 has(run('run_command', { argv = { 'touch', side_effect } }), '[exit code: 0]')
 assert(vim.fn.filereadable(side_effect) == 1)

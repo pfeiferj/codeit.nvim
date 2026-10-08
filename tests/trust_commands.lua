@@ -1,5 +1,6 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local plugin = require('codeit')
+local prompt_ui = require('codeit.approval_prompt')
 local approval = require('codeit.approval')
 local root = vim.fn.getcwd()
 local dir = vim.fn.tempname()
@@ -16,7 +17,7 @@ local notices = {}
 vim.notify = function(message) notices[#notices + 1] = message end
 local function read(path, prompted)
   local selected, result = false, nil
-  vim.ui.select = function(_, _, cb) selected = true; cb(nil) end
+  prompt_ui.show = function(_, _, cb) selected = true; cb(nil) end
   approval.request('read_file', { path = path }, 'Read?', nil,
     function(value) result = value end, function() result = 'allowed' end)
   assert(selected == prompted, 'unexpected approval prompt for ' .. path)

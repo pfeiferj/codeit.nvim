@@ -38,11 +38,12 @@ plugin.open()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
 plugin.send('Show me the buffer')
 assert(requests[1].messages[2].content == 'Show me the buffer')
+local prompt_ui = require('codeit.approval_prompt')
 local read_choice
-vim.ui.select = function(_, _, callback) read_choice = callback end
+prompt_ui.show = function(_, _, callback) read_choice = callback end
 tool_reply('read_buffer', { start_line = 1, end_line = 1 })
 assert(read_choice, 'untrusted buffer reads must request approval')
-read_choice('Approve once')
+read_choice('once')
 assert(#requests == 2)
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
 assert(requests[2].messages[4].role == 'tool')
@@ -53,14 +54,14 @@ contains(vim.fn.bufnr('codeit://chat'), 'Here is your buffer.')
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: 0.15k')
 
 local select_callback
-vim.ui.select = function(_, _, callback) select_callback = callback end
+prompt_ui.show = function(_, _, callback) select_callback = callback end
 plugin.send('Change it')
 tool_reply('replace_buffer_lines', {
   start_line = 1, end_line = 1, expected_text = 'before', new_text = 'after',
 })
 assert(select_callback)
 assert(first_line(file) == 'before')
-select_callback('Approve once')
+select_callback('once')
 assert(first_line(file) == 'after')
 reply({ role = 'assistant', content = 'Done.' })
 
@@ -70,17 +71,21 @@ tool_reply('replace_buffer_lines', {
 })
 plugin.new()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
-select_callback('Approve once')
+select_callback('once')
 assert(first_line(file) == 'after', 'reset must cancel pending edit')
 local selections, questions = {}, {}
-vim.ui.select = function(options, _, callback)
+prompt_ui.show = function(_, options, callback)
   local choice = table.remove(selections, 1)
-  assert(vim.tbl_contains(options, choice), 'missing choice ' .. tostring(choice))
+  assert(vim.tbl_contains(vim.tbl_map(function(option) return option.id end, options), choice), 'missing choice ' .. tostring(choice))
   callback(choice)
+end
+prompt_ui.ask_reviewer = function(name, args, callback)
+  assert(name == 'run_command' and args:find('echo', 1, true))
+  callback(table.remove(questions, 1))
 end
 vim.ui.input = function(_, callback) callback(table.remove(questions, 1)) end
 plugin.send('Check command')
-selections = { 'Ask reviewer', 'Back to approval', 'Reject' }
+selections = { 'review', 'back', 'reject' }
 questions = { 'What will happen?', 'Do not run it' }
 tool_reply('run_command', { argv = { 'echo', 'test' } })
 assert(#requests[#requests].specs == 0, 'reviewer must not receive tools')
@@ -95,7 +100,7 @@ reply({ role = 'assistant', content = 'Understood.' },
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: 0.085k')
 assert(requests[#requests].messages[#requests[#requests].messages].content:find('Do not run it', 1, true))
 plugin.send('Cancel this task')
-selections = { 'Cancel task' }
+selections = { 'cancel' }
 tool_reply('run_command', { argv = { 'echo', 'cancel' } })
 
 contains(vim.fn.bufnr('codeit://chat'), 'Task cancelled')

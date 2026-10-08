@@ -1,4 +1,5 @@
 local M = {}
+local approval_prompt = require('codeit.approval_prompt')
 
 local read_tools = {
   list_buffers = true, read_buffer = true, list_workspace_files = true,
@@ -209,7 +210,7 @@ function M.request(name, args, prompt, active, done, action, context)
   local choose
   local function review(history)
     if not context.review then return choose() end
-    vim.ui.input({ prompt = 'Ask the tool-call reviewer (empty to return): ' }, function(question)
+    approval_prompt.ask_reviewer(name, canonical(args), function(question)
       if not live() then return end
       if not question or vim.trim(question) == '' then return choose() end
       history[#history + 1] = { role = 'user', content = question }
@@ -217,32 +218,52 @@ function M.request(name, args, prompt, active, done, action, context)
         if not live() then return end
         if err then answer = 'Reviewer error: ' .. tostring(err) end
         history[#history + 1] = { role = 'assistant', content = answer or '' }
-        vim.ui.select({ 'Ask another question', 'Back to approval' },
-          { prompt = 'Reviewer: ' .. (answer or '') }, function(choice)
-            if not live() then return end
-            if choice == 'Ask another question' then review(history) else choose() end
-          end)
+        approval_prompt.show('Question: ' .. question .. '\n\nReviewer: ' .. (answer or ''), {
+          { key = '1', id = 'again', label = 'Ask another question' },
+          { key = '2', id = 'back', label = 'Back to approval' },
+        }, function(choice)
+          if not live() then return end
+          if choice == 'again' then review(history) else choose() end
+        end, { title = ' Tool-call reviewer ', dismiss = 'Back to approval' })
       end)
     end)
   end
   choose = function()
     if not live() then return end
-    local options = { 'Approve once', 'Always approve exact call', 'Reject', 'Cancel task' }
-    if context.review then options[#options + 1] = 'Ask reviewer' end
-    vim.ui.select(options, { prompt = prompt .. (reason and '\n' .. tostring(reason) or '') }, function(choice)
+    local options = {
+      { key = '1', id = 'once', label = 'Approve once' },
+      { key = '2', id = 'always', label = 'Always approve exact call' },
+      { key = '3', id = 'reject', label = 'Reject (optional reason)' },
+      { key = '4', id = 'cancel', label = 'Cancel task' },
+    }
+    if read_tools[name] then
+      options[#options + 1] = { key = '5', id = 'tracked', label = 'Trust workspace (Git-tracked reads)' }
+      options[#options + 1] = { key = '6', id = 'all', label = 'Trust workspace (all reads)' }
+    end
+    if context.review then options[#options + 1] = { key = tostring(#options + 1), id = 'review', label = 'Ask reviewer' } end
+    approval_prompt.show(prompt .. (reason and '\n' .. tostring(reason) or '') .. '\nWorkspace: ' .. workspace,
+      options, function(choice)
       if not live() then return end
-      if choice == 'Approve once' then return action() end
-      if choice == 'Always approve exact call' then
+      if choice == 'once' then return action() end
+      if choice == 'always' then
         remembered[signature] = true
         persist()
         return action()
       end
-      if choice == 'Cancel task' then return done('Cancelled by user', 'cancel') end
-      if choice == 'Ask reviewer' then
+      if choice == 'tracked' or choice == 'all' then
+        local ok, err = M.set_workspace_trust(choice, workspace)
+        if not ok then
+          vim.notify('codeit: could not save workspace trust: ' .. tostring(err), vim.log.levels.ERROR)
+          return choose()
+        end
+        return action()
+      end
+      if choice == 'cancel' then return done('Cancelled by user', 'cancel') end
+      if choice == 'review' then
         return review({ { role = 'system', content = 'You are an independent tool-call reviewer. Analyze safety and implications of the proposed tool call. Do not use tools or carry out the action. Answer the user concisely.' },
           { role = 'user', content = 'User request: ' .. tostring(context.user_request or '') .. '\nTool: ' .. name .. '\nArguments: ' .. canonical(args) .. '\nApproval prompt: ' .. prompt } })
       end
-      if choice ~= 'Reject' then return done('Rejected by user') end
+      if choice ~= 'reject' then return done('Rejected by user') end
       vim.ui.input({ prompt = 'Reason for rejecting (optional): ' }, function(instruction)
         if not live() then return end
         done('Rejected by user' .. (instruction and vim.trim(instruction) ~= '' and ': ' .. instruction or ''))

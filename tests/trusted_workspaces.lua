@@ -1,4 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
+local prompt_ui = require('codeit.approval_prompt')
 local tools = require('codeit.tools')
 local root = vim.fn.getcwd()
 local dir = vim.fn.tempname()
@@ -21,9 +22,9 @@ vim.fn.bufload(outside)
 
 local function check(name, args, source, requires_approval)
   local prompted, result = false, nil
-  vim.ui.select = function(_, _, cb)
+  prompt_ui.show = function(_, _, cb)
     prompted = true
-    cb('Reject')
+    cb('reject')
   end
   vim.ui.input = function(_, cb) cb(nil) end
   tools.execute(name, args, source, function(value) result = value end, function() return true end)
