@@ -50,8 +50,8 @@ call('run_command', { argv = { 'echo', 'c' } }, { user_request = 'test', review 
   cb('This only prints text')
 end })
 assert(reviews == 2 and result == 'executed')
-assert(prompts[#prompts - 1]:find('Question: What does it do?', 1, true))
-assert(prompts[#prompts - 1]:find('Reviewer: This only prints text', 1, true))
+assert(prompts[#prompts - 1]:find('## Question\n\nWhat does it do?', 1, true))
+assert(prompts[#prompts - 1]:find('## Reviewer\n\nThis only prints text', 1, true))
 choices = { 'review', false, 'reject' }; questions = { 'Another question?', false }
 call('run_command', { argv = { 'echo', 'review escape' } }, { review = function(_, cb) cb('No issue') end })
 assert(result == 'Rejected by user', 'dismissing reviewer returns to approval')

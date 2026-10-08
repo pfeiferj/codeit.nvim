@@ -19,8 +19,18 @@ local function open_and_press(key, expected, config)
   local buf = vim.api.nvim_win_get_buf(win)
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
   assert(text:find('Read file?', 1, true) and text:find('Reason', 1, true))
-  assert(text:find('[2] Trust workspace', 1, true))
-  assert(text:find('[Esc] ' .. (config and config.dismiss or 'Reject'), 1, true))
+  assert(text:find('**[2]** Trust workspace', 1, true))
+  assert(text:find('**[Esc]** ' .. (config and config.dismiss or 'Reject'), 1, true))
+  assert(vim.bo[buf].filetype == 'markdown' and vim.bo[buf].syntax == 'markdown')
+  assert(vim.b[buf].current_syntax == 'markdown')
+  vim.api.nvim_win_call(win, function()
+    assert(vim.fn.synIDattr(vim.fn.synID(1, 1, true), 'name') ~= '',
+      'approval heading should have active Markdown highlighting')
+  end)
+  local cursor = vim.api.nvim_win_get_cursor(win)
+  assert(cursor[1] == vim.api.nvim_buf_line_count(buf))
+  assert(vim.api.nvim_buf_get_lines(buf, cursor[1] - 1, cursor[1], false)[1] == '',
+    'choice cursor must not cover text')
   local map
   for _, item in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
     if item.lhs == key then map = item; break end
@@ -57,9 +67,13 @@ local function ask_and_press(key, question, expected)
   local config = vim.api.nvim_win_get_config(win)
   assert(config.width >= math.floor(vim.o.columns * 0.8) and config.height >= math.floor(vim.o.lines * 0.75))
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
-  assert(text:find('Tool: run_command', 1, true) and text:find('echo', 1, true))
+  assert(text:find('**Tool:** `run_command`', 1, true) and text:find('```json', 1, true)
+    and text:find('echo', 1, true))
   assert(text:find('normal-mode <Enter> to send', 1, true), 'reviewer prompt should advertise Enter')
+  assert(vim.bo[buf].filetype == 'markdown' and vim.bo[buf].syntax == 'markdown')
+  assert(vim.b[buf].current_syntax == 'markdown')
   assert(vim.api.nvim_win_get_cursor(win)[1] == vim.api.nvim_buf_line_count(buf))
+  assert(vim.api.nvim_buf_get_lines(buf, -2, -1, false)[1] == '', 'question cursor should begin on an empty line')
   if question then vim.api.nvim_buf_set_lines(buf, -1, -1, false, vim.split(question, '\n', { plain = true })) end
   local map
   for _, item in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
@@ -76,11 +90,16 @@ ask_and_press('<C-S>', 'Is it safe?\nAny side effects?', 'Is it safe?\nAny side 
 ask_and_press('<CR>', 'What does this tool do?', 'What does this tool do?')
 ask_and_press('<CR>', '  ', '')
 ask_and_press('<Esc>', 'Never sent', nil)
+local fenced = require('codeit.markdown').fence('{"text":"```"}\n{"other":true}', 'json')
+assert(fenced[1] == '````json' and fenced[#fenced] == '````')
 local dismissed = 0
-prompt.ask_reviewer('read_file', '{"path":"secret"}', function(value)
+prompt.ask_reviewer('read_file', '{"path":"secret"}\n{"extra":"```"}', function(value)
   assert(value == nil)
   dismissed = dismissed + 1
 end)
+local final_buf = vim.api.nvim_win_get_buf(vim.api.nvim_get_current_win())
+local final_text = table.concat(vim.api.nvim_buf_get_lines(final_buf, 0, -1, false), '\n')
+assert(final_text:find('````json', 1, true) and final_text:find('## Question', 1, true))
 vim.api.nvim_win_close(vim.api.nvim_get_current_win(), true)
 assert(vim.wait(1000, function() return dismissed == 1 end))
 print('codeit approval prompt tests passed')

@@ -1,4 +1,5 @@
 local M = {}
+local markdown = require('codeit.markdown')
 
 local transcript, input, transcript_win, input_win
 local billing_line
@@ -36,7 +37,7 @@ local function scratch(name, editable)
   vim.api.nvim_buf_set_name(buf, name)
   vim.bo[buf].bufhidden = 'hide'
   vim.bo[buf].swapfile = false
-  vim.bo[buf].filetype = 'markdown'
+  markdown.enable(buf)
   vim.bo[buf].modifiable = editable
   return buf
 end
@@ -99,7 +100,7 @@ end
 function M.render(messages, status, provider, model, billing)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
-  if billing then table.insert(lines, billing) end
+  if billing then table.insert(lines, '> ' .. billing) end
   billing_line = billing
   table.insert(lines, '')
   for _, message in ipairs(messages) do
@@ -119,7 +120,7 @@ function M.render(messages, status, provider, model, billing)
         vim.list_extend(lines, vim.split(content, '\n', { plain = true }))
       end
       for _, call in ipairs(message.tool_calls or {}) do
-        table.insert(lines, 'Calling ' .. (call['function'] and call['function'].name or 'unknown tool') .. '…')
+        table.insert(lines, '*Calling `' .. (call['function'] and call['function'].name or 'unknown tool') .. '`…*')
       end
       table.insert(lines, '')
     end

@@ -218,7 +218,7 @@ function M.request(name, args, prompt, active, done, action, context)
         if not live() then return end
         if err then answer = 'Reviewer error: ' .. tostring(err) end
         history[#history + 1] = { role = 'assistant', content = answer or '' }
-        approval_prompt.show('Question: ' .. question .. '\n\nReviewer: ' .. (answer or ''), {
+        approval_prompt.show('## Question\n\n' .. question .. '\n\n## Reviewer\n\n' .. (answer or ''), {
           { key = '1', id = 'again', label = 'Ask another question' },
           { key = '2', id = 'back', label = 'Back to approval' },
         }, function(choice)
@@ -241,7 +241,8 @@ function M.request(name, args, prompt, active, done, action, context)
       options[#options + 1] = { key = '6', id = 'all', label = 'Trust workspace (all reads)' }
     end
     if context.review then options[#options + 1] = { key = tostring(#options + 1), id = 'review', label = 'Ask reviewer' } end
-    approval_prompt.show(prompt .. (reason and '\n' .. tostring(reason) or '') .. '\nWorkspace: ' .. workspace,
+    approval_prompt.show(prompt .. (reason and '\n\n**Reason:** ' .. tostring(reason) or '')
+      .. '\n\n**Workspace:** `' .. workspace .. '`',
       options, function(choice)
       if not live() then return end
       if choice == 'once' then return action() end

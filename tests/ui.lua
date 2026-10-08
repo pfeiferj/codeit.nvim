@@ -5,6 +5,11 @@ for i = 1, 50 do messages[i] = { role = 'user', content = 'message ' .. i } end
 ui.open(function() end, function() end)
 local chat = vim.fn.bufnr('codeit://chat')
 local win = vim.fn.bufwinid(chat)
+local input = vim.fn.bufnr('codeit://input')
+for _, buf in ipairs({ chat, input }) do
+  assert(vim.bo[buf].filetype == 'markdown' and vim.bo[buf].syntax == 'markdown')
+  assert(vim.b[buf].current_syntax == 'markdown', 'Markdown syntax should be loaded for both chat panes')
+end
 local ns = vim.api.nvim_get_namespaces().codeit_sticky_header
 assert(ns)
 
@@ -20,6 +25,13 @@ local function scroll(topline)
 end
 
 ui.render(messages, 'Ready', 'openrouter', 'model-a', 'Cost: $0.001000 | In: 100 | Out: 20 | Context: 120')
+local rendered = vim.api.nvim_buf_get_lines(chat, 0, 5, false)
+assert(rendered[1]:match('^# Codeit') and rendered[2]:match('^> Cost:'))
+assert(rendered[4] == '## You')
+vim.api.nvim_win_call(win, function()
+  assert(vim.fn.synIDattr(vim.fn.synID(1, 1, true), 'name') ~= '',
+    'chat heading should have active Markdown highlighting')
+end)
 scroll(1)
 assert(#marks() == 0, 'do not cover the real header at the top')
 scroll(2)
