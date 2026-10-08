@@ -57,7 +57,4 @@ Always-approved signatures include the workspace's resolved path, tool name, and
 
 Buffer edits check for changes while confirmation is pending; file paths are restricted to the current workspace, including symlink targets. Commands run in that workspace but, once approved, can access the wider system. Outputs and file reads are bounded; use smaller searches or line ranges when needed. This is a local approximation of common VS Code Copilot Agent capabilities, not VS Code's exact or extension-provided tool set.
 
-Run the headless tests from the repository root with `nvim --headless -u NONE -c "lua dofile('tests/headless.lua')" -c 'qa!'`, `nvim --headless -u NONE -c "lua dofile('tests/providers.lua')" -c 'qa!'`, and `nvim --headless -u NONE -c "lua dofile('tests/agent_tools.lua')" -c 'qa!'`.
-
-
-The approval suite is `tests/approval.lua`; run it with a temporary `XDG_DATA_HOME` to avoid using your saved approvals.
+Run all headless tests from the repository root with `sh tests/run.sh`. The runner isolates saved approvals in a temporary data directory and exits with an error if a suite fails.

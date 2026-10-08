@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+cd "$(dirname "$0")/.."
+data_dir=$(mktemp -d)
+trap 'rm -rf "$data_dir"' EXIT
+export XDG_DATA_HOME="$data_dir"
+
+for suite in headless providers agent_tools approval; do
+  nvim --headless -u NONE -l "tests/$suite.lua"
+  printf '%s: passed\n' "$suite"
+done
