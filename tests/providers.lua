@@ -5,7 +5,7 @@ local gh = vim.env.GH_TOKEN
 vim.env.OPENROUTER_API_KEY = 'test-openrouter-key'
 vim.env.GH_TOKEN = 'test-github-key'
 local calls = {}
-local http_response = '{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"cost":0.00042}}\n200'
+local http_response = '{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"cost":0.00042,"prompt_tokens":100,"completion_tokens":25,"total_tokens":125}}\n200'
 vim.system = function(args, options, callback)
   table.insert(calls, { args = args, options = options })
   local result
@@ -27,6 +27,7 @@ local function wait_for_response(config, specs)
   assert(answer.content == 'ok')
   if config.provider == 'openrouter' then
     assert(billing.cost == 0.00042)
+    assert(billing.prompt_tokens == 100 and billing.completion_tokens == 25 and billing.total_tokens == 125)
   else
     assert(billing == nil)
   end

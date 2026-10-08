@@ -15,6 +15,8 @@ local defaults = {
 local config = vim.deepcopy(defaults)
 local messages = {}
 local cost, missing_cost = 0, 0
+local tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
+local context_tokens
 local source
 local busy = false
 local generation = 0
@@ -24,24 +26,39 @@ local function model()
   return config.models[config.provider] or 'unknown'
 end
 
+local function format_tokens(count, scale, suffix)
+  local value = string.format('%.3f', count / scale):gsub('0+$', ''):gsub('%.$', '')
+  return value .. suffix
+end
+
 local function render()
   local billing
   if config.provider == 'openrouter' then
-    billing = missing_cost > 0 and
-      string.format('Cost: $%.6f (excluding %d request(s) without cost data)', cost, missing_cost) or
-      string.format('Cost: $%.6f', cost)
+    billing = string.format('Cost: $%.3f%s | In: %s%s | Out: %s%s | Context: %s',
+      cost, missing_cost > 0 and '+' or '', format_tokens(tokens_in, 1000000, 'm'), missing_in and '+' or '',
+      format_tokens(tokens_out, 1000000, 'm'), missing_out and '+' or '',
+      context_tokens and format_tokens(context_tokens, 1000, 'k') or '—')
   end
   ui.render(messages, status, config.provider, model(), billing)
 end
 
-local function record_usage(usage)
+local function usage_number(value)
+  local number = (type(value) == 'number' or type(value) == 'string') and tonumber(value) or nil
+  if number and number >= 0 and number < math.huge then return number end
+end
+
+local function record_usage(usage, main_chat)
   if config.provider ~= 'openrouter' then return end
-  local value = usage and usage.cost
-  local amount = (type(value) == 'number' or type(value) == 'string') and tonumber(value) or nil
-  if amount and amount >= 0 and amount < math.huge then
-    cost = cost + amount
-  else
-    missing_cost = missing_cost + 1
+  local amount = usage_number(usage and usage.cost)
+  if amount then cost = cost + amount else missing_cost = missing_cost + 1 end
+  local input_count = usage_number(usage and usage.prompt_tokens)
+  local output_count = usage_number(usage and usage.completion_tokens)
+  if input_count then tokens_in = tokens_in + input_count else missing_in = true end
+  if output_count then tokens_out = tokens_out + output_count else missing_out = true end
+  if main_chat then
+    -- Review requests contribute to totals but do not describe the main chat's context.
+    context_tokens = usage_number(usage and usage.total_tokens)
+      or (input_count and output_count and input_count + output_count)
   end
   render()
 end
@@ -70,7 +87,7 @@ local function request(round, id)
   providers.chat({ provider = config.provider, model = model() }, messages, tools.specs, function(message, err, usage)
     if id ~= generation then return end
     if err then return fail(err) end
-    record_usage(usage)
+    record_usage(usage, true)
     local calls = message.tool_calls
     local batch_start = #messages + 1
     table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls })
@@ -164,6 +181,8 @@ function M.new()
   busy = false
   messages = {}
   cost, missing_cost = 0, 0
+  tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
+  context_tokens = nil
   status = 'New conversation'
   render()
 end

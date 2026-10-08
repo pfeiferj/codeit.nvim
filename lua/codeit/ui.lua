@@ -1,6 +1,31 @@
 local M = {}
 
 local transcript, input, transcript_win, input_win
+local billing_line
+local header_ns = vim.api.nvim_create_namespace('codeit_sticky_header')
+
+local function update_header()
+  if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
+  vim.api.nvim_buf_clear_namespace(transcript, header_ns, 0, -1)
+  if not transcript_win or not vim.api.nvim_win_is_valid(transcript_win) then return end
+  local info = vim.fn.getwininfo(transcript_win)[1]
+  if not billing_line or not info or info.topline <= 2 then return end
+  local width = vim.api.nvim_win_get_width(transcript_win)
+  local count = vim.api.nvim_buf_line_count(transcript)
+  local row = info.topline - 1
+  if row >= count then return end
+  vim.api.nvim_buf_set_extmark(transcript, header_ns, row, 0, {
+    virt_text = { { billing_line .. string.rep(' ', math.max(0, width - vim.fn.strdisplaywidth(billing_line))), 'WinBar' } },
+    virt_text_win_col = 0,
+    priority = 200,
+  })
+end
+
+vim.api.nvim_create_autocmd('WinScrolled', {
+  callback = function(args)
+    if tonumber(args.match) == transcript_win then update_header() end
+  end,
+})
 
 local function valid(win)
   return win and vim.api.nvim_win_is_valid(win)
@@ -58,6 +83,9 @@ function M.close()
   if valid(input_win) then vim.api.nvim_win_close(input_win, true) end
   if valid(transcript_win) then vim.api.nvim_win_close(transcript_win, true) end
   input_win, transcript_win = nil, nil
+  if transcript and vim.api.nvim_buf_is_valid(transcript) then
+    vim.api.nvim_buf_clear_namespace(transcript, header_ns, 0, -1)
+  end
 end
 
 function M.take_input()
@@ -72,6 +100,7 @@ function M.render(messages, status, provider, model, billing)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
   if billing then table.insert(lines, billing) end
+  billing_line = billing
   table.insert(lines, '')
   for _, message in ipairs(messages) do
     if message.role ~= 'system' then
@@ -102,6 +131,7 @@ function M.render(messages, status, provider, model, billing)
   if valid(transcript_win) then
     vim.api.nvim_win_set_cursor(transcript_win, { #lines, 0 })
   end
+  update_header()
 end
 
 return M

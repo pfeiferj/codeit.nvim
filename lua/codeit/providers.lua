@@ -92,7 +92,12 @@ function M.chat(config, messages, tools, callback)
       end
       if config.provider == 'openrouter' then
         local usage = type(response.usage) == 'table' and response.usage or nil
-        callback(choice.message, nil, { cost = usage and usage.cost })
+        callback(choice.message, nil, {
+          cost = usage and usage.cost,
+          prompt_tokens = usage and usage.prompt_tokens,
+          completion_tokens = usage and usage.completion_tokens,
+          total_tokens = usage and usage.total_tokens,
+        })
       else
         callback(choice.message)
       end

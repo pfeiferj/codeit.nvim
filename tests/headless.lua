@@ -35,7 +35,7 @@ vim.api.nvim_buf_set_lines(file, 0, -1, false, { 'before', 'second' })
 local plugin = require('codeit')
 plugin.setup({ provider = 'openrouter' })
 plugin.open()
-contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000000')
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
 plugin.send('Show me the buffer')
 assert(requests[1].messages[2].content == 'Show me the buffer')
 local read_choice
@@ -44,12 +44,13 @@ tool_reply('read_buffer', { start_line = 1, end_line = 1 })
 assert(read_choice, 'untrusted buffer reads must request approval')
 read_choice('Approve once')
 assert(#requests == 2)
-contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000000 (excluding 1 request(s) without cost data)')
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
 assert(requests[2].messages[4].role == 'tool')
 assert(requests[2].messages[4].content:find('before', 1, true))
-reply({ role = 'assistant', content = 'Here is your buffer.' }, { cost = 0.000123 })
+reply({ role = 'assistant', content = 'Here is your buffer.' },
+  { cost = 0.000123, prompt_tokens = 120, completion_tokens = 30, total_tokens = 150 })
 contains(vim.fn.bufnr('codeit://chat'), 'Here is your buffer.')
-contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000123 (excluding 1 request(s) without cost data)')
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: 0.15k')
 
 local select_callback
 vim.ui.select = function(_, _, callback) select_callback = callback end
@@ -68,7 +69,7 @@ tool_reply('replace_buffer_lines', {
   start_line = 1, end_line = 1, expected_text = 'after', new_text = 'oops',
 })
 plugin.new()
-contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000000')
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
 select_callback('Approve once')
 assert(first_line(file) == 'after', 'reset must cancel pending edit')
 local selections, questions = {}, {}
@@ -83,12 +84,15 @@ selections = { 'Ask reviewer', 'Back to approval', 'Reject' }
 questions = { 'What will happen?', 'Do not run it' }
 tool_reply('run_command', { argv = { 'echo', 'test' } })
 assert(#requests[#requests].specs == 0, 'reviewer must not receive tools')
-reply({ role = 'assistant', content = 'It prints test.' }, { cost = 0.000321 })
-contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000321 (excluding 1 request(s) without cost data)')
+reply({ role = 'assistant', content = 'It prints test.' },
+  { cost = 0.000321, prompt_tokens = 40, completion_tokens = 10 })
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
 assert(requests[#requests].specs == requests[1].specs, 'main chat must retain tools')
 -- Rejection goes into the main tool result, not into the reviewer history.
 assert(#responses == 1)
-reply({ role = 'assistant', content = 'Understood.' })
+reply({ role = 'assistant', content = 'Understood.' },
+  { cost = 0, prompt_tokens = 80, completion_tokens = 5 })
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: 0.085k')
 assert(requests[#requests].messages[#requests[#requests].messages].content:find('Do not run it', 1, true))
 plugin.send('Cancel this task')
 selections = { 'Cancel task' }
@@ -100,7 +104,19 @@ assert(requests[#requests].messages[#requests[#requests].messages].content == 'C
 local stale = table.remove(responses, 1)
 plugin.new()
 stale({ role = 'assistant', content = 'late' }, nil, { cost = 9 })
-contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000000')
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
+plugin.send('Count tokens')
+reply({ role = 'assistant', content = 'Counted.' },
+  { cost = 0, prompt_tokens = 2600000, completion_tokens = 1200000, total_tokens = 3800000 })
+contains(vim.fn.bufnr('codeit://chat'), 'In: 2.6m | Out: 1.2m | Context: 3800k')
+plugin.send('Check context')
+reply({ role = 'assistant', content = 'Checked.' },
+  { cost = 0, prompt_tokens = 80000, completion_tokens = 20000, total_tokens = 100000 })
+contains(vim.fn.bufnr('codeit://chat'), 'In: 2.68m | Out: 1.22m | Context: 100k')
+plugin.send('Check rounding')
+reply({ role = 'assistant', content = 'Rounded.' },
+  { cost = 1.23456, prompt_tokens = 1234, completion_tokens = 5678, total_tokens = 123456 })
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $1.235 | In: 2.681m | Out: 1.226m | Context: 123.456k')
 plugin.set_provider('copilot')
 local function no_billing()
   local lines = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
