@@ -26,11 +26,15 @@ function M.show(prompt, options, callback, config)
   vim.list_extend(lines, vim.split(prompt, '\n', { plain = true }))
   lines[#lines + 1] = ''
   lines[#lines + 1] = '## Choices'
+  local choice_lines = {}
+  local first_choice_line
   for _, option in ipairs(options) do
     lines[#lines + 1] = '- **[' .. option.key .. ']** ' .. option.label
+    first_choice_line = first_choice_line or #lines
+    choice_lines[#lines] = option.id
   end
   lines[#lines + 1] = '- **[Esc]** ' .. (config.dismiss or 'Reject')
-  lines[#lines + 1] = '' -- Park the cursor below the options, not over text.
+  lines[#lines + 1] = ''
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = 'wipe'
@@ -43,8 +47,8 @@ function M.show(prompt, options, callback, config)
   local win = vim.api.nvim_open_win(buf, true, win_config)
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
-  vim.wo[win].cursorline = false
-  vim.api.nvim_win_set_cursor(win, { #lines, 0 })
+  vim.wo[win].cursorline = true
+  vim.api.nvim_win_set_cursor(win, { first_choice_line or #lines, 0 })
   local finished = false
   local function finish(choice)
     if finished then return end
@@ -53,6 +57,10 @@ function M.show(prompt, options, callback, config)
     callback(choice)
   end
   on_close(win, finish)
+  vim.keymap.set('n', '<CR>', function()
+    local choice = choice_lines[vim.api.nvim_win_get_cursor(win)[1]]
+    if choice then finish(choice) end
+  end, { buffer = buf, silent = true, desc = 'Select choice under cursor' })
   for _, option in ipairs(options) do
     vim.keymap.set('n', option.key, function() finish(option.id) end,
       { buffer = buf, nowait = true, silent = true, desc = option.label })

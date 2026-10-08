@@ -4,7 +4,7 @@ local options = {
   { key = '1', id = 'once', label = 'Approve once' },
   { key = '2', id = 'tracked', label = 'Trust workspace (Git-tracked reads)' },
 }
-local function open_and_press(key, expected, config)
+local function open_and_press(key, expected, config, option_line)
   local result, calls
   calls = 0
   local previous = vim.api.nvim_get_current_win()
@@ -28,9 +28,10 @@ local function open_and_press(key, expected, config)
       'approval heading should have active Markdown highlighting')
   end)
   local cursor = vim.api.nvim_win_get_cursor(win)
-  assert(cursor[1] == vim.api.nvim_buf_line_count(buf))
-  assert(vim.api.nvim_buf_get_lines(buf, cursor[1] - 1, cursor[1], false)[1] == '',
-    'choice cursor must not cover text')
+  local first_choice = cursor[1]
+  assert(vim.api.nvim_buf_get_lines(buf, first_choice - 1, first_choice, false)[1] == '- **[1]** Approve once',
+    'choice cursor must start on the first option')
+  if option_line then vim.api.nvim_win_set_cursor(win, { first_choice + option_line - 1, 0 }) end
   local map
   for _, item in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
     if item.lhs == key then map = item; break end
@@ -45,8 +46,30 @@ local function open_and_press(key, expected, config)
 end
 open_and_press('1', 'once')
 open_and_press('2', 'tracked')
+open_and_press('<CR>', 'once')
+open_and_press('<CR>', 'tracked', nil, 2)
+open_and_press('1', 'once', nil, 2) -- numeric shortcuts work regardless of cursor position
 open_and_press('<Esc>', 'rejected')
+open_and_press('<CR>', 'tracked', { title = ' Tool-call reviewer ', dismiss = 'Back to approval' }, 2)
 open_and_press('<Esc>', 'rejected', { title = ' Tool-call reviewer ', dismiss = 'Back to approval' })
+local ignored_calls = 0
+prompt.show('Read file?', options, function() ignored_calls = ignored_calls + 1 end)
+local ignored_win = vim.api.nvim_get_current_win()
+local ignored_buf = vim.api.nvim_win_get_buf(ignored_win)
+local enter
+for _, item in ipairs(vim.api.nvim_buf_get_keymap(ignored_buf, 'n')) do
+  if item.lhs == '<CR>' then enter = item.callback; break end
+end
+assert(enter, 'missing Enter mapping')
+local first_choice = vim.api.nvim_win_get_cursor(ignored_win)[1]
+for _, line in ipairs({ 1, first_choice - 1, first_choice + #options, first_choice + #options + 1 }) do
+  vim.api.nvim_win_set_cursor(ignored_win, { line, 0 })
+  enter()
+  assert(ignored_calls == 0 and vim.api.nvim_win_is_valid(ignored_win),
+    'Enter outside an option must not select anything')
+end
+vim.api.nvim_win_close(ignored_win, true)
+assert(vim.wait(1000, function() return ignored_calls == 1 end))
 local closed = 0
 prompt.show('Read file?', options, function(choice)
   assert(choice == nil)
