@@ -42,12 +42,14 @@ local prompt_ui = require('codeit.approval_prompt')
 local read_choice
 prompt_ui.show = function(_, _, callback) read_choice = callback end
 tool_reply('read_buffer', { start_line = 1, end_line = 1 })
+assert(not read_choice and #requests[#requests].specs == 0)
+reply({ role = 'assistant', content = '{"summary":"Reads the first line.","safe":true}' })
 assert(read_choice, 'untrusted buffer reads must request approval')
 read_choice('once')
-assert(#requests == 2)
+assert(#requests == 3)
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
-assert(requests[2].messages[4].role == 'tool')
-assert(requests[2].messages[4].content:find('before', 1, true))
+assert(requests[3].messages[4].role == 'tool')
+assert(requests[3].messages[4].content:find('before', 1, true))
 reply({ role = 'assistant', content = 'Here is your buffer.' },
   { cost = 0.000123, prompt_tokens = 120, completion_tokens = 30, total_tokens = 150 })
 contains(vim.fn.bufnr('codeit://chat'), 'Here is your buffer.')
@@ -59,6 +61,7 @@ plugin.send('Change it')
 tool_reply('replace_buffer_lines', {
   start_line = 1, end_line = 1, expected_text = 'before', new_text = 'after',
 })
+reply({ role = 'assistant', content = '{"summary":"Edits the buffer.","safe":true}' })
 assert(select_callback)
 assert(first_line(file) == 'before')
 select_callback('once')
@@ -70,6 +73,8 @@ tool_reply('replace_buffer_lines', {
   start_line = 1, end_line = 1, expected_text = 'after', new_text = 'oops',
 })
 plugin.new()
+local stale_review = table.remove(responses, 1)
+stale_review({ role = 'assistant', content = '{"summary":"Late edit.","safe":true}' })
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
 select_callback('once')
 assert(first_line(file) == 'after', 'reset must cancel pending edit')
@@ -89,6 +94,8 @@ selections = { 'review', 'back', 'reject' }
 questions = { 'What will happen?', 'Do not run it' }
 tool_reply('run_command', { argv = { 'echo', 'test' } })
 assert(#requests[#requests].specs == 0, 'reviewer must not receive tools')
+reply({ role = 'assistant', content = '{"summary":"Prints test.","safe":true}' })
+assert(#requests[#requests].specs == 0, 'follow-up reviewer must not receive tools')
 reply({ role = 'assistant', content = 'It prints test.' },
   { cost = 0.000321, prompt_tokens = 40, completion_tokens = 10 })
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
@@ -102,6 +109,7 @@ assert(requests[#requests].messages[#requests[#requests].messages].content:find(
 plugin.send('Cancel this task')
 selections = { 'cancel' }
 tool_reply('run_command', { argv = { 'echo', 'cancel' } })
+reply({ role = 'assistant', content = '{"summary":"Prints cancel.","safe":true}' })
 
 contains(vim.fn.bufnr('codeit://chat'), 'Task cancelled')
 plugin.send('Continue after cancellation')

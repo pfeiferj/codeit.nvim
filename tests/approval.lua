@@ -45,6 +45,9 @@ local reviews = 0
 choices = { 'review', 'again', 'back', 'once' }
 questions = { 'Is this safe?', 'What does it do?' }
 call('run_command', { argv = { 'echo', 'c' } }, { user_request = 'test', review = function(history, cb)
+  if history[1].content:find('JSON object', 1, true) then
+    return cb('{"summary":"Prints text.","safe":true}')
+  end
   reviews = reviews + 1
   assert(history[1].role == 'system' and history[2].content:find('echo', 1, true))
   cb('This only prints text')
@@ -53,10 +56,14 @@ assert(reviews == 2 and result == 'executed')
 assert(prompts[#prompts - 1]:find('## Question\n\nWhat does it do?', 1, true))
 assert(prompts[#prompts - 1]:find('## Reviewer\n\nThis only prints text', 1, true))
 choices = { 'review', false, 'reject' }; questions = { 'Another question?', false }
-call('run_command', { argv = { 'echo', 'review escape' } }, { review = function(_, cb) cb('No issue') end })
+call('run_command', { argv = { 'echo', 'review escape' } }, { review = function(history, cb)
+  cb(history[1].content:find('JSON object', 1, true) and '{"summary":"Prints text.","safe":true}' or 'No issue')
+end })
 assert(result == 'Rejected by user', 'dismissing reviewer returns to approval')
 choices = { 'review', 'back', 'once' }; questions = { 'Is this safe?' }
-call('run_command', { argv = { 'echo', 'review back' } }, { review = function(_, cb) cb('Yes') end })
+call('run_command', { argv = { 'echo', 'review back' } }, { review = function(history, cb)
+  cb(history[1].content:find('JSON object', 1, true) and '{"summary":"Prints text.","safe":true}' or 'Yes')
+end })
 assert(result == 'executed')
 -- Trust from a read approval persists for this workspace and auto-approves future reads only.
 local dir = vim.fn.tempname()
@@ -96,5 +103,49 @@ assert(result == 'Rejected by user')
 approval.setup({ validators = { function() error('bad policy') end } })
 call('read_file', { path = 'x' })
 assert(result:find('Validator error:', 1, true))
+approval.setup({})
+assert(prompts[1]:find('Summary: Review unavailable (reviewer not configured)', 1, true))
+local assessments = 0
+local function assessed(answer, err)
+  return { user_request = 'check command safety', review = function(history, cb)
+    assessments = assessments + 1
+    assert(history[1].role == 'system' and history[1].content:find('JSON object', 1, true))
+    assert(history[2].content:find('check command safety', 1, true))
+    cb(answer, err)
+  end }
+end
+choices = { 'once' }
+call('run_command', { argv = { 'echo', 'safe summary' } }, assessed('{"summary":"Prints a message.","safe":true}'))
+assert(prompts[#prompts]:find('Summary: Prints a message.', 1, true))
+assert(not prompts[#prompts]:find('**Summary:', 1, true))
+choices = { 'reject' }; inputs = { false }
+call('run_command', { argv = { 'rm', '-rf', '/' } }, assessed('{"summary":"Deletes all files.","safe":false}'))
+assert(prompts[#prompts]:find('**Summary: Deletes all files.**', 1, true))
+assert(result == 'Rejected by user', 'unsafe calls still require an explicit decision')
+choices = { 'reject' }; inputs = { false }
+call('run_command', { argv = { 'echo', 'markdown' } }, assessed('{"summary":"# Inject **heading** [link](url)","safe":false}'))
+assert(prompts[#prompts]:find('**Summary: \\# Inject \\*\\*heading\\*\\* \\[link\\]\\(url\\)**', 1, true))
+choices = { 'reject' }; inputs = { false }
+call('run_command', { argv = { 'echo', 'malformed' } }, assessed('not json'))
+assert(prompts[#prompts]:find('Review unavailable (invalid response)', 1, true))
+choices = { 'reject' }; inputs = { false }
+call('run_command', { argv = { 'echo', 'failed' } }, assessed(nil, 'offline'))
+assert(prompts[#prompts]:find('Review unavailable (reviewer error)', 1, true))
+assert(assessments == 5)
+-- Only explicitly remembered or policy-approved calls skip the reviewer.
+choices = { 'always' }
+call('run_command', { argv = { 'echo', 'remembered review' } }, assessed('{"summary":"Prints text.","safe":true}'))
+local count = assessments
+call('run_command', { argv = { 'echo', 'remembered review' } }, assessed('unexpected'))
+assert(assessments == count)
+local pending, live = nil, true
+local before = #prompts
+approval.request('run_command', { argv = { 'echo', 'stale review' } }, 'Review stale', function() return live end,
+  function() error('inactive task completed') end, function() error('inactive task executed') end,
+  { review = function(_, cb) pending = cb end })
+assert(#prompts == before and pending, 'wait for the reviewer before prompting')
+live = false
+pending('{"summary":"Prints text.","safe":true}')
+assert(#prompts == before, 'stale reviewer response must not open approval')
 vim.ui.input, prompt_ui.show, prompt_ui.ask_reviewer = original_input, original_show, original_ask
 print('codeit approval tests passed')
