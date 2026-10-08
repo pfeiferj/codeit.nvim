@@ -1,0 +1,144 @@
+local root = vim.fn.getcwd()
+vim.opt.runtimepath:prepend(root)
+local temp = vim.fn.tempname()
+vim.fn.mkdir(temp .. '/one', 'p')
+vim.fn.mkdir(temp .. '/two', 'p')
+vim.fn.chdir(temp .. '/one')
+local workspace = vim.uv.fs_realpath(vim.fn.getcwd())
+local history = require('codeit.history')
+local responses, requests = {}, {}
+package.loaded['codeit.providers'] = {
+  chat = function(config, messages, _, callback)
+    requests[#requests + 1] = { config = vim.deepcopy(config), messages = vim.deepcopy(messages) }
+    responses[#responses + 1] = callback
+  end,
+}
+local plugin = require('codeit')
+plugin.setup({ provider = 'openrouter' })
+plugin.send('first question')
+local entries = history.list(workspace)
+assert(#entries == 1 and entries[1].messages[2].content == 'first question')
+local first_id = entries[1].id
+local stored = vim.fn.stdpath('data') .. '/codeit/chats/' .. vim.fn.sha256(workspace) .. '/' .. first_id .. '.json'
+assert(vim.fn.getfperm(stored) == 'rw-------')
+responses[#responses]({ role = 'assistant', content = 'first answer' }, nil,
+  { cost = 0.12, prompt_tokens = 200, completion_tokens = 10, total_tokens = 210 })
+assert(history.load(workspace, first_id).messages[3].content == 'first answer')
+plugin.new()
+plugin.send('second question')
+assert(#history.list(workspace) == 2)
+local second_id = history.list(workspace)[1].id
+plugin.resume(first_id)
+plugin.send('follow up')
+assert(requests[#requests].messages[3].content == 'first answer')
+assert(requests[#requests].messages[4].content == 'follow up')
+assert(#history.list(workspace) == 2, 'resuming must not create a duplicate')
+assert(history.list(workspace)[1].id == first_id, 'recently updated chat should appear first')
+responses[#responses]({ role = 'assistant', content = 'follow up answer' })
+local chat = history.load(workspace, first_id)
+assert(chat.cost == 0.12 and chat.context_tokens == nil)
+
+-- A pending tool batch must not be replayed to the provider after restart.
+plugin.resume(second_id)
+plugin.send('use a tool')
+responses[#responses]({ role = 'assistant', content = vim.NIL, tool_calls = { {
+  id = 'pending', type = 'function', ['function'] = { name = 'read_file', arguments = '{}' },
+} } })
+local pending = history.load(workspace, second_id)
+assert(pending.messages[#pending.messages].content == 'use a tool')
+plugin.new() -- cancel any outstanding tool approval
+plugin.resume(second_id)
+plugin.send('continue safely')
+assert(requests[#requests].messages[#requests[#requests].messages].content == 'continue safely')
+for _, message in ipairs(requests[#requests].messages) do
+  assert(message.role ~= 'tool' and not message.tool_calls, 'incomplete tool batch should be removed')
+end
+
+local selected, selections = nil, 0
+require('codeit.history_picker').show = function(items, selected_workspace, callback)
+  selections = selections + 1
+  assert(#items >= 2 and selected_workspace == workspace)
+  local summarized
+  for _, item in ipairs(items) do
+    if item.id == first_id then summarized = item end
+  end
+  assert(summarized)
+  selected = function() callback(summarized) end
+end
+local count = #requests
+plugin.history()
+assert(#requests == count + 1, 'only answered, unsummarized chats need a request')
+assert(selections == 0, 'history should wait for summaries before showing the picker')
+assert(requests[#requests].config.model == 'openai/gpt-4o-mini')
+assert(#requests[#requests].messages == 2 and #requests[#requests].messages[2].content > 0)
+plugin.history()
+assert(#requests == count + 1, 'concurrent history views must share a summary request')
+responses[#responses]({ role = 'assistant', content = 'Implemented the first request and follow-up.' })
+assert(selections == 1)
+assert(history.load(workspace, first_id).summary == 'Implemented the first request and follow-up.')
+plugin.history()
+assert(#requests == count + 1 and selections == 2, 'cached summaries must not be requested again')
+selected()
+assert(requests[#requests].config.provider == 'openrouter')
+plugin.send('a new follow up')
+assert(history.load(workspace, first_id).summary == nil,
+  'sending a new question must clear the cached summary')
+plugin.history()
+assert(#requests == count + 2, 'unfinished turns must not trigger a summary request')
+responses[#responses]({ role = 'assistant', content = 'new answer' })
+assert(history.load(workspace, first_id).summary == nil, 'ordinary saves must not restore the old summary')
+plugin.history()
+assert(#requests == count + 3, 'finished follow-ups need an updated summary')
+assert(requests[#requests].messages[2].content:find('a new follow up', 1, true))
+responses[#responses]({ role = 'assistant', content = 'Implemented the first request and the new follow-up.' })
+assert(history.load(workspace, first_id).summary == 'Implemented the first request and the new follow-up.')
+plugin.history()
+assert(#requests == count + 3, 'updated summaries are cached until the next question')
+plugin.resume(second_id)
+plugin.send('finish the second task')
+responses[#responses]({ role = 'assistant', content = 'second answer' })
+local before_retry = #requests
+plugin.history()
+assert(#requests == before_retry + 1, 'newly answered chats need a summary')
+responses[#responses](nil, 'temporary failure')
+assert(history.load(workspace, second_id).summary == nil, 'failed summaries must not be cached')
+plugin.history()
+assert(#requests == before_retry + 2, 'failed summaries should be retried')
+responses[#responses]({ role = 'assistant', content = 'Completed the second task.' })
+assert(history.load(workspace, second_id).summary == 'Completed the second task.')
+
+-- An old summary request must not restore a summary after a new question.
+plugin.resume(first_id)
+plugin.send('third question')
+responses[#responses]({ role = 'assistant', content = 'third answer' })
+plugin.history()
+local stale_summary = responses[#responses]
+plugin.send('fourth question')
+local fourth_answer = responses[#responses]
+assert(history.load(workspace, first_id).summary == nil)
+stale_summary({ role = 'assistant', content = 'Outdated summary.' })
+assert(history.load(workspace, first_id).summary == nil, 'stale in-flight summaries must be discarded')
+fourth_answer({ role = 'assistant', content = 'fourth answer' })
+plugin.history()
+responses[#responses]({ role = 'assistant', content = 'Current summary.' })
+assert(history.load(workspace, first_id).summary == 'Current summary.')
+
+vim.fn.chdir(temp .. '/two')
+plugin.new()
+assert(#history.list(history.workspace()) == 0)
+plugin.send('other workspace')
+assert(#history.list(history.workspace()) == 1 and #history.list(workspace) == 2)
+assert(not plugin.resume(first_id), 'history must be isolated by workspace')
+vim.fn.chdir(temp .. '/one')
+plugin.setup({ provider = 'copilot' }) -- simulate a new session with different defaults
+local saved_requests = #requests
+plugin.history()
+assert(#requests == saved_requests, 'saved summaries survive a new session and provider change')
+plugin.resume(first_id)
+plugin.send('back in first workspace')
+assert(history.load(workspace, first_id).summary == nil, 'resuming and sending also invalidates the summary')
+assert(requests[#requests].config.provider == 'openrouter')
+assert(requests[#requests].config.model == 'openai/gpt-4o-mini')
+assert(requests[#requests].messages[3].content == 'first answer')
+vim.fn.delete(temp, 'rf')
+print('codeit history tests passed')

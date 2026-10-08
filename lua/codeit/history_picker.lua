@@ -1,0 +1,57 @@
+local M = {}
+local markdown = require('codeit.markdown')
+
+--- Show saved chats in a wide, scrollable picker so summaries remain readable.
+function M.show(entries, workspace, callback)
+  local width = math.max(1, math.min(vim.o.columns - 4, math.floor(vim.o.columns * 0.85)))
+  local max_height = math.max(1, math.min(vim.o.lines - 4, math.floor(vim.o.lines * 0.8)))
+  local lines = { '# Resume chat for ' .. workspace, '*Enter: resume  Esc/q: close*' }
+  local choices = {}
+  for _, chat in ipairs(entries) do
+    local summary = type(chat.summary) == 'string' and chat.summary ~= '' and '  ' .. chat.summary or ''
+    lines[#lines + 1] = '- **' .. os.date('%Y-%m-%d %H:%M', tonumber(chat.updated_at) or 0) .. '**' .. summary
+    choices[#lines] = chat
+  end
+
+  local needed_height = 0
+  for _, line in ipairs(lines) do
+    needed_height = needed_height + math.max(1, math.ceil(vim.fn.strdisplaywidth(line) / width))
+  end
+  local height = math.min(max_height, needed_height)
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].bufhidden = 'wipe'
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  markdown.enable(buf)
+  vim.bo[buf].modifiable = false
+  if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = 'editor', width = width, height = height,
+    row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+    col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+    style = 'minimal', border = 'rounded', title = ' Chat history ', title_pos = 'center',
+  })
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+  vim.wo[win].cursorline = true
+  vim.api.nvim_win_set_cursor(win, { 3, 0 })
+  local finished = false
+  local function finish(chat)
+    if finished then return end
+    finished = true
+    if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+    callback(chat)
+  end
+  vim.api.nvim_create_autocmd('WinClosed', {
+    pattern = tostring(win), once = true,
+    callback = function() vim.schedule(function() finish(nil) end) end,
+  })
+  vim.keymap.set('n', '<CR>', function()
+    finish(choices[vim.api.nvim_win_get_cursor(win)[1]])
+  end, { buffer = buf, silent = true, desc = 'Resume selected chat' })
+  for _, key in ipairs({ '<Esc>', 'q' }) do
+    vim.keymap.set('n', key, function() finish(nil) end,
+      { buffer = buf, silent = true, desc = 'Close chat history' })
+  end
+end
+
+return M
