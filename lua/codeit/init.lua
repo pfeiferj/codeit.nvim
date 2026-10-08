@@ -10,9 +10,11 @@ local defaults = {
   system_prompt = 'You are a Neovim coding agent. Inspect workspace files and diagnostics before editing. Use tools to make and verify changes. Tool calls may require user approval; edits to existing files stay in buffers until saved.',
   approval = { validators = {} },
   max_tool_rounds = 12,
+
 }
 local config = vim.deepcopy(defaults)
 local messages = {}
+local cost, missing_cost = 0, 0
 local source
 local busy = false
 local generation = 0
@@ -23,7 +25,25 @@ local function model()
 end
 
 local function render()
-  ui.render(messages, status, config.provider, model())
+  local billing
+  if config.provider == 'openrouter' then
+    billing = missing_cost > 0 and
+      string.format('Cost: $%.6f (excluding %d request(s) without cost data)', cost, missing_cost) or
+      string.format('Cost: $%.6f', cost)
+  end
+  ui.render(messages, status, config.provider, model(), billing)
+end
+
+local function record_usage(usage)
+  if config.provider ~= 'openrouter' then return end
+  local value = usage and usage.cost
+  local amount = (type(value) == 'number' or type(value) == 'string') and tonumber(value) or nil
+  if amount and amount >= 0 and amount < math.huge then
+    cost = cost + amount
+  else
+    missing_cost = missing_cost + 1
+  end
+  render()
 end
 
 local function set_status(text)
@@ -47,9 +67,10 @@ local function request(round, id)
     return fail('Tool call limit reached (' .. config.max_tool_rounds .. ' rounds)')
   end
   set_status('Waiting for ' .. config.provider .. '…')
-  providers.chat({ provider = config.provider, model = model() }, messages, tools.specs, function(message, err)
+  providers.chat({ provider = config.provider, model = model() }, messages, tools.specs, function(message, err, usage)
     if id ~= generation then return end
     if err then return fail(err) end
+    record_usage(usage)
     local calls = message.tool_calls
     local batch_start = #messages + 1
     table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls })
@@ -85,8 +106,10 @@ local function request(round, id)
       end, function() return id == generation end, {
         user_request = user_request,
         review = function(history, callback)
-          providers.chat({ provider = config.provider, model = model() }, history, {}, function(message, err)
+          providers.chat({ provider = config.provider, model = model() }, history, {}, function(message, err, usage)
+            if id ~= generation then return end
             if err then return callback(nil, err) end
+            record_usage(usage)
             local content = message and message.content
             if type(content) == 'table' then
               local parts = {}
@@ -140,6 +163,7 @@ function M.new()
   generation = generation + 1
   busy = false
   messages = {}
+  cost, missing_cost = 0, 0
   status = 'New conversation'
   render()
 end

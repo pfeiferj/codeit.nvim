@@ -8,10 +8,10 @@ package.loaded['codeit.providers'] = {
   end,
 }
 
-local function reply(message)
+local function reply(message, usage)
   local callback = table.remove(responses, 1)
   assert(callback, 'missing callback')
-  callback(message)
+  callback(message, nil, usage)
 end
 
 local function tool_reply(name, args)
@@ -35,6 +35,7 @@ vim.api.nvim_buf_set_lines(file, 0, -1, false, { 'before', 'second' })
 local plugin = require('codeit')
 plugin.setup({ provider = 'openrouter' })
 plugin.open()
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000000')
 plugin.send('Show me the buffer')
 assert(requests[1].messages[2].content == 'Show me the buffer')
 local read_choice
@@ -43,10 +44,12 @@ tool_reply('read_buffer', { start_line = 1, end_line = 1 })
 assert(read_choice, 'untrusted buffer reads must request approval')
 read_choice('Approve once')
 assert(#requests == 2)
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000000 (excluding 1 request(s) without cost data)')
 assert(requests[2].messages[4].role == 'tool')
 assert(requests[2].messages[4].content:find('before', 1, true))
-reply({ role = 'assistant', content = 'Here is your buffer.' })
+reply({ role = 'assistant', content = 'Here is your buffer.' }, { cost = 0.000123 })
 contains(vim.fn.bufnr('codeit://chat'), 'Here is your buffer.')
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000123 (excluding 1 request(s) without cost data)')
 
 local select_callback
 vim.ui.select = function(_, _, callback) select_callback = callback end
@@ -65,6 +68,7 @@ tool_reply('replace_buffer_lines', {
   start_line = 1, end_line = 1, expected_text = 'after', new_text = 'oops',
 })
 plugin.new()
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000000')
 select_callback('Approve once')
 assert(first_line(file) == 'after', 'reset must cancel pending edit')
 local selections, questions = {}, {}
@@ -79,7 +83,8 @@ selections = { 'Ask reviewer', 'Back to approval', 'Reject' }
 questions = { 'What will happen?', 'Do not run it' }
 tool_reply('run_command', { argv = { 'echo', 'test' } })
 assert(#requests[#requests].specs == 0, 'reviewer must not receive tools')
-reply({ role = 'assistant', content = 'It prints test.' })
+reply({ role = 'assistant', content = 'It prints test.' }, { cost = 0.000321 })
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000321 (excluding 1 request(s) without cost data)')
 assert(requests[#requests].specs == requests[1].specs, 'main chat must retain tools')
 -- Rejection goes into the main tool result, not into the reviewer history.
 assert(#responses == 1)
@@ -92,5 +97,20 @@ tool_reply('run_command', { argv = { 'echo', 'cancel' } })
 contains(vim.fn.bufnr('codeit://chat'), 'Task cancelled')
 plugin.send('Continue after cancellation')
 assert(requests[#requests].messages[#requests[#requests].messages].content == 'Continue after cancellation')
+local stale = table.remove(responses, 1)
+plugin.new()
+stale({ role = 'assistant', content = 'late' }, nil, { cost = 9 })
+contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000000')
+plugin.set_provider('copilot')
+local function no_billing()
+  local lines = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
+  assert(not lines:find('Cost:', 1, true) and not lines:find('credits:', 1, true), 'Copilot must not show billing')
+end
+no_billing()
+plugin.send('Copilot request')
+reply({ role = 'assistant', content = 'OK' })
+no_billing()
+plugin.new()
+no_billing()
 plugin.close()
 print('codeit headless tests passed')

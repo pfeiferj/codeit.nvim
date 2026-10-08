@@ -79,6 +79,7 @@ function M.chat(config, messages, tools, callback)
     local headers = { 'Content-Type: application/json', 'Authorization: Bearer ' .. token }
     vim.list_extend(headers, extra_headers or {})
     local body = { model = config.model, messages = messages }
+    if config.provider == 'openrouter' then body.usage = { include = true } end
     if tools and #tools > 0 then
       body.tools = tools
       body.tool_choice = 'auto'
@@ -89,7 +90,12 @@ function M.chat(config, messages, tools, callback)
       if not choice or not choice.message then
         return callback(nil, 'Response has no assistant message')
       end
-      callback(choice.message)
+      if config.provider == 'openrouter' then
+        local usage = type(response.usage) == 'table' and response.usage or nil
+        callback(choice.message, nil, { cost = usage and usage.cost })
+      else
+        callback(choice.message)
+      end
     end)
   end
 

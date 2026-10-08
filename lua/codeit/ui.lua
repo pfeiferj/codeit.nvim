@@ -68,9 +68,11 @@ function M.take_input()
   return text
 end
 
-function M.render(messages, status, provider, model)
+function M.render(messages, status, provider, model, billing)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
-  local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')', '' }
+  local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
+  if billing then table.insert(lines, billing) end
+  table.insert(lines, '')
   for _, message in ipairs(messages) do
     if message.role ~= 'system' then
       local label = ({ user = 'You', assistant = 'Assistant', tool = 'Tool' })[message.role] or message.role

@@ -47,6 +47,8 @@ For Copilot, authenticate with `gh auth login` or set `GH_TOKEN` / `GITHUB_TOKEN
 
 Closing the sidebar does not discard the conversation. The source buffer for buffer tools is the file buffer active when the sidebar was opened. Agent workspace tools use Neovim's current working directory as the workspace root. Messages are kept only in memory for the current Neovim session. Requests are asynchronous but responses are not streamed.
 
+The chat header shows the session's OpenRouter cost in USD (from OpenRouter's `usage.cost` on each completed request). Costs include tool follow-up and reviewer requests; when OpenRouter omits cost data, the header identifies requests excluded from the total. Copilot does not show a cost or credit counter because its chat API does not report billed credits. `:CodeitNew`, switching providers, and `setup()` reset the OpenRouter total. Closing and reopening the sidebar preserves it.
+
 ## Agent tools
 
 The assistant can:

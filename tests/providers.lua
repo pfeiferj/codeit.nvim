@@ -5,7 +5,7 @@ local gh = vim.env.GH_TOKEN
 vim.env.OPENROUTER_API_KEY = 'test-openrouter-key'
 vim.env.GH_TOKEN = 'test-github-key'
 local calls = {}
-local http_response = '{"choices":[{"message":{"role":"assistant","content":"ok"}}]}\n200'
+local http_response = '{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"cost":0.00042}}\n200'
 vim.system = function(args, options, callback)
   table.insert(calls, { args = args, options = options })
   local result
@@ -18,22 +18,29 @@ vim.system = function(args, options, callback)
 end
 local providers = require('codeit.providers')
 local function wait_for_response(config, specs)
-  local answer, err
-  providers.chat(config, { { role = 'user', content = 'hello' } }, specs or {}, function(message, failure)
-    answer, err = message, failure
+  local answer, err, billing
+  providers.chat(config, { { role = 'user', content = 'hello' } }, specs or {}, function(message, failure, usage)
+    answer, err, billing = message, failure, usage
   end)
   assert(vim.wait(2000, function() return answer ~= nil or err ~= nil end), 'timed out')
   assert(not err, tostring(err))
   assert(answer.content == 'ok')
+  if config.provider == 'openrouter' then
+    assert(billing.cost == 0.00042)
+  else
+    assert(billing == nil)
+  end
 end
 wait_for_response({ provider = 'openrouter', model = 'openai/gpt-4o-mini' }, require('codeit.tools').specs)
 assert(vim.tbl_contains(calls[1].args, 'https://openrouter.ai/api/v1/chat/completions'))
 local payload = vim.json.decode(calls[1].options.stdin)
 assert(payload.model == 'openai/gpt-4o-mini')
+assert(payload.usage.include == true)
 assert(payload.tools[1]['function'].parameters.properties ~= vim.NIL)
 assert(calls[1].options.stdin:find('"properties":{}', 1, true), 'empty tool properties must encode as {}')
 wait_for_response({ provider = 'copilot', model = 'gpt-4o' })
 assert(vim.tbl_contains(calls[3].args, 'https://api.githubcopilot.com/chat/completions'))
+assert(vim.json.decode(calls[3].options.stdin).usage == nil)
 http_response = '{"error":{"message":"Invalid tool schema"}}\n400'
 local failure
 providers.chat({ provider = 'openrouter', model = 'openai/gpt-4o-mini' }, {}, require('codeit.tools').specs,
