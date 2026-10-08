@@ -82,14 +82,6 @@ local function file_buffer(path)
   return id
 end
 
-local function approve(prompt, active, done, action)
-  vim.ui.select({ 'Reject', 'Apply' }, { prompt = prompt }, function(choice)
-    if active and not active() then return end
-    if choice ~= 'Apply' then return done('Rejected by user') end
-    action()
-  end)
-end
-
 local function process(argv, cwd, done, active)
   local finished, timed_out = false, false
   local ok, handle = pcall(vim.system, argv, { cwd = cwd, text = true }, function(result)
@@ -109,7 +101,7 @@ local function process(argv, cwd, done, active)
   end, 60000)
 end
 
-function M.execute(name, args, done, active)
+function M.execute(name, args, done, active, approve)
   local base = root()
   if not base then return done('Error: workspace does not exist') end
   if name == 'list_workspace_files' then
@@ -133,7 +125,7 @@ function M.execute(name, args, done, active)
     if not path then return done('Error: ' .. err) end
     if name == 'create_file' then
       if type(args.content) ~= 'string' or #args.content > 200000 then return done('Error: content must be a string of at most 200KB') end
-      return approve('Create ' .. path .. '?', active, done, function()
+    return approve('Create ' .. path .. '?', function()
         local checked, failure = resolve(args.path, false)
         if not checked or checked ~= path then return done('Error: ' .. tostring(failure or 'Path changed')) end
         local fd, open_err = vim.uv.fs_open(path, 'wx', 420)
@@ -175,7 +167,7 @@ function M.execute(name, args, done, active)
     if not first then return done('Error: old_text not found; read the file again') end
     if text:find(args.old_text, first + 1, true) then return done('Error: old_text is not unique') end
     local tick = vim.api.nvim_buf_get_changedtick(id)
-    return approve('Replace in ' .. path .. '?\nOld:\n' .. output(args.old_text) .. '\nNew:\n' .. output(args.new_text), active, done, function()
+    return approve('Replace in ' .. path .. '?\nOld:\n' .. output(args.old_text) .. '\nNew:\n' .. output(args.new_text), function()
       local checked = resolve(args.path, true)
       if checked ~= path or not vim.api.nvim_buf_is_valid(id) or not vim.api.nvim_buf_is_loaded(id)
         or vim.api.nvim_buf_get_changedtick(id) ~= tick or not vim.bo[id].modifiable then
@@ -190,7 +182,7 @@ function M.execute(name, args, done, active)
     for _, arg in ipairs(args.argv) do
       if type(arg) ~= 'string' or arg == '' or #arg > 4096 then return done('Error: argv must contain nonempty strings') end
     end
-    return approve('Run in ' .. base .. ': ' .. table.concat(args.argv, ' ') .. '?', active, done,
+    return approve('Run in ' .. base .. ': ' .. table.concat(args.argv, ' ') .. '?',
       function() process(args.argv, base, done, active) end)
   elseif name == 'get_diagnostics' then
     local filter
@@ -232,7 +224,7 @@ function M.execute(name, args, done, active)
     return process(argv, base, done, active)
   elseif name == 'fetch_url' then
     if type(args.url) ~= 'string' or not args.url:match('^https?://[^%s]+$') then return done('Error: expected HTTP(S) URL') end
-    return approve('Fetch ' .. args.url .. '?', active, done, function()
+    return approve('Fetch ' .. args.url .. '?', function()
       process({ 'curl', '--silent', '--show-error', '--location', '--proto', '=http,https',
         '--proto-redir', '=http,https', '--max-redirs', '3', '--max-time', '15',
         '--max-filesize', '200000', args.url }, base, done, active)

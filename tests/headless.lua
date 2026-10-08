@@ -47,7 +47,7 @@ reply({ role = 'assistant', content = vim.NIL, tool_calls = { {
 } } })
 assert(select_callback)
 assert(vim.api.nvim_buf_get_lines(file, 0, 1, false)[1] == 'before')
-select_callback('Apply')
+select_callback('Approve once')
 assert(vim.api.nvim_buf_get_lines(file, 0, 1, false)[1] == 'after')
 reply({ role = 'assistant', content = 'Done.' })
 
@@ -58,7 +58,37 @@ reply({ role = 'assistant', content = vim.NIL, tool_calls = { {
   }) },
 } } })
 plugin.new()
-select_callback('Apply')
+select_callback('Approve once')
 assert(vim.api.nvim_buf_get_lines(file, 0, 1, false)[1] == 'after', 'reset must cancel pending edit')
+local selections, questions = {}, {}
+vim.ui.select = function(options, _, callback)
+  local choice = table.remove(selections, 1)
+  assert(vim.tbl_contains(options, choice), 'missing choice ' .. tostring(choice))
+  callback(choice)
+end
+vim.ui.input = function(_, callback) callback(table.remove(questions, 1)) end
+plugin.send('Check command')
+selections = { 'Ask reviewer', 'Back to approval', 'Reject' }
+questions = { 'What will happen?', 'Do not run it' }
+reply({ role = 'assistant', content = vim.NIL, tool_calls = { {
+  id = 'call4', type = 'function', ['function'] = { name = 'run_command', arguments = '{"argv":["echo","test"]}' },
+} } })
+assert(#requests[#requests].specs == 0, 'reviewer must not receive tools')
+assert(requests[#requests].messages[1].role == 'system')
+reply({ role = 'assistant', content = 'It prints test.' })
+assert(#requests[#requests].specs == 13)
+-- Rejection goes into the main tool result, not into the reviewer history.
+assert(#responses == 1)
+reply({ role = 'assistant', content = 'Understood.' })
+assert(requests[#requests].messages[#requests[#requests].messages].content:find('Do not run it', 1, true))
+plugin.send('Cancel this task')
+selections = { 'Cancel task' }
+reply({ role = 'assistant', content = vim.NIL, tool_calls = { {
+  id = 'call5', type = 'function', ['function'] = { name = 'run_command', arguments = '{"argv":["echo","cancel"]}' },
+} } })
+
+contains(vim.fn.bufnr('codeit://chat'), 'Task cancelled')
+plugin.send('Continue after cancellation')
+assert(requests[#requests].messages[#requests[#requests].messages].content == 'Continue after cancellation')
 plugin.close()
 print('codeit headless tests passed')

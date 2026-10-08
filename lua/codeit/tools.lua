@@ -1,5 +1,13 @@
 local M = {}
 local agent_tools = require('codeit.agent_tools')
+local approval = require('codeit.approval')
+
+local gated = { replace_buffer_lines = true, edit_file = true, create_file = true,
+  run_command = true, fetch_url = true }
+
+function M.configure(opts)
+  approval.setup(opts)
+end
 
 M.specs = {
   {
@@ -69,9 +77,23 @@ local function range(args, id)
   return start, last
 end
 
---- Execute a tool and call done(result_string). Mutations always ask the user first.
-function M.execute(name, args, source, done, active)
-  if type(args) ~= 'table' then return done('Error: arguments must be an object') end
+local execute_approved
+
+--- Execute a tool and call done(result_string, optional_cancel_signal).
+function M.execute(name, args, source, done, active, context)
+  if type(args) ~= 'table' or vim.islist(args) and #args > 0 then return done('Error: arguments must be an object') end
+  local function gate(prompt, action)
+    return approval.request(name, args, prompt, active, done, action, context)
+  end
+  if not gated[name] then
+    return gate('Allow ' .. tostring(name) .. ' ' .. vim.json.encode(args) .. '?', function()
+      execute_approved(name, args, source, done, active, gate)
+    end)
+  end
+  return execute_approved(name, args, source, done, active, gate)
+end
+
+execute_approved = function(name, args, source, done, active, gate)
   if name == 'list_buffers' then
     local buffers = {}
     for _, id in ipairs(vim.api.nvim_list_bufs()) do
@@ -82,7 +104,7 @@ function M.execute(name, args, source, done, active)
     return done(vim.json.encode(buffers))
   end
   if name ~= 'read_buffer' and name ~= 'replace_buffer_lines' then
-    return agent_tools.execute(name, args, done, active)
+    return agent_tools.execute(name, args, done, active, gate)
   end
   local id, err = target(args, source)
   if not id then return done('Error: ' .. err) end
@@ -102,9 +124,8 @@ function M.execute(name, args, source, done, active)
   local changedtick = vim.api.nvim_buf_get_changedtick(id)
   local preview = string.format('Replace lines %d-%d in %s?\nOld:\n%s\nNew:\n%s', start, last,
     vim.api.nvim_buf_get_name(id), args.expected_text, args.new_text)
-  vim.ui.select({ 'Reject', 'Apply' }, { prompt = preview }, function(choice)
+  return gate(preview, function()
     if active and not active() then return end
-    if choice ~= 'Apply' then return done('Edit rejected by user') end
     if not valid_buffer(id) or vim.api.nvim_buf_get_changedtick(id) ~= changedtick then
       return done('Error: buffer changed while awaiting confirmation')
     end

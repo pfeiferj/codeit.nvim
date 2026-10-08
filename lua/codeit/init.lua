@@ -6,7 +6,8 @@ local M = {}
 local defaults = {
   provider = 'openrouter',
   models = { openrouter = 'openai/gpt-4o-mini', copilot = 'gpt-4o' },
-system_prompt = 'You are a Neovim coding agent. Inspect workspace files and diagnostics before editing. Use tools to make and verify changes. File edits and commands require user approval; edits to existing files stay in buffers until saved.',
+  system_prompt = 'You are a Neovim coding agent. Inspect workspace files and diagnostics before editing. Use tools to make and verify changes. Tool calls may require user approval; edits to existing files stay in buffers until saved.',
+  approval = { validators = {} },
   max_tool_rounds = 12,
 }
 local config = vim.deepcopy(defaults)
@@ -49,6 +50,7 @@ local function request(round, id)
     if id ~= generation then return end
     if err then return fail(err) end
     local calls = message.tool_calls
+    local batch_start = #messages + 1
     table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls })
     render()
     if type(calls) ~= 'table' or #calls == 0 then return complete() end
@@ -61,15 +63,41 @@ local function request(round, id)
         return fail('Malformed tool call from provider')
       end
       local fn = call['function']
-set_status('Tool: ' .. tostring(fn.name))
+      set_status('Tool: ' .. tostring(fn.name))
       local ok, args = pcall(vim.json.decode, fn.arguments or '{}')
       if not ok then args = nil end
-      tools.execute(fn.name, args, source, function(result)
+      local user_request
+      for i = batch_start - 1, 1, -1 do
+        if messages[i].role == 'user' then user_request = messages[i].content; break end
+      end
+      tools.execute(fn.name, args, source, function(result, signal)
         if id ~= generation then return end
+        if signal == 'cancel' then
+          generation = generation + 1
+          busy = false
+          for i = #messages, batch_start, -1 do table.remove(messages, i) end
+          return set_status('Task cancelled')
+        end
         table.insert(messages, { role = 'tool', tool_call_id = call.id, content = result })
         render()
         next_call(index + 1)
-      end, function() return id == generation end)
+      end, function() return id == generation end, {
+        user_request = user_request,
+        review = function(history, callback)
+          providers.chat({ provider = config.provider, model = model() }, history, {}, function(message, err)
+            if err then return callback(nil, err) end
+            local content = message and message.content
+            if type(content) == 'table' then
+              local parts = {}
+              for _, part in ipairs(content) do
+                if part.type == 'text' then parts[#parts + 1] = part.text or '' end
+              end
+              content = table.concat(parts, '\n')
+            end
+            callback(type(content) == 'string' and content or 'No reviewer response')
+          end)
+        end,
+      })
     end
     next_call(1)
   end)
@@ -127,6 +155,7 @@ end
 
 function M.setup(opts)
   config = vim.tbl_deep_extend('force', vim.deepcopy(defaults), opts or {})
+  tools.configure(config.approval)
   if not vim.tbl_contains({ 'openrouter', 'copilot' }, config.provider) then
     error('codeit: provider must be openrouter or copilot')
   end

@@ -15,6 +15,17 @@ require('codeit').setup({
   },
   -- system_prompt = 'You are a helpful Neovim coding assistant.',
   -- max_tool_rounds = 12,
+  -- approval = {
+  --   validators = {
+  --     function(name, args, context)
+  --       -- return 'approve', 'ask', or 'reject', optionally with a reason
+  --       if name == 'run_command' and args.argv and args.argv[1] == 'rm' then
+  --         return 'reject', 'Deletion commands are disabled'
+  --       end
+  --       -- context.workspace and context.user_request are available here
+  --     end,
+  --   },
+  -- },
 })
 ```
 
@@ -40,6 +51,13 @@ The assistant can:
 - Run builds, tests, or linters via `run_command` (argument vector, no implicit shell), inspect loaded-buffer diagnostics (`get_diagnostics`), and inspect workspace Git changes (`git_status`, `git_diff`). Git diff shows unstaged tracked changes, not untracked files or unsaved buffers.
 - Fetch HTTP(S) URLs using `fetch_url` (`curl` required). This is not a web search engine or an MCP integration.
 
-**Edits, file creation, commands, and URL fetches require confirmation** (Reject is the default). Buffer edits check for changes while confirmation is pending; file paths are restricted to the current workspace, including symlink targets. Commands run in that workspace but, once approved, can access the wider system. Search and read-only tools do not prompt. Outputs and file reads are bounded; use smaller searches or line ranges when needed. This is a local approximation of common VS Code Copilot Agent capabilities, not VS Code's exact or extension-provided tool set.
+Read-only tools are auto-approved by default; edits, creation, commands, URL fetches, and unknown tools require approval. The prompt offers **Approve once**, **Always approve exact call**, **Reject** (with an optional explanation sent back to the agent), **Cancel task**, and **Ask reviewer**. Dismissing the prompt rejects the call. The reviewer is a separate, tool-free conversation with the configured model: ask follow-up questions, then return to the original decision. Cancelling stops the task and drops its unfinished tool-call batch, leaving earlier conversation intact.
+
+Always-approved signatures include the workspace's resolved path, tool name, and full arguments (independent of JSON object key order); their hashes are saved across Neovim sessions in `stdpath('data')/codeit/approvals.json`. Delete that file to revoke saved approvals. Configure `approval.validators` in `setup()` with functions receiving `(name, args, context)` that return `'approve'`, `'ask'`, `'reject'`, or `nil`, optionally with a reason. Validators run for **every** call, including saved approvals; rejection wins over asking, and asking wins over approval or saved/default auto-approval. Errors or invalid decisions reject the call.
+
+Buffer edits check for changes while confirmation is pending; file paths are restricted to the current workspace, including symlink targets. Commands run in that workspace but, once approved, can access the wider system. Outputs and file reads are bounded; use smaller searches or line ranges when needed. This is a local approximation of common VS Code Copilot Agent capabilities, not VS Code's exact or extension-provided tool set.
 
 Run the headless tests from the repository root with `nvim --headless -u NONE -c "lua dofile('tests/headless.lua')" -c 'qa!'`, `nvim --headless -u NONE -c "lua dofile('tests/providers.lua')" -c 'qa!'`, and `nvim --headless -u NONE -c "lua dofile('tests/agent_tools.lua')" -c 'qa!'`.
+
+
+The approval suite is `tests/approval.lua`; run it with a temporary `XDG_DATA_HOME` to avoid using your saved approvals.

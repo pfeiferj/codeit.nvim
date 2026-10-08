@@ -78,12 +78,12 @@ function M.chat(config, messages, tools, callback)
   local function send(url, token, extra_headers)
     local headers = { 'Content-Type: application/json', 'Authorization: Bearer ' .. token }
     vim.list_extend(headers, extra_headers or {})
-    request(url, headers, {
-      model = config.model,
-      messages = messages,
-      tools = tools,
-      tool_choice = 'auto',
-    }, function(response, err)
+    local body = { model = config.model, messages = messages }
+    if tools and #tools > 0 then
+      body.tools = tools
+      body.tool_choice = 'auto'
+    end
+    request(url, headers, body, function(response, err)
       if err then return callback(nil, err) end
       local choice = response and response.choices and response.choices[1]
       if not choice or not choice.message then

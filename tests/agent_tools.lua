@@ -7,7 +7,8 @@ vim.fn.mkdir(dir .. '/sub')
 vim.cmd.cd(dir)
 local function run(name, args, choice)
   local result
-  vim.ui.select = function(_, _, callback) callback(choice or 'Apply') end
+vim.ui.select = function(_, _, callback) callback(choice or 'Approve once') end
+  vim.ui.input = function(_, callback) callback(nil) end
   tools.execute(name, args, nil, function(value) result = value end, function() return true end)
   assert(vim.wait(5000, function() return result ~= nil end), 'timed out: ' .. name)
   return result
@@ -44,7 +45,7 @@ local active = true
 tools.execute('edit_file', { path = 'sub/demo.txt', old_text = 'gamma', new_text = 'bad' }, nil,
   function(value) result = value end, function() return active end)
 vim.api.nvim_buf_set_lines(id, 0, 1, false, { 'manual' })
-pending('Apply')
+pending('Approve once')
 has(result, 'changed while awaiting confirmation')
 assert(vim.api.nvim_buf_get_lines(id, 0, 1, false)[1] == 'manual')
 result = nil
@@ -52,7 +53,7 @@ active = true
 tools.execute('edit_file', { path = 'sub/demo.txt', old_text = 'manual', new_text = 'bad' }, nil,
   function(value) result = value end, function() return active end)
 active = false
-pending('Apply')
+pending('Approve once')
 assert(result == nil and vim.api.nvim_buf_get_lines(id, 0, 1, false)[1] == 'manual')
 local side_effect = dir .. '/executed'
 has(run('run_command', { argv = { 'touch', side_effect } }, 'Reject'), 'Rejected')
