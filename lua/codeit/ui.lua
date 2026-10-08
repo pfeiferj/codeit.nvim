@@ -89,6 +89,18 @@ function M.close()
   end
 end
 
+-- WinClosed must not change the layout synchronously. Defer closing the other pane,
+-- and ignore events from an earlier session if the chat has since reopened.
+vim.api.nvim_create_autocmd('WinClosed', {
+  callback = function(args)
+    local closed = tonumber(args.match)
+    if closed ~= input_win and closed ~= transcript_win then return end
+    vim.schedule(function()
+      if closed == input_win or closed == transcript_win then M.close() end
+    end)
+  end,
+})
+
 function M.take_input()
   if not input or not vim.api.nvim_buf_is_valid(input) then return nil end
   local text = vim.trim(table.concat(vim.api.nvim_buf_get_lines(input, 0, -1, false), '\n'))

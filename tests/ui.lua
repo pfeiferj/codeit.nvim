@@ -57,4 +57,35 @@ scroll(1)
 assert(#marks() == 0)
 ui.close()
 assert(#marks() == 0)
+
+local function pane_windows()
+  return vim.fn.bufwinid(chat), vim.fn.bufwinid(input)
+end
+
+for _, pane in ipairs({ 'chat', 'input' }) do
+  ui.open(function() end, ui.close)
+  local chat_win, input_win = pane_windows()
+  assert(ui.is_open())
+  vim.api.nvim_set_current_win(pane == 'chat' and chat_win or input_win)
+  vim.cmd('close')
+  local other = pane == 'chat' and input_win or chat_win
+  assert(vim.wait(1000, function() return not vim.api.nvim_win_is_valid(other) end),
+    'closing ' .. pane .. ' must close the other pane')
+  assert(not ui.is_open())
+end
+
+ui.open(function() end, ui.close)
+vim.cmd('vsplit')
+local unrelated = vim.api.nvim_get_current_win()
+vim.cmd('close')
+assert(not vim.api.nvim_win_is_valid(unrelated) and ui.is_open(), 'unrelated window closures must not close chat')
+ui.close()
+
+ui.open(function() end, ui.close)
+local old_chat = vim.fn.bufwinid(chat)
+vim.api.nvim_win_close(old_chat, true)
+ui.open(function() end, ui.close) -- Reopen before the deferred WinClosed callback runs.
+vim.wait(50, function() return false end)
+assert(ui.is_open(), 'a stale window-close event must not close a reopened chat')
+ui.close()
 print('codeit ui tests passed')
