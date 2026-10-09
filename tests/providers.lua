@@ -44,6 +44,14 @@ assert(calls[1].options.stdin:find('"properties":{}', 1, true), 'empty tool prop
 wait_for_response({ provider = 'copilot', model = 'gpt-4o' })
 assert(vim.tbl_contains(calls[3].args, 'https://api.githubcopilot.com/chat/completions'))
 assert(vim.json.decode(calls[3].options.stdin).usage == nil)
+local business_options = { api_host = 'api.business.githubcopilot.com' }
+wait_for_response({ provider = 'copilot', model = 'gpt-4o', options = business_options })
+assert(vim.tbl_contains(calls[#calls].args, 'https://api.business.githubcopilot.com/chat/completions'))
+assert(vim.json.decode(calls[#calls].options.stdin).api_host == nil, 'host is routing config, not a request body field')
+wait_for_response({ provider = 'copilot', model = 'gpt-4o', options = { api_host = '' } })
+assert(vim.tbl_contains(calls[#calls].args, 'https://api.githubcopilot.com/chat/completions'))
+wait_for_response({ provider = 'copilot', model = 'gpt-4o', options = { api_host = 'api.githubcopilot.com' } })
+assert(vim.tbl_contains(calls[#calls].args, 'https://api.githubcopilot.com/chat/completions'))
 wait_for_response({ provider = 'openrouter', model = 'test-model', options = {
   preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high',
 } })
@@ -70,6 +78,31 @@ for _, backend in ipairs({ 'openrouter', 'copilot' }) do
   assert(not catalog_error and models[1].id == 'a-model' and models[2].id == 'z-model')
   local url = backend == 'openrouter' and 'https://openrouter.ai/api/v1/models' or 'https://api.githubcopilot.com/models'
   assert(vim.tbl_contains(calls[#calls].args, url))
+end
+local business_models, business_error
+providers.models('copilot', function(result, err) business_models, business_error = result, err end, business_options)
+assert(vim.wait(2000, function() return business_models ~= nil or business_error ~= nil end))
+assert(not business_error and #business_models == 2)
+assert(vim.tbl_contains(calls[#calls].args, 'https://api.business.githubcopilot.com/models'))
+assert(vim.tbl_contains(calls[2].args, 'https://api.github.com/copilot_internal/v2/token'),
+  'token exchange must stay on GitHub, regardless of the API host')
+
+-- Reject non-Copilot destinations before any network request (including token exchange).
+for _, host in ipairs({ 'attacker.example', 'http://api.business.githubcopilot.com',
+  'api.business.githubcopilot.com/path', false }) do
+  local before_calls = #calls
+  local invalid_error
+  providers.models('copilot', function(_, err) invalid_error = err end, { api_host = host })
+  assert(invalid_error and invalid_error:find('Invalid Copilot API host', 1, true))
+  invalid_error = nil
+  providers.chat({ provider = 'copilot', model = 'gpt-4o', options = { api_host = host } }, {}, {},
+    function(_, err) invalid_error = err end)
+  assert(invalid_error and invalid_error:find('Invalid Copilot API host', 1, true))
+  invalid_error = nil
+  providers.context_limit({ provider = 'copilot', model = 'gpt-4o', options = { api_host = host } },
+    function(_, err) invalid_error = err end)
+  assert(invalid_error and invalid_error:find('Invalid Copilot API host', 1, true))
+  assert(#calls == before_calls, 'invalid host must not send credentials or API requests')
 end
 local function endpoints_for(model, response)
   http_response = response

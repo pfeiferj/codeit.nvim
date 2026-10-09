@@ -21,7 +21,11 @@ package.loaded['codeit.providers'] = {
     if endpoint_error then return callback(nil, endpoint_error) end
     callback(endpoint_catalog)
   end,
-  models = function(provider, callback)
+  models = function(provider, callback, options)
+    if provider == 'copilot' then
+      assert(options.api_host == 'api.business.githubcopilot.com', 'model search must use the draft host')
+      return callback({ { id = 'gpt-4o', name = 'Copilot model' } })
+    end
     assert(provider == 'openrouter')
     callback({ { id = 'vendor/alpha', name = 'Alpha coder' }, { id = 'vendor/beta', name = 'Beta thinker' } })
   end,
@@ -38,20 +42,24 @@ local global = vim.deepcopy(baseline)
 global.models.openrouter = 'global-model'
 global.secondary_models = { openrouter = 'global-secondary', copilot = 'copilot-secondary' }
 global.request_options.openrouter = { preferred_provider = 'openai', service_tier = 'priority', effort = 'high' }
+global.request_options.copilot = { api_host = 'api.business.githubcopilot.com' }
 assert(plugin.configure(global, 'global'))
 assert(vim.fn.getfperm(settings_path) == 'rw-------')
 plugin.setup({ max_context_tokens = false })
 assert(plugin.get_settings().models.openrouter == 'global-model', 'global settings override setup')
 assert(plugin.get_settings().secondary_models.openrouter == 'global-secondary')
+assert(plugin.get_settings().request_options.copilot.api_host == 'api.business.githubcopilot.com')
 local local_settings = vim.deepcopy(global)
 local_settings.models.openrouter = 'workspace-model'
 local_settings.secondary_models.openrouter = 'workspace-secondary'
 local_settings.request_options.openrouter = { preferred_provider = '', service_tier = '', effort = '' }
+local_settings.request_options.copilot = { api_host = '' }
 assert(plugin.configure(local_settings, 'workspace'))
 plugin.setup({ max_context_tokens = false })
 assert(plugin.get_settings().models.openrouter == 'workspace-model', 'workspace overrides global')
 assert(plugin.get_settings().secondary_models.openrouter == 'workspace-secondary')
 assert(plugin.get_settings().request_options.openrouter.effort == '', 'cleared values override global options')
+assert(plugin.get_settings().request_options.copilot.api_host == '', 'workspace can restore the standard host')
 vim.fn.chdir(temp .. '/two')
 assert(plugin.get_settings().models.openrouter == 'global-model', 'changing workspace loads global defaults')
 plugin.send('test options')
@@ -87,6 +95,19 @@ local invalid = vim.deepcopy(global)
 invalid.request_options.openrouter.effort = 'invalid'
 assert(not plugin.configure(invalid))
 assert(not settings.save(global, 'bad', workspace))
+for _, host in ipairs({ '', 'api.githubcopilot.com', 'api.business.githubcopilot.com' }) do
+  local valid = vim.deepcopy(global)
+  valid.request_options.copilot = { api_host = host }
+  assert(settings.validate(valid), 'supported Copilot host should validate')
+end
+for _, bad in ipairs({ { api_host = 'attacker.example' }, { api_host = false },
+  { api_host = 'https://api.business.githubcopilot.com' }, { api_host = 'api.business.githubcopilot.com/path' },
+  { api_host = 'api.business.githubcopilot.com\n' }, { effort = 'high' }, false }) do
+  invalid = vim.deepcopy(global)
+  invalid.request_options.copilot = bad
+  assert(not plugin.configure(invalid), 'invalid Copilot options must be rejected')
+end
+assert(not pcall(plugin.setup, { request_options = { copilot = { api_host = 'attacker.example' } } }))
 for _, bad in ipairs({ 'bad', { openrouter = false }, { copilot = '   ' }, { other = 'model' }, { openrouter = 'bad\nmodel' } }) do
   invalid = vim.deepcopy(global)
   invalid.secondary_models = bad
@@ -155,6 +176,18 @@ endpoint_error, endpoint_catalog = nil, {}
 inputs = { 'unlisted-provider' }
 assert(upstream_choice('manual') == 'unlisted-provider', 'empty catalogs still allow manual input')
 
+-- Copilot host selection is part of the draft and applies to main/secondary model searches.
+local copilot_draft = vim.deepcopy(baseline)
+copilot_draft.provider = 'copilot'
+steps, inputs = { 'api_host', 'api.business.githubcopilot.com', 'model', 'gpt-4o',
+  'secondary_model', 'gpt-4o', 'global' }, { '', '' }
+picker.show(copilot_draft, function(values, selected_scope) applied, scope = values, selected_scope end)
+assert(scope == 'global' and applied.request_options.copilot.api_host == 'api.business.githubcopilot.com')
+assert(copilot_draft.request_options.copilot == nil, 'host selection must not mutate active settings')
+steps = { 'api_host', '', 'session' }
+picker.show(applied, function(values) applied = values end)
+assert(applied.request_options.copilot.api_host == '', 'picker can reset the host to default')
+
 -- Option-only updates preserve the current conversation and restore on resume.
 plugin.send('Keep this chat')
 callbacks[#callbacks]({ role = 'assistant', content = 'Kept' })
@@ -187,12 +220,30 @@ plugin.compact()
 assert(requests[#requests].config.model == 'workspace-model', 'blank secondary model falls back to main model')
 callbacks[#callbacks]({ role = 'assistant', content = 'Fallback summary' })
 plugin.set_provider('copilot')
+local copilot_settings = plugin.get_settings()
+copilot_settings.request_options.copilot = { api_host = 'api.business.githubcopilot.com' }
+assert(plugin.configure(copilot_settings))
 plugin.send('Copilot task')
+assert(requests[#requests].config.options.api_host == 'api.business.githubcopilot.com')
 assert(requests[#requests].config.model == 'gpt-4o')
 callbacks[#callbacks]({ role = 'assistant', content = 'Copilot answer' })
 plugin.compact()
 assert(requests[#requests].config.provider == 'copilot' and requests[#requests].config.model == 'copilot-secondary')
+assert(requests[#requests].config.options.api_host == 'api.business.githubcopilot.com', 'secondary requests use the host')
 callbacks[#callbacks]({ role = 'assistant', content = 'Copilot summary' })
+local copilot_id = history.list(workspace)[1].id
+assert(history.load(workspace, copilot_id).request_options.copilot.api_host == 'api.business.githubcopilot.com')
+copilot_settings.request_options.copilot.api_host = ''
+plugin.new()
+assert(plugin.configure(copilot_settings))
+assert(plugin.resume(copilot_id))
+assert(plugin.get_settings().request_options.copilot.api_host == 'api.business.githubcopilot.com',
+  'resume restores the business host saved with the chat')
+assert(plugin.configure(copilot_settings))
+assert(history.load(workspace, copilot_id).request_options.copilot.api_host == '',
+  'host-only updates are saved with the chat')
+assert(history.load(workspace, copilot_id).messages[2].content == 'Copilot task',
+  'host-only updates preserve the conversation')
 
 -- Cancelling and stale UI callbacks never apply a draft.
 local did_apply = false

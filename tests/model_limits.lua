@@ -42,6 +42,28 @@ providers.context_limit({ provider = 'openrouter', model = 'unknown' }, function
   assert(value == nil and err == nil, 'failed lookup should not repeat or warn again')
 end)
 assert(#calls == 4)
+
+-- A host change must not reuse cached metadata (or cached failures) from the other host.
+local business = { provider = 'copilot', model = 'gpt-4o', options = { api_host = 'api.business.githubcopilot.com' } }
+result, error_message = nil, nil
+providers.context_limit(business, function(value, err) result, error_message = value, err end)
+assert(#calls == 5 and vim.tbl_contains(calls[5].args, 'https://api.business.githubcopilot.com/models'))
+providers.context_limit(business, function(value) assert(value == 120000) end)
+assert(#calls == 5, 'same-host metadata requests should be deduplicated')
+reply(5, { data = { { id = 'gpt-4o', capabilities = { limits = { max_prompt_tokens = 120000 } } } } })
+assert(result == 120000 and not error_message)
+providers.context_limit(copilot, function(value) assert(value == 90000) end)
+providers.context_limit(business, function(value) assert(value == 120000) end)
+assert(#calls == 5, 'each host should keep its own successful metadata cache')
+local blocked = { provider = 'copilot', model = 'blocked-model' }
+providers.context_limit(blocked, function(_, err) error_message = err end)
+reply(6, { error = { message = 'Blocked standard host' } }, '403')
+assert(error_message == 'HTTP 403: Blocked standard host')
+blocked.options = business.options
+providers.context_limit(blocked, function(value) result = value end)
+assert(#calls == 7 and vim.tbl_contains(calls[7].args, 'https://api.business.githubcopilot.com/models'))
+reply(7, { data = { { id = 'blocked-model', capabilities = { limits = { max_prompt_tokens = 64000 } } } } })
+assert(result == 64000, 'a standard-host failure must not poison business-host metadata')
 vim.system, vim.env.OPENROUTER_API_KEY, vim.env.GH_TOKEN = original_system, original_key, original_gh
 vim.env.COPILOT_GITHUB_TOKEN = original_copilot
 print('codeit model limit tests passed')

@@ -1,6 +1,7 @@
 local M = {}
 M.tiers = { '', 'default', 'flex', 'priority', 'fast', 'ultrafast' }
 M.efforts = { '', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh' }
+M.copilot_hosts = { '', 'api.githubcopilot.com', 'api.business.githubcopilot.com' }
 
 function M.validate_secondary_models(models)
   if type(models) ~= 'table' then return false, 'invalid secondary models' end
@@ -29,11 +30,14 @@ function M.validate(settings)
   local options = settings.request_options
   if type(options) ~= 'table' then return false, 'invalid request options' end
   for provider, values in pairs(options) do
-    if provider ~= 'openrouter' or type(values) ~= 'table' then
-      return false, 'request options are currently supported only for OpenRouter'
+    if not vim.tbl_contains({ 'openrouter', 'copilot' }, provider) or type(values) ~= 'table' then
+      return false, 'invalid provider request options'
     end
     for key, value in pairs(values) do
-      if key == 'preferred_provider' then
+      if provider == 'copilot' then
+        if key ~= 'api_host' then return false, 'unknown Copilot request option: ' .. tostring(key) end
+        if not vim.tbl_contains(M.copilot_hosts, value) then return false, 'invalid Copilot API host' end
+      elseif key == 'preferred_provider' then
         if type(value) ~= 'string' or value:find('%c') then return false, 'invalid preferred provider slug' end
       elseif key == 'service_tier' then
         if not vim.tbl_contains(M.tiers, value) then return false, 'invalid service tier' end

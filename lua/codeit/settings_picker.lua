@@ -70,7 +70,7 @@ function M.show(current, apply, live)
         end)
       end
       search()
-    end)
+    end, draft.request_options[draft.provider])
   end
   local function choose_upstream(options)
     local model = draft.models.openrouter
@@ -110,7 +110,7 @@ function M.show(current, apply, live)
   end
   menu = function()
     if not valid() then return end
-    local options = draft.request_options.openrouter or {}
+    local options = draft.request_options[draft.provider] or {}
     local secondary_model = draft.secondary_models[draft.provider]
     local items = {
       { id = 'provider', label = 'Backend: ' .. draft.provider },
@@ -127,6 +127,9 @@ function M.show(current, apply, live)
         { id = 'service_tier', label = 'Service tier: ' .. (options.service_tier or '') },
         { id = 'effort', label = 'Reasoning effort: ' .. (options.effort or '') },
       })
+    elseif draft.provider == 'copilot' then
+      items[#items + 1] = { id = 'api_host', label = 'Copilot API host: '
+        .. (options.api_host and options.api_host ~= '' and options.api_host or 'api.githubcopilot.com (default)') }
     end
     vim.list_extend(items, {
       { id = 'session', label = 'Apply for this session' },
@@ -159,6 +162,15 @@ function M.show(current, apply, live)
           if value ~= nil and (secondary or vim.trim(value) ~= '') then
             models_setting[draft.provider] = vim.trim(value)
           end
+          menu()
+        end)
+      elseif id == 'api_host' then
+        vim.ui.select(settings.copilot_hosts, {
+          prompt = 'Copilot API host',
+          format_item = function(value) return value == '' and 'api.githubcopilot.com (default)' or value end,
+        }, function(value)
+          if not valid() then return end
+          if value ~= nil then options.api_host = value; draft.request_options.copilot = options end
           menu()
         end)
       elseif id == 'service_tier' or id == 'effort' then

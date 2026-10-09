@@ -156,8 +156,19 @@ local function copilot_auth(callback)
   end)
 end
 
+local function copilot_url(options)
+  local host = options and options.api_host
+  if host == nil or host == '' then host = 'api.githubcopilot.com' end
+  -- Restrict destinations so a typo cannot send a Copilot bearer token to an arbitrary host.
+  if not vim.tbl_contains(require('codeit.settings').copilot_hosts, host) then
+    return nil, 'Invalid Copilot API host: ' .. tostring(host)
+  end
+  return 'https://' .. host
+end
+
 --- Fetch available models from the selected backend (no completion request).
-function M.models(provider, callback)
+--- Optional options uses the same per-provider request options as chat.
+function M.models(provider, callback, options)
   local function finish(response, err, detail)
     if err then return callback(nil, err, detail) end
     local entries = response.data or response.models or response
@@ -176,9 +187,11 @@ function M.models(provider, callback)
     if not token or token == '' then return callback(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
     get_json('https://openrouter.ai/api/v1/models', { 'Authorization: Bearer ' .. token }, finish)
   elseif provider == 'copilot' then
+    local url, url_error = copilot_url(options)
+    if not url then return callback(nil, url_error) end
     copilot_auth(function(token, err)
       if err then return callback(nil, err) end
-      get_json('https://api.githubcopilot.com/models', {
+      get_json(url .. '/models', {
         'Authorization: Bearer ' .. token,
         'Editor-Version: Neovim/0.12.0',
         'Editor-Plugin-Version: codeit.nvim/0.1.0',
@@ -225,6 +238,11 @@ end
 --- Resolve a model's context window; failures are cached for this session.
 function M.context_limit(config, callback)
   local key = config.provider .. '/' .. config.model
+  if config.provider == 'copilot' then
+    local url, err = copilot_url(config.options)
+    if not url then return callback(nil, err) end
+    key = key .. '/' .. url
+  end
   if limits[key] ~= nil then return callback(limits[key] or nil) end
   if pending[key] then
     pending[key][#pending[key] + 1] = callback
@@ -262,7 +280,7 @@ function M.context_limit(config, callback)
   M.models(config.provider, function(models, err, detail)
     if err then return finish(nil, err, detail) end
     extract(models)
-  end)
+  end, config.options)
 end
 
 --- Send an OpenAI-compatible chat completion. callback(message, error).
@@ -317,9 +335,11 @@ function M.chat(config, messages, tools, callback)
       'X-Title: codeit.nvim',
     })
   elseif config.provider == 'copilot' then
+    local url, url_error = copilot_url(config.options)
+    if not url then return callback(nil, url_error) end
     copilot_auth(function(token, err)
       if err then return callback(nil, err) end
-      send('https://api.githubcopilot.com/chat/completions', token, {
+      send(url .. '/chat/completions', token, {
         'Editor-Version: Neovim/0.12.0',
         'Editor-Plugin-Version: codeit.nvim/0.1.0',
         'Copilot-Integration-Id: vscode-chat',
