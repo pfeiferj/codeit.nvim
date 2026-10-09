@@ -6,7 +6,7 @@ local write_approval = require('codeit.write_approval')
 local read_tools = {
   list_buffers = true, read_buffer = true, list_workspace_files = true,
   search_workspace = true, read_file = true, get_diagnostics = true,
-  git_status = true, git_diff = true,
+  git_status = true, git_diff = true, load_skill = true,
 }
 
 local trusted_workspaces = {}
@@ -43,6 +43,9 @@ end
 local function auto_read(name, args, workspace, source)
   local mode = M.workspace_trust(workspace)
   if not mode or not read_tools[name] then return false end
+  if name == 'load_skill' then
+    return require('codeit.context_files').skill(args.name, workspace, mode) ~= nil
+  end
   local function allowed(path)
     local real = trusted_path(path, workspace)
     return real and (mode == 'all' or tracked(real, workspace)) or false

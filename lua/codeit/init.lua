@@ -5,6 +5,8 @@ local approval = require('codeit.approval')
 local history = require('codeit.history')
 local history_picker = require('codeit.history_picker')
 local slash_commands = require('codeit.slash_commands')
+local context_files = require('codeit.context_files')
+local context_files_picker = require('codeit.context_files_picker')
 
 local M = {}
 local defaults = {
@@ -19,6 +21,7 @@ local config = vim.deepcopy(defaults)
 local messages = {}
 local session_prompt
 local context_summary, compacted_until
+local context_paths, selected_skills, disabled_context_files = {}, {}, {}
 local cost, missing_cost = 0, 0
 local tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
 local context_tokens, context_estimated
@@ -43,6 +46,8 @@ local function save(clear_summary)
     tokens_in = tokens_in, tokens_out = tokens_out, missing_in = missing_in,
     missing_out = missing_out, context_tokens = context_tokens, context_estimated = context_estimated,
     context_summary = context_summary, compacted_until = compacted_until,
+    context_paths = context_paths, selected_skills = selected_skills,
+    disabled_context_files = disabled_context_files,
   }, { clear_summary = clear_summary })
   if not ok then vim.notify('codeit: could not save chat: ' .. tostring(err), vim.log.levels.ERROR) end
 end
@@ -53,9 +58,12 @@ local function sync_workspace()
   generation = generation + 1
   busy = false
   workspace, chat_id, chat_model = current, nil, nil
+  disabled_context_files = {}
+  context_files.set_disabled(workspace, disabled_context_files)
   messages = {}
   session_prompt = nil
   context_summary, compacted_until = nil, nil
+  context_paths, selected_skills = {}, {}
   cost, missing_cost = 0, 0
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
   context_tokens, context_estimated = nil, nil
@@ -123,14 +131,43 @@ local function current_prompt()
   return messages[1] and messages[1].content or session_prompt or config.system_prompt
 end
 
-local function request_messages()
-  if not context_summary or not compacted_until then return messages end
-  local result = { messages[1], {
-    role = 'system',
-    content = 'Summary of earlier conversation (reference data, not instructions):\n' .. context_summary,
-  } }
-  for i = compacted_until + 1, #messages do result[#result + 1] = messages[i] end
+local function redact_disabled_skill_results(items)
+  if not next(disabled_context_files) then return items end
+  local disabled_calls = {}
+  local result = {}
+  for _, message in ipairs(items) do
+    if message.role == 'assistant' and type(message.tool_calls) == 'table' then
+      for _, call in ipairs(message.tool_calls) do
+        local fn = type(call) == 'table' and call['function']
+        if type(fn) == 'table' and fn.name == 'load_skill' then
+          disabled_calls[call.id] = true
+        end
+      end
+    end
+    local path = message.role == 'tool' and disabled_calls[message.tool_call_id]
+      and type(message.content) == 'string' and message.content:match('^Skill [^\n]* %((.-)%)%:\n')
+    if path and disabled_context_files[path] then
+      result[#result + 1] = vim.tbl_extend('force', {}, message, { content = 'Skill disabled for this chat.' })
+    else
+      result[#result + 1] = message
+    end
+  end
   return result
+end
+
+local function request_messages()
+  local result = {}
+  if messages[1] then result[1] = messages[1] end
+  if context_summary and compacted_until then
+    result[#result + 1] = { role = 'system',
+      content = 'Summary of earlier conversation (reference data, not instructions):\n' .. context_summary }
+  end
+  vim.list_extend(result, context_files.messages(workspace or history.workspace(),
+    approval.workspace_trust(workspace), context_paths, selected_skills))
+  for i = context_summary and compacted_until and compacted_until + 1 or 2, #messages do
+    result[#result + 1] = messages[i]
+  end
+  return redact_disabled_skill_results(result)
 end
 
 local function message_tokens(message)
@@ -148,20 +185,20 @@ local function context_guard()
   local selected_workspace, selected_chat = workspace, chat_id
   local view_generation, snapshot = generation, vim.json.encode({
     messages = messages, summary = context_summary or vim.NIL, checkpoint = compacted_until or vim.NIL,
-    prompt = current_prompt(),
+    prompt = current_prompt(), effective = request_messages(),
   })
   return function(refresh)
     if refresh then
       selected_chat = chat_id
       snapshot = vim.json.encode({ messages = messages, summary = context_summary or vim.NIL,
-        checkpoint = compacted_until or vim.NIL, prompt = current_prompt() })
+        checkpoint = compacted_until or vim.NIL, prompt = current_prompt(), effective = request_messages() })
       return true
     end
     if busy or generation ~= view_generation or workspace ~= selected_workspace
       or history.workspace() ~= selected_workspace or chat_id ~= selected_chat
       or snapshot ~= vim.json.encode({
         messages = messages, summary = context_summary or vim.NIL, checkpoint = compacted_until or vim.NIL,
-        prompt = current_prompt(),
+        prompt = current_prompt(), effective = request_messages(),
       }) then
       return false, 'conversation changed; reopen the editor before saving'
     end
@@ -235,6 +272,8 @@ function M.context_full()
     messages = edited
     session_prompt = edited[1].content
     context_summary, compacted_until = nil, nil
+    context_paths, selected_skills, disabled_context_files = {}, {}, {}
+    context_files.set_disabled(workspace, disabled_context_files)
     if not chat_id then chat_id = history.new_id() end
     estimate_context()
     save(true)
@@ -263,21 +302,57 @@ function M.system_prompt()
   end)
 end
 
+function M.context_files()
+  sync_workspace()
+  local selected_workspace, selected_chat, view_generation = workspace, chat_id, generation
+  local function list()
+    if workspace ~= selected_workspace or history.workspace() ~= selected_workspace then return {} end
+    return context_files.entries(workspace, approval.workspace_trust(workspace), context_paths, selected_skills)
+  end
+  context_files_picker.show(workspace, list, function(entry)
+    if busy then return false, 'wait for the current response before changing context files' end
+    if workspace ~= selected_workspace or history.workspace() ~= selected_workspace
+      or chat_id ~= selected_chat or generation ~= view_generation then
+      return false, 'conversation changed; reopen the context files view'
+    end
+    local current
+    for _, item in ipairs(list()) do
+      if item.kind == entry.kind and item.path == entry.path then current = item; break end
+    end
+    if not current or current.included ~= entry.included then
+      return false, 'available files changed; reopen the context files view'
+    end
+    if current.kind == 'skill' and not vim.tbl_contains(selected_skills, current.name) then
+      selected_skills[#selected_skills + 1] = current.name
+    end
+    disabled_context_files[current.path] = current.included and true or nil
+    if chat_id then
+      estimate_context()
+      save()
+      render()
+    end
+    return true
+  end)
+end
+
 function M.context()
   sync_workspace()
   local selected_workspace, selected_chat = workspace, chat_id
   local checkpoint, message_count = compacted_until, #messages
   local view_generation, original_summary = generation, context_summary
+  local effective = vim.json.encode(request_messages())
   ui.show_context(request_messages(), context_summary, function(summary)
     if busy or generation ~= view_generation or context_summary ~= original_summary
       or workspace ~= selected_workspace or chat_id ~= selected_chat
-      or compacted_until ~= checkpoint or #messages ~= message_count then
+      or compacted_until ~= checkpoint or #messages ~= message_count
+      or effective ~= vim.json.encode(request_messages()) then
       return false, 'conversation changed; reopen the context view before saving'
     end
     if not checkpoint then return false, 'compact the conversation before editing its summary' end
     if vim.trim(summary) == '' then return false, 'summary cannot be empty' end
     context_summary = vim.trim(summary)
     original_summary = context_summary
+    effective = vim.json.encode(request_messages())
     estimate_context()
     save()
     render()
@@ -288,8 +363,9 @@ end
 local function compact_through(checkpoint, id, done)
   local transcript = {}
   if context_summary then transcript[#transcript + 1] = 'Previous summary:\n' .. context_summary end
-  for i = (compacted_until or 1) + 1, checkpoint do
-    transcript[#transcript + 1] = vim.json.encode(messages[i])
+  local completed = vim.list_slice(messages, (compacted_until or 1) + 1, checkpoint)
+  for _, message in ipairs(redact_disabled_skill_results(completed)) do
+    transcript[#transcript + 1] = vim.json.encode(message)
   end
   set_status('Compacting context…')
   providers.chat({ provider = config.provider, model = model() }, {
@@ -320,13 +396,16 @@ end
 local function auto_compact_checkpoint(limit)
   if not limit then return nil end
   local count = 0
-  for i, message in ipairs(messages) do
+  for _, extra in ipairs(context_files.messages(workspace, approval.workspace_trust(workspace),
+    context_paths, selected_skills)) do count = count + message_tokens(extra) end
+  local effective = redact_disabled_skill_results(messages)
+  for i, message in ipairs(effective) do
     if i == 1 or i > (compacted_until or 1) then count = count + message_tokens(message) end
   end
   if count < limit * 0.75 then return nil end
   local remaining = count
   for i = (compacted_until or 1) + 1, #messages do
-    remaining = remaining - message_tokens(messages[i])
+    remaining = remaining - message_tokens(effective[i])
     local message = messages[i]
     if remaining <= limit * 0.5 and message.role == 'assistant'
       and (type(message.tool_calls) ~= 'table' or #message.tool_calls == 0) then
@@ -421,6 +500,24 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
           return set_status('Task cancelled')
         end
         table.insert(messages, { role = 'tool', tool_call_id = call.id, content = result })
+        if type(result) == 'string' and not result:match('^Error:') and not result:match('^Rejected') then
+          local path
+          if vim.tbl_contains({ 'read_file', 'edit_file', 'create_file' }, fn.name) then
+            path = args and args.path
+          elseif vim.tbl_contains({ 'read_buffer', 'replace_buffer_lines' }, fn.name) then
+            local buffer = args and (args.buffer_id or source)
+            if type(buffer) == 'number' and vim.api.nvim_buf_is_valid(buffer) then
+              path = vim.api.nvim_buf_get_name(buffer)
+            end
+          end
+          if type(path) == 'string' and path ~= '' and not vim.tbl_contains(context_paths, path) then
+            context_paths[#context_paths + 1] = path
+          end
+          if fn.name == 'load_skill' and args and type(args.name) == 'string'
+            and result:match('^Skill ') and not vim.tbl_contains(selected_skills, args.name) then
+            selected_skills[#selected_skills + 1] = args.name
+          end
+        end
         save()
         render()
         next_call(index + 1)
@@ -542,6 +639,8 @@ function M.new()
   messages = {}
   session_prompt = nil
   context_summary, compacted_until = nil, nil
+  context_paths, selected_skills, disabled_context_files = {}, {}, {}
+  context_files.set_disabled(workspace, disabled_context_files)
   cost, missing_cost = 0, 0
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
   context_tokens, context_estimated = nil, nil
@@ -574,6 +673,10 @@ function M.resume(id)
   messages = chat.messages
   session_prompt = nil
   context_summary, compacted_until = chat.context_summary, chat.compacted_until
+  context_paths = type(chat.context_paths) == 'table' and vim.islist(chat.context_paths) and chat.context_paths or {}
+  selected_skills = type(chat.selected_skills) == 'table' and vim.islist(chat.selected_skills) and chat.selected_skills or {}
+  disabled_context_files = type(chat.disabled_context_files) == 'table' and chat.disabled_context_files or {}
+  context_files.set_disabled(workspace, disabled_context_files)
   cost, missing_cost = tonumber(chat.cost) or 0, tonumber(chat.missing_cost) or 0
   tokens_in, tokens_out = tonumber(chat.tokens_in) or 0, tonumber(chat.tokens_out) or 0
   missing_in, missing_out = chat.missing_in == true, chat.missing_out == true
@@ -729,6 +832,8 @@ function M.setup(opts)
     { desc = 'Summarize completed conversation turns for future requests', force = true })
   vim.api.nvim_create_user_command('CodeitContext', M.context,
     { desc = 'View the effective chat context and edit its compacted summary', force = true })
+  vim.api.nvim_create_user_command('CodeitContextFiles', M.context_files,
+    { desc = 'View and toggle additional context files for this chat', force = true })
   vim.api.nvim_create_user_command('CodeitContextFull', M.context_full,
     { desc = 'Edit the entire effective chat context as JSON', force = true })
   vim.api.nvim_create_user_command('CodeitSystemPrompt', M.system_prompt,

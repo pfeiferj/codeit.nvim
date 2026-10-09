@@ -54,6 +54,13 @@ M.specs = {
 }
 
 vim.list_extend(M.specs, agent_tools.specs)
+M.specs[#M.specs + 1] = {
+  type = 'function', ['function'] = {
+    name = 'load_skill',
+    description = 'Load instructions for an available skill by name. Select a skill when its description matches the task.',
+    parameters = { type = 'object', properties = { name = { type = 'string' } }, required = { 'name' } },
+  },
+}
 
 local function valid_buffer(id)
   return type(id) == 'number' and vim.api.nvim_buf_is_valid(id) and vim.api.nvim_buf_is_loaded(id)
@@ -104,6 +111,13 @@ execute_approved = function(name, args, source, done, active, gate)
       end
     end
     return done(vim.json.encode(buffers))
+  end
+  if name == 'load_skill' then
+    local workspace = require('codeit.history').workspace()
+    local skill = require('codeit.context_files').skill(args.name, workspace,
+      approval.workspace_trust(workspace))
+    return done(skill and ('Skill ' .. args.name .. ' (' .. skill.path .. '):\n' .. skill.content)
+      or 'Error: skill is not available or workspace is not trusted')
   end
   if name ~= 'read_buffer' and name ~= 'replace_buffer_lines' then
     return agent_tools.execute(name, args, done, active, gate)

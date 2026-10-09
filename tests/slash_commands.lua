@@ -6,7 +6,7 @@ local ui = require('codeit.ui')
 local names = {}
 for _, item in ipairs(slash.complete_items()) do names[item.word] = true end
 for _, name in ipairs({ '/toggle', '/send', '/new', '/compact', '/context', '/contextFull', '/systemPrompt',
-  '/history', '/trust', '/untrust', '/trustStatus', '/provider' }) do
+  '/history', '/trust', '/untrust', '/trustStatus', '/provider', '/contextFiles' }) do
   assert(names[name], 'missing completion: ' .. name)
 end
 assert(select(1, slash.parse('/compact')).command == 'CodeitCompact')

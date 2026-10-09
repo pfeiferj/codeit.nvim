@@ -9,6 +9,7 @@ local commands = {
   { name = 'compact', command = 'CodeitCompact' },
   { name = 'context', command = 'CodeitContext' },
   { name = 'contextFull', command = 'CodeitContextFull' },
+  { name = 'contextFiles', command = 'CodeitContextFiles' },
   { name = 'systemPrompt', command = 'CodeitSystemPrompt' },
   { name = 'history', command = 'CodeitHistory' },
   { name = 'trust', command = 'CodeitTrust', args = true },
