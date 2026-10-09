@@ -17,8 +17,6 @@ end
 
 local function edit_properties(target)
   local properties = {
-    start_line = replacement_properties.start_line, end_line = replacement_properties.end_line,
-    old_text = replacement_properties.old_text, new_text = replacement_properties.new_text,
     edits = { type = 'array', minItems = 1, maxItems = 50, items = {
       type = 'object', properties = replacement_properties, required = { 'old_text', 'new_text' }, additionalProperties = false,
     } },
@@ -51,9 +49,9 @@ M.specs = {
   spec('read_source_buffer', 'Read the ordinary buffer active before the chat opened. No path or buffer ID needed. Includes unsaved changes. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, total_lines, truncated, next_start_line, modified.', {
     start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }),
-  spec('edit_file', 'Edit a workspace file by path. Read first. Use old_text/new_text for one replacement OR edits (1-50 replacements), never both. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes. Use edit_loaded_buffer or edit_source_buffer for buffer targets.', edit_properties('path'), { 'path' }),
-  spec('edit_loaded_buffer', 'Edit a loaded ordinary buffer by ID, including unnamed or unsaved buffers. Read first. Use old_text/new_text for one replacement OR edits (1-50 replacements), never both. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties('buffer_id'), { 'buffer_id' }),
-  spec('edit_source_buffer', 'Edit the ordinary buffer active before chat opened. No path or buffer ID needed. Read first. Use old_text/new_text for one replacement OR edits (1-50 replacements), never both. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties()),
+  spec('edit_file', 'Edit a workspace file by path. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes. Use edit_loaded_buffer or edit_source_buffer for buffer targets.', edit_properties('path'), { 'path', 'edits' }),
+  spec('edit_loaded_buffer', 'Edit a loaded ordinary buffer by ID, including unnamed or unsaved buffers. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties('buffer_id'), { 'buffer_id', 'edits' }),
+  spec('edit_source_buffer', 'Edit the ordinary buffer active before chat opened. No path or buffer ID needed. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties(), { 'edits' }),
   spec('save_buffer', 'Save ALL changes in a named loaded ordinary buffer by workspace path, including the user\'s changes. Requires explicit approval with a disk-to-buffer preview. The buffer must already be loaded; no implicit save before tests.', {
     path = { type = 'string', minLength = 1 },
   }, { 'path' }),
@@ -302,7 +300,7 @@ if not buffers.valid(id) then return done('Error: saving requires an already-loa
     if not buffers.was_read(id, reads) then return done('Error: read the current file before editing') end
     if not vim.bo[id].modifiable then return done('Error: buffer is not modifiable') end
     local lines = vim.api.nvim_buf_get_lines(id, 0, -1, false)
-    local after, edit_error = edits.apply(lines, args.edits or { args })
+    local after, edit_error = edits.apply(lines, args.edits)
     if not after then return done('Error: ' .. edit_error) end
     local tick = vim.api.nvim_buf_get_changedtick(id)
     local was_modified = vim.bo[id].modified

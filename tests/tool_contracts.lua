@@ -86,16 +86,16 @@ prompt.show = function(_, _, cb) cb('once') end
 
 -- Edits in chat must follow a read of the current revision.
 local context = { read_versions = {} }
-has(run('edit_file', { path = 'new.txt', old_text = 'created', new_text = 'changed' }, context), 'read the current file')
+has(run('edit_file', { path = 'new.txt', edits = { { old_text = 'created', new_text = 'changed' } } }, context), 'read the current file')
 run('read_file', { path = 'new.txt' }, context)
-has(run('edit_file', { path = 'new.txt', old_text = 'created', new_text = 'changed' }, context), 'saved file')
-has(run('edit_file', { path = 'new.txt', old_text = 'changed', new_text = 'again' }, context), 'saved file')
+has(run('edit_file', { path = 'new.txt', edits = { { old_text = 'created', new_text = 'changed' } } }, context), 'saved file')
+has(run('edit_file', { path = 'new.txt', edits = { { old_text = 'changed', new_text = 'again' } } }, context), 'saved file')
 run('run_command', { argv = { 'sh', '-c', "printf 'external\\n' > new.txt" } })
-has(run('edit_file', { path = 'new.txt', old_text = 'external', new_text = 'bad' }, context), 'read the current file')
+has(run('edit_file', { path = 'new.txt', edits = { { old_text = 'external', new_text = 'bad' } } }, context), 'read the current file')
 run('read_file', { path = 'new.txt' }, context)
 write.show = function(_, _, cb) pending = cb end
 result = nil
-tools.execute('edit_file', { path = 'new.txt', old_text = 'external', new_text = 'bad' }, nil,
+tools.execute('edit_file', { path = 'new.txt', edits = { { old_text = 'external', new_text = 'bad' } } }, nil,
   function(value) result = value end, function() return true end, context)
 vim.fn.writefile({ 'manual on disk' }, 'new.txt')
 pending('once')

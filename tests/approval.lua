@@ -208,7 +208,7 @@ prompt_ui.ask_reviewer = function(_, _, ask, back)
 end
 local review_calls = 0
 choices = {}
-call('edit_file', { path = 'example.lua', old_text = 'before', new_text = 'after' }, {
+call('edit_file', { path = 'example.lua', edits = { { old_text = 'before', new_text = 'after' } } }, {
   diff = { path = 'example.lua', before = 'before\n', after = 'after\n' },
   review = function(history, cb)
     review_calls = review_calls + 1

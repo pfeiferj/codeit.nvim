@@ -67,28 +67,40 @@ for _, action in ipairs({ 'edit', 'save' }) do
   local by_path = read_specs[action == 'edit' and 'edit_file' or 'save_buffer']
   local by_id = read_specs[action .. '_loaded_buffer']
   local by_source = read_specs[action .. '_source_buffer']
-  assert(by_path.properties.path and not by_path.properties.buffer_id and vim.deep_equal(by_path.required, { 'path' }))
-  assert(by_id.properties.buffer_id and not by_id.properties.path and vim.deep_equal(by_id.required, { 'buffer_id' }))
+  assert(by_path.properties.path and not by_path.properties.buffer_id
+    and vim.deep_equal(by_path.required, action == 'edit' and { 'path', 'edits' } or { 'path' }))
+  assert(by_id.properties.buffer_id and not by_id.properties.path
+    and vim.deep_equal(by_id.required, action == 'edit' and { 'buffer_id', 'edits' } or { 'buffer_id' }))
   assert(not by_source.properties.path and not by_source.properties.buffer_id)
+  if action == 'edit' then
+    for _, schema in ipairs({ by_path, by_id, by_source }) do
+      assert(schema.properties.edits and schema.properties.edits.minItems == 1
+        and schema.properties.edits.items.additionalProperties == false
+        and vim.deep_equal(schema.properties.edits.items.required, { 'old_text', 'new_text' })
+        and not schema.properties.old_text and not schema.properties.new_text
+        and not schema.properties.start_line and not schema.properties.end_line
+        and vim.tbl_contains(schema.required, 'edits'))
+    end
+  end
 end
 local context = { read_versions = {} }
-has(run('edit_loaded_buffer', { buffer_id = unnamed, old_text = 'alpha', new_text = 'bad' }, nil, context), 'read the current file')
+has(run('edit_loaded_buffer', { buffer_id = unnamed, edits = { { old_text = 'alpha', new_text = 'bad' } } }, nil, context), 'read the current file')
 local read = vim.json.decode(run('read_source_buffer', {}, unnamed, context))
 assert(read.path == '' and read.buffer_id == unnamed and #read.lines == 4)
-has(run('edit_source_buffer', { old_text = 'repeat', new_text = 'changed' }, unnamed, context), 'not unique')
-has(run('edit_source_buffer', { old_text = 'repeat', new_text = 'changed', start_line = 3, end_line = 3 }, unnamed, context), 'not saved')
+has(run('edit_source_buffer', { edits = { { old_text = 'repeat', new_text = 'changed' } } }, unnamed, context), 'not unique')
+has(run('edit_source_buffer', { edits = { { old_text = 'repeat', new_text = 'changed', start_line = 3, end_line = 3 } } }, unnamed, context), 'not saved')
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(unnamed, 0, -1, false), { 'alpha', 'repeat', 'changed', 'omega' }))
 assert(preview.path == '' and preview.after:find('alpha\nrepeat\nchanged\nomega', 1, true))
-has(run('edit_loaded_buffer', { buffer_id = unnamed, old_text = 'alpha\nrepeat', new_text = 'first' }, nil, context), 'not saved')
+has(run('edit_loaded_buffer', { buffer_id = unnamed, edits = { { old_text = 'alpha\nrepeat', new_text = 'first' } } }, nil, context), 'not saved')
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(unnamed, 0, -1, false), { 'first', 'changed', 'omega' }))
 read = vim.json.decode(run('read_file', { path = 'src/file.txt' }, nil, context))
 assert(read.buffer_id == inside and read.path == dir .. '/src/file.txt')
-has(run('edit_loaded_buffer', { buffer_id = inside, old_text = 'workspace', new_text = 'saved' }, nil, context), 'saved file')
+has(run('edit_loaded_buffer', { buffer_id = inside, edits = { { old_text = 'workspace', new_text = 'saved' } } }, nil, context), 'saved file')
 assert(vim.fn.readfile('src/file.txt')[1] == 'saved')
 local new_buffer = loaded(dir .. '/new-unsaved.txt')
 vim.api.nvim_buf_set_lines(new_buffer, 0, -1, false, { 'draft' })
 assert(vim.json.decode(run('read_loaded_buffer', { buffer_id = new_buffer }, nil, context)).lines[1] == 'draft')
-has(run('edit_loaded_buffer', { buffer_id = new_buffer, old_text = 'draft', new_text = 'edited draft' }, nil, context), 'not saved')
+has(run('edit_loaded_buffer', { buffer_id = new_buffer, edits = { { old_text = 'draft', new_text = 'edited draft' } } }, nil, context), 'not saved')
 assert(vim.fn.filereadable('new-unsaved.txt') == 0 and vim.bo[new_buffer].modified)
 count = asked
 assert(vim.json.decode(run('read_loaded_buffer', { buffer_id = outside }, inside)).lines[1] == 'external')
@@ -96,13 +108,19 @@ assert(asked == count + 1, 'external buffer reads must not inherit workspace tru
 has(run('read_file', { path = 'src/file.txt', buffer_id = inside }), 'unknown argument buffer_id')
 has(run('read_loaded_buffer', { path = 'src/file.txt', buffer_id = inside }), 'unknown argument path')
 has(run('read_source_buffer', { path = 'src/file.txt' }, unnamed), 'unknown argument path')
-has(run('edit_file', { path = 'src/file.txt', buffer_id = inside, old_text = 'saved', new_text = 'bad' }), 'unknown argument buffer_id')
-has(run('edit_loaded_buffer', { buffer_id = inside, path = 'src/file.txt', old_text = 'saved', new_text = 'bad' }), 'unknown argument path')
-has(run('edit_source_buffer', { path = 'src/file.txt', old_text = 'saved', new_text = 'bad' }, inside), 'unknown argument path')
-has(run('edit_file', { old_text = 'saved', new_text = 'bad' }, inside), 'missing argument path')
-has(run('edit_loaded_buffer', { old_text = 'saved', new_text = 'bad' }, inside), 'missing argument buffer_id')
-has(run('edit_source_buffer', { old_text = 'saved', new_text = 'bad' }), 'no source buffer')
-has(run('edit_file', { path = 'src/file.txt', old_text = 'saved', new_text = 'bad', start_line = 1 }), 'both start_line')
+has(run('edit_file', { path = 'src/file.txt', buffer_id = inside, edits = { { old_text = 'saved', new_text = 'bad' } } }), 'unknown argument buffer_id')
+has(run('edit_loaded_buffer', { buffer_id = inside, path = 'src/file.txt', edits = { { old_text = 'saved', new_text = 'bad' } } }), 'unknown argument path')
+has(run('edit_source_buffer', { path = 'src/file.txt', edits = { { old_text = 'saved', new_text = 'bad' } } }, inside), 'unknown argument path')
+has(run('edit_file', { edits = { { old_text = 'saved', new_text = 'bad' } } }, inside), 'missing argument path')
+has(run('edit_loaded_buffer', { edits = { { old_text = 'saved', new_text = 'bad' } } }, inside), 'missing argument buffer_id')
+has(run('edit_source_buffer', { edits = { { old_text = 'saved', new_text = 'bad' } } }), 'no source buffer')
+has(run('edit_file', { path = 'src/file.txt', edits = { { old_text = 'saved', new_text = 'bad', start_line = 1 } } }), 'both start_line')
+has(run('edit_file', { path = 'src/file.txt' }), 'missing argument edits')
+has(run('edit_loaded_buffer', { buffer_id = inside }), 'missing argument edits')
+has(run('edit_source_buffer', {}, inside), 'missing argument edits')
+has(run('edit_file', { path = 'src/file.txt', old_text = 'saved', new_text = 'bad' }), 'missing argument edits')
+has(run('edit_source_buffer', { edits = { { old_text = 'saved', new_text = 'bad' } }, old_text = 'saved' }, inside), 'unknown argument old_text')
+has(run('edit_file', { path = 'src/file.txt', edits = { { old_text = 'saved', new_text = 'bad' } }, start_line = 1 }), 'unknown argument start_line')
 has(run('read_loaded_buffer', { buffer_id = scratch }), 'ordinary file buffers')
 has(run('read_file', {}), 'missing argument path')
 has(run('read_loaded_buffer', {}), 'missing argument buffer_id')
@@ -117,22 +135,22 @@ for i = 1, 5000 do many[i] = string.rep('x', 90) end
 many[4000] = 'unique target'
 vim.fn.writefile(many, 'large.txt')
 read = vim.json.decode(run('read_file', { path = 'large.txt', start_line = 4000, end_line = 4000 }, nil, context))
-has(run('edit_file', { path = 'large.txt', old_text = 'unique target', new_text = 'first change' }, nil, context), 'saved file')
-has(run('edit_loaded_buffer', { buffer_id = read.buffer_id, old_text = 'first change', new_text = 'second change' }, nil, context), 'saved file')
+has(run('edit_file', { path = 'large.txt', edits = { { old_text = 'unique target', new_text = 'first change' } } }, nil, context), 'saved file')
+has(run('edit_loaded_buffer', { buffer_id = read.buffer_id, edits = { { old_text = 'first change', new_text = 'second change' } } }, nil, context), 'saved file')
 local disk = vim.fn.readfile('large.txt')
 assert(#disk == 5000 and disk[3999] == many[3999] and disk[4000] == 'second change' and disk[4001] == many[4001])
 
 -- Path deletion / buffer renaming while approval is open cannot bypass guards.
 local pending, result
 writes.show = function(_, _, cb) pending = cb end
-tools.execute('edit_file', { path = 'src/file.txt', old_text = 'saved', new_text = 'bad' }, nil,
+tools.execute('edit_file', { path = 'src/file.txt', edits = { { old_text = 'saved', new_text = 'bad' } } }, nil,
   function(value) result = value end, function() return true end, context)
 vim.fn.delete('src/file.txt')
 pending('once')
 has(result, 'changed while awaiting confirmation')
 assert(vim.fn.filereadable('src/file.txt') == 0)
 result = nil
-tools.execute('edit_loaded_buffer', { buffer_id = unnamed, old_text = 'first', new_text = 'bad' }, nil,
+tools.execute('edit_loaded_buffer', { buffer_id = unnamed, edits = { { old_text = 'first', new_text = 'bad' } } }, nil,
   function(value) result = value end, function() return true end, context)
 vim.api.nvim_buf_set_name(unnamed, dir .. '/renamed.txt')
 pending('once')

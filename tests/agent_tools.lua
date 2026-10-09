@@ -51,41 +51,41 @@ local beyond = vim.json.decode(run('read_file', { path = 'sub/large.txt', start_
 assert(#beyond.lines == 0 and beyond.end_line == 299 and not beyond.truncated)
 has(run('read_file', { path = 'sub/large.txt', start_line = 5, end_line = 4 }), 'invalid range')
 has(run('read_file', { path = '../outside' }), 'outside the workspace')
-has(run('edit_file', { path = 'sub/demo.txt', old_text = 'alpha', new_text = 'gamma' }, 'reject'), 'Rejected')
+has(run('edit_file', { path = 'sub/demo.txt', edits = { { old_text = 'alpha', new_text = 'gamma' } } }, 'reject'), 'Rejected')
 assert(preview and preview.before == 'alpha\nbeta\n' and preview.after == 'gamma\nbeta\n',
   'edit preview must contain the whole file, not just the replaced text')
 assert(vim.json.decode(run('read_file', { path = 'sub/demo.txt' })).lines[1] == 'alpha')
 vim.bo[vim.fn.bufnr(dir .. '/sub/demo.txt')].modified = true -- Simulate a pre-existing unsaved edit.
-has(run('edit_file', { path = 'sub/demo.txt', old_text = 'alpha', new_text = 'gamma' }), 'not saved')
+has(run('edit_file', { path = 'sub/demo.txt', edits = { { old_text = 'alpha', new_text = 'gamma' } } }), 'not saved')
 assert(vim.json.decode(run('read_file', { path = 'sub/demo.txt' })).lines[1] == 'gamma')
 assert(vim.fn.readfile('sub/demo.txt')[1] == 'alpha', 'edits should remain unsaved')
 local edited = vim.fn.bufnr(dir .. '/sub/demo.txt')
 vim.bo[edited].endofline = false
-has(run('edit_file', { path = 'sub/demo.txt', old_text = 'gamma', new_text = 'delta' }, 'reject'), 'Rejected')
+has(run('edit_file', { path = 'sub/demo.txt', edits = { { old_text = 'gamma', new_text = 'delta' } } }, 'reject'), 'Rejected')
 assert(preview.before == 'gamma\nbeta' and preview.after == 'delta\nbeta')
 vim.bo[edited].endofline = true
-has(run('edit_file', { path = 'sub/demo.txt', old_text = 'missing', new_text = 'x' }), 'not found')
+has(run('edit_file', { path = 'sub/demo.txt', edits = { { old_text = 'missing', new_text = 'x' } } }), 'not found')
 vim.fn.writefile({ 'old', 'keep' }, 'sub/clean.txt')
 local clean = vim.fn.bufadd(dir .. '/sub/clean.txt')
 vim.fn.bufload(clean)
 assert(not vim.bo[clean].modified)
-has(run('edit_file', { path = 'sub/clean.txt', old_text = 'old', new_text = 'new' }), 'saved file')
+has(run('edit_file', { path = 'sub/clean.txt', edits = { { old_text = 'old', new_text = 'new' } } }), 'saved file')
 assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and not vim.bo[clean].modified,
   'edit_file should save clean files and clear their modified flag')
-has(run('edit_loaded_buffer', { buffer_id = clean, start_line = 2, end_line = 2,
-  old_text = 'keep', new_text = 'replaced' }), 'saved file')
+has(run('edit_loaded_buffer', { buffer_id = clean, edits = { { start_line = 2, end_line = 2,
+  old_text = 'keep', new_text = 'replaced' } } }), 'saved file')
 assert(vim.fn.readfile('sub/clean.txt')[2] == 'replaced' and not vim.bo[clean].modified,
   'edit_file by buffer ID should save clean files')
 vim.api.nvim_buf_set_lines(clean, 0, 1, false, { 'unsaved' })
-has(run('edit_loaded_buffer', { buffer_id = clean, start_line = 2, end_line = 2,
-  old_text = 'replaced', new_text = 'also unsaved' }), 'not saved')
+has(run('edit_loaded_buffer', { buffer_id = clean, edits = { { start_line = 2, end_line = 2,
+  old_text = 'replaced', new_text = 'also unsaved' } } }), 'not saved')
 assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and vim.fn.readfile('sub/clean.txt')[2] == 'replaced')
 assert(vim.bo[clean].modified and vim.api.nvim_buf_get_lines(clean, 0, 2, false)[2] == 'also unsaved',
   'existing unwritten changes must never be saved by a write tool')
 vim.api.nvim_buf_set_lines(clean, 0, 2, false, { 'new', 'replaced' })
 vim.bo[clean].modified = false
 vim.bo[clean].readonly = true
-has(run('edit_file', { path = 'sub/clean.txt', old_text = 'new', new_text = 'blocked' }),
+has(run('edit_file', { path = 'sub/clean.txt', edits = { { old_text = 'new', new_text = 'blocked' } } }),
   'could not save file')
 assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and vim.bo[clean].modified,
   'failed saves must report an error and leave the edit available in the buffer')
@@ -118,7 +118,7 @@ local pending
 write_ui.show = function(_, _, callback) pending = callback end
 local result
 local active = true
-tools.execute('edit_file', { path = 'sub/demo.txt', old_text = 'gamma', new_text = 'bad' }, nil,
+tools.execute('edit_file', { path = 'sub/demo.txt', edits = { { old_text = 'gamma', new_text = 'bad' } } }, nil,
   function(value) result = value end, function() return active end)
 vim.api.nvim_buf_set_lines(id, 0, 1, false, { 'manual' })
 pending('once')
@@ -126,7 +126,7 @@ has(result, 'changed while awaiting confirmation')
 assert(vim.api.nvim_buf_get_lines(id, 0, 1, false)[1] == 'manual')
 result = nil
 active = true
-tools.execute('edit_file', { path = 'sub/demo.txt', old_text = 'manual', new_text = 'bad' }, nil,
+tools.execute('edit_file', { path = 'sub/demo.txt', edits = { { old_text = 'manual', new_text = 'bad' } } }, nil,
   function(value) result = value end, function() return active end)
 active = false
 pending('once')

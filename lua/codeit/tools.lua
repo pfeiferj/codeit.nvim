@@ -112,14 +112,8 @@ function M.validate(name, args)
         if err then return err end
       end
       if name == 'edit_file' or name == 'edit_loaded_buffer' or name == 'edit_source_buffer' then
-        if args.edits ~= nil then
-          if args.old_text ~= nil or args.new_text ~= nil or args.start_line ~= nil or args.end_line ~= nil then
-            return 'use edits OR the single-edit fields, not both'
-          end
-        elseif args.old_text == nil or args.new_text == nil then return 'missing argument old_text or new_text' end
-        local replacements = args.edits or { args }
         local total = 0
-        for _, edit in ipairs(replacements) do
+        for _, edit in ipairs(args.edits) do
           if (edit.start_line == nil) ~= (edit.end_line == nil) then return 'edit range requires both start_line and end_line' end
           if edit.end_line and edit.end_line < edit.start_line then return 'invalid edit range' end
           if edit.old_text == '' then return 'old_text must be nonempty' end

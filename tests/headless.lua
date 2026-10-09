@@ -75,7 +75,7 @@ write_ui.show = function(diff, _, callback)
 end
 plugin.send('Change it')
 tool_reply('edit_source_buffer', {
-  start_line = 1, end_line = 1, old_text = 'before', new_text = 'after',
+  edits = { { start_line = 1, end_line = 1, old_text = 'before', new_text = 'after' } },
 })
 assert(select_callback)
 assert(edit_diff and edit_diff.before == 'before\nsecond\n' and edit_diff.after == 'after\nsecond\n',
@@ -87,7 +87,7 @@ reply({ role = 'assistant', content = 'Done.' })
 
 plugin.send('Another change')
 tool_reply('edit_source_buffer', {
-  start_line = 1, end_line = 1, old_text = 'after', new_text = 'oops',
+  edits = { { start_line = 1, end_line = 1, old_text = 'after', new_text = 'oops' } },
 })
 plugin.new()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
