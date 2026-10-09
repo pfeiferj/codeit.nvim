@@ -1,6 +1,13 @@
 local M = {}
 local runner = require('codeit.process')
 local buffers = require('codeit.file_buffer')
+local edits = require('codeit.edits')
+
+local replacement_properties = {
+  old_text = { type = 'string', minLength = 1, maxLength = 200000 },
+  new_text = { type = 'string', maxLength = 200000 },
+  start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
+}
 
 local function spec(name, description, properties, required)
   return { type = 'function', ['function'] = { name = name, description = description,
@@ -10,35 +17,49 @@ end
 
 M.specs = {
   spec('list_workspace_files', 'List workspace files respecting gitignore. Returns files, truncated, and next_offset; at most 200 files/20000 encoded bytes per page. Filtering occurs before pagination. Requires ripgrep.', {
+    directory = { type = 'string', description = 'Optional existing workspace directory, default workspace root; returned paths stay workspace-relative' },
     query = { type = 'string', description = 'Optional literal substring of the relative file path' },
     offset = { type = 'integer', minimum = 0, description = 'Skip this many matching paths (default 0); use next_offset to continue' },
   }),
   spec('search_workspace', 'Search workspace DISK text, not unsaved buffers, with ripgrep (literal, case-sensitive). Returns filenames/line numbers and exit status (1 means no matches). Respects gitignore; skips binary files, files over 1MB, and lines over 300 columns. Output limited to 20000 bytes.', {
     query = { type = 'string', description = 'Nonempty literal text, at most 500 bytes' },
+    directory = { type = 'string', description = 'Optional existing workspace directory; default root' },
+    glob = { type = 'string', maxLength = 500, description = 'Optional filename/path glob, e.g. *.lua, src/*.lua or !*.lock; filtered after gitignore. Simple Vim glob syntax; braces unsupported.' },
+    context_lines = { type = 'integer', minimum = 0, maximum = 20, description = 'Surrounding lines per match (default 0, maximum 20)' },
   }, { 'query' }),
   spec('read_file', 'Read a workspace path OR loaded ordinary buffer_id (including unnamed buffers); omit both to use the source buffer active before chat opened. Never specify both. Includes unsaved changes; clean buffers refresh from disk. Lines are 1-based/inclusive. At most 200 lines/20000 encoded bytes, even with end_line. Returns path, buffer_id, total_lines, truncated, next_start_line, modified; continue at next_start_line. Ranges past EOF return available lines.', {
     path = { type = 'string', description = 'Workspace file path; mutually exclusive with buffer_id' },
     buffer_id = { type = 'integer', minimum = 1, description = 'Loaded ordinary buffer ID; omit path and buffer_id for source buffer' },
     start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }),
-  spec('edit_file', 'Replace exactly one occurrence of nonempty old_text in a workspace path OR loaded ordinary buffer_id; omit both for source buffer. Never specify both. Works on large files and unnamed buffers. Read current contents first. Optional start_line AND end_line restrict exact-text matching to that 1-based inclusive range, useful for repeated text. old_text/new_text each at most 200KB; empty new_text deletes matched text. Requires approval; saves clean named files, leaves already-modified or unnamed buffers unsaved.', {
-    path = { type = 'string', description = 'Workspace file path; mutually exclusive with buffer_id' },
-    buffer_id = { type = 'integer', minimum = 1, description = 'Loaded ordinary buffer ID; omit both targets for source buffer' },
-    start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
-    old_text = { type = 'string' }, new_text = { type = 'string' },
-  }, { 'old_text', 'new_text' }),
+  spec('edit_file', 'Atomically replace exact text in one workspace path OR loaded ordinary buffer_id; omit both for source. Read first. Use old_text/new_text for one edit OR edits (1-50 replacements), never both. Every nonempty old_text must match once in the ORIGINAL revision; optional paired start_line/end_line scope each match. Overlaps/invalid matches reject the whole batch before approval. Total replacement text at most 200KB. One preview/approval, one buffer change; save clean named files, preserve unsaved/unnamed buffers. Disk save failure leaves the complete edit in the buffer.', {
+    path = { type = 'string', description = 'Workspace path; mutually exclusive with buffer_id' },
+    buffer_id = { type = 'integer', minimum = 1, description = 'Loaded ordinary buffer ID; omit both targets for source' },
+    start_line = replacement_properties.start_line, end_line = replacement_properties.end_line,
+    old_text = replacement_properties.old_text, new_text = replacement_properties.new_text,
+    edits = { type = 'array', minItems = 1, maxItems = 50, items = {
+      type = 'object', properties = replacement_properties, required = { 'old_text', 'new_text' }, additionalProperties = false,
+    } },
+  }),
+  spec('save_buffer', 'Save ALL current changes in a named loaded ordinary buffer, including the user\'s changes, after explicit approval with a disk-to-buffer preview. Never implicitly save before tests. Workspace path OR buffer_id; omit both for source. Does not name unnamed buffers or force overwrite externally changed files. Returns saved/not-saved; saving uses normal Neovim write hooks.', {
+    path = { type = 'string', description = 'Workspace path of an already-loaded buffer; mutually exclusive with buffer_id' },
+    buffer_id = { type = 'integer', minimum = 1 },
+  }),
   spec('create_file', 'Create a new workspace file on disk, in an existing directory (content at most 200KB). Requires confirmation; never overwrites.', {
     path = { type = 'string' }, content = { type = 'string' },
   }, { 'path', 'content' }),
   spec('run_command', 'Run a command against workspace DISK files after confirmation; unsaved edits are not included. No implicit shell. argv has 1-40 strings, each at most 4096 bytes; empty arguments allowed. Output limited to 20000 bytes, timeout 60 seconds. Cancellation terminates the process group on Unix.', {
     argv = { type = 'array', items = { type = 'string' }, description = 'Executable and arguments' },
   }, { 'argv' }),
-  spec('get_diagnostics', 'Get existing Neovim LSP/linter diagnostics for loaded workspace file buffers (at most 200). Does not run a check or wait for a fresh LSP result; an empty list does not prove tests pass. Omit path or use an empty string for all loaded workspace files.', {
-    path = { type = 'string', description = 'Optional workspace file path to filter by; empty string returns workspace diagnostics' },
+  spec('get_diagnostics', 'Get existing LSP/linter diagnostics for loaded workspace files (max 200). Omit path/empty path for all. wait_ms (0-5000) optionally waits for a matching DiagnosticChanged event, not a guaranteed complete/fresh check. With wait_ms>0 returns diagnostics, updated, timed_out, waited_ms; otherwise returns the existing array. Never runs tests or starts a linter; empty results are not proof of success.', {
+    path = { type = 'string', description = 'Optional workspace path; empty returns workspace diagnostics' },
+    wait_ms = { type = 'integer', minimum = 0, maximum = 5000, description = 'Wait for a diagnostic update, at most this many milliseconds; default 0' },
   }),
   spec('git_status', 'Read workspace Git status (short format, disk state only). Output at most 20000 bytes with a truncation marker; filesystem-monitor programs disabled.'),
-  spec('git_diff', 'Read unstaged tracked DISK changes including deleted files, not untracked files or unsaved buffers. External diff/textconv and filesystem-monitor programs are disabled. Output limited to 20000 bytes. Omit path or use an empty string for all workspace diffs.', {
-    path = { type = 'string', description = 'Optional workspace file path; empty string returns all workspace diffs' },
+  spec('git_diff', 'Read tracked DISK changes, including deleted paths, not untracked/unsaved buffers. Default unstaged; staged=true compares index to HEAD. base optionally compares working tree (or index with staged=true) to a commit, e.g. HEAD or main. Only one commit revision, not ranges. No external diff/textconv/fsmonitor programs. Output max 20000 bytes. Omit path/empty path for all workspace diffs.', {
+    path = { type = 'string', description = 'Optional workspace path; empty returns all diffs' },
+    staged = { type = 'boolean', description = 'Compare staged index instead of working tree (default false)' },
+    base = { type = 'string', minLength = 1, maxLength = 200, description = 'Optional single commit revision, resolved safely before diffing' },
   }),
   spec('fetch_url', 'Fetch an HTTP(S) URL after confirmation, including redirects. Can access local/private networks; not a public-network sandbox. Returns HTTP status, final URL, body (up to 20000 bytes), and explicit errors for non-2xx responses. curl required; timeout 15 seconds.', {
     url = { type = 'string' },
@@ -86,6 +107,20 @@ local function file_buffer(path)
   return id
 end
 
+local function directory(path, base)
+  if path == nil or path == '' or path == '.' then return base end
+  if type(path) ~= 'string' or path:find('\0', 1, true) then return nil, 'Invalid directory' end
+  local absolute = vim.fs.normalize(path:sub(1, 1) == '/' and path or base .. '/' .. path)
+  local real = vim.uv.fs_realpath(absolute)
+  if not within(absolute, base) or not real or not within(real, base) then return nil, 'Directory is outside the workspace or does not exist' end
+  if vim.uv.fs_stat(real).type ~= 'directory' then return nil, 'Not a directory' end
+  return absolute
+end
+
+local function scope(path, base)
+  return path == base and '.' or './' .. path:sub(#base + 2)
+end
+
 local function process(argv, cwd, done, active)
   return runner.run(argv, cwd, function(result) done(runner.format(result)) end, active)
 end
@@ -114,8 +149,10 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
     if vim.fn.executable('rg') ~= 1 then return done('Error: ripgrep is required') end
     local query, offset = args.query or '', args.offset or 0
     if not integer(offset, 0) then return done('Error: offset must be a nonnegative integer') end
+    local dir, dir_err = directory(args.directory, base)
+    if not dir then return done('Error: ' .. dir_err) end
     local files, pending, matched, bytes, full = {}, '', 0, 2, false
-    return runner.run({ 'rg', '--files', '--null', '--sort', 'path', '--hidden', '-g', '!.git', '.' }, base, function(result)
+    return runner.run({ 'rg', '--files', '--null', '--sort', 'path', '--hidden', '-g', '!.git', '--', scope(dir, base) }, base, function(result)
       if result.code ~= 0 and not (result.code == 1 and matched == 0) or result.timed_out then
         return done('Error: file listing failed\n' .. runner.format(result))
       end
@@ -144,7 +181,53 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
       return done('Error: query must be nonempty text of at most 500 bytes, without NUL')
     end
     if vim.fn.executable('rg') ~= 1 then return done('Error: ripgrep is required') end
-    return process({ 'rg', '-n', '--hidden', '-F', '--max-columns', '300', '--max-filesize', '1M', '-g', '!.git', '-e', args.query, '.' }, base, done, active)
+    local dir, dir_err = directory(args.directory, base)
+    if not dir then return done('Error: ' .. dir_err) end
+    if args.glob and (args.glob == '' or args.glob == '!' or args.glob:find('%c') or args.glob:find('[{}]')) then
+      return done('Error: glob must be nonempty simple glob syntax without controls or braces')
+    end
+    -- Positive rg -g filters override gitignore. Filter the structured results
+    -- instead so adding a glob never reveals ignored files.
+    local argv = { 'rg', '--json', '--hidden', '-F', '--max-columns', '300', '--max-filesize', '1M',
+      '-g', '!.git', '-C', tostring(args.context_lines or 0), '-e', args.query, '--', scope(dir, base) }
+    return require('codeit.workspace_search').run(argv, base, args, done, active)
+  elseif name == 'save_buffer' then
+    local id, err
+    if args.path then
+      local path
+      path, err = resolve(args.path, false)
+      if not path then return done('Error: ' .. err) end
+      id = vim.fn.bufnr(path)
+      if not buffers.valid(id) then return done('Error: save_buffer requires an already-loaded buffer') end
+    else
+      id, err = buffers.target(args, source)
+      if not id then return done('Error: ' .. err) end
+    end
+    if vim.bo[id].buftype ~= '' then return done('Error: Only ordinary file buffers can be saved') end
+    local path = vim.api.nvim_buf_get_name(id)
+    if path == '' then return done('Error: not saved: buffer has no file name') end
+    if prepare and not prepare(path) then return done('Error: new project instructions discovered; review them before reissuing this save') end
+    local tick, disk, eol = vim.api.nvim_buf_get_changedtick(id), buffers.disk_version(id), vim.bo[id].endofline
+    local stat = vim.uv.fs_stat(path)
+    if stat and stat.type ~= 'file' then return done('Error: not saved: target is not a regular file') end
+    local file = io.open(path, 'rb')
+    if stat and not file then return done('Error: not saved: cannot read disk contents for approval') end
+    local before = file and file:read('*a') or ''
+    if file then file:close() end
+    if before:find('\0', 1, true) then return done('Error: not saved: binary files cannot be previewed safely') end
+    local after = table.concat(vim.api.nvim_buf_get_lines(id, 0, -1, false), '\n') .. (vim.bo[id].endofline and '\n' or '')
+    return approve('Save ALL current buffer changes, including user changes, to ' .. path .. '?', function()
+      if not buffers.valid(id) or vim.api.nvim_buf_get_name(id) ~= path or vim.bo[id].buftype ~= ''
+        or vim.api.nvim_buf_get_changedtick(id) ~= tick or buffers.disk_version(id) ~= disk or vim.bo[id].endofline ~= eol then
+        return done('Error: not saved: file or buffer changed while awaiting confirmation')
+      end
+      local ok, failure = pcall(vim.api.nvim_buf_call, id, function() vim.cmd('silent keepalt write') end)
+      if not ok then return done('Error: not saved: ' .. tostring(failure)) end
+      if vim.bo[id].modified then return done('Error: not saved: buffer still has unwritten changes after write') end
+      buffers.remember(id, reads)
+      done('Saved ALL current buffer changes to ' .. path)
+    end, { path = path, filetype = vim.bo[id].filetype, before = before, after = after,
+      warning = 'SAVE ALL BUFFER CHANGES (including the user\'s edits)' })
   elseif name == 'read_file' or name == 'edit_file' or name == 'create_file' then
     local path, id, err
     if name ~= 'create_file' and args.path == nil then
@@ -198,26 +281,13 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
       return done(vim.json.encode(result))
     end
     if not buffers.was_read(id, reads) then return done('Error: read the current file before editing') end
-    if type(args.old_text) ~= 'string' or args.old_text == '' or type(args.new_text) ~= 'string'
-      or #args.old_text > 200000 or #args.new_text > 200000 then return done('Error: invalid replacement text') end
     if not vim.bo[id].modifiable then return done('Error: buffer is not modifiable') end
     local lines = vim.api.nvim_buf_get_lines(id, 0, -1, false)
-    local start, last = args.start_line or 1, args.end_line or #lines
-    if not integer(start, 1) or not integer(last, 1) or last < start or last > #lines then
-      return done('Error: invalid edit range')
-    end
-    local text = table.concat(vim.list_slice(lines, start, last), '\n')
-    local first = text:find(args.old_text, 1, true)
-    if not first then return done('Error: old_text not found; read the file again') end
-    if text:find(args.old_text, first + 1, true) then return done('Error: old_text is not unique; add context or specify start_line and end_line') end
+    local after, edit_error = edits.apply(lines, args.edits or { args })
+    if not after then return done('Error: ' .. edit_error) end
     local tick = vim.api.nvim_buf_get_changedtick(id)
     local was_modified = vim.bo[id].modified
     local disk_version = buffers.disk_version(id)
-    local replacement = text:sub(1, first - 1) .. args.new_text .. text:sub(first + #args.old_text)
-    local new_lines = vim.split(replacement, '\n', { plain = true })
-    local after = vim.list_slice(lines, 1, start - 1)
-    vim.list_extend(after, new_lines)
-    vim.list_extend(after, vim.list_slice(lines, last + 1, #lines))
     local eol = vim.bo[id].endofline and '\n' or ''
     local preview = { path = path, filetype = vim.bo[id].filetype,
       before = table.concat(lines, '\n') .. eol, after = table.concat(after, '\n') .. eol }
@@ -229,7 +299,7 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
         or not vim.bo[id].modifiable or buffers.disk_version(id) ~= disk_version then
         return done('Error: file or buffer changed while awaiting confirmation')
       end
-      local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, start - 1, last, false, new_lines)
+      local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, 0, -1, false, after)
       if not ok then return done('Error: ' .. tostring(edit_err)) end
       local result = require('codeit.write_buffer').finish(id, was_modified)
       buffers.remember(id, reads)
@@ -253,28 +323,84 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
       filter, err = resolve(args.path, true)
       if not filter then return done('Error: ' .. err) end
     end
-    local items = {}
-    for _, id in ipairs(vim.api.nvim_list_bufs()) do
+    local function eligible(id)
+      if not buffers.valid(id) or vim.bo[id].buftype ~= '' then return false end
       local path = vim.api.nvim_buf_get_name(id)
-      local checked = path ~= '' and resolve(path, true)
-      if vim.api.nvim_buf_is_loaded(id) and vim.bo[id].buftype == '' and checked and within(path, base)
-        and (not filter or path == filter) then
-        for _, diagnostic in ipairs(vim.diagnostic.get(id)) do
-          items[#items + 1] = { path = path, line = diagnostic.lnum + 1, column = diagnostic.col + 1,
-            severity = diagnostic.severity, message = diagnostic.message, source = diagnostic.source }
-          if #items >= 200 then break end
+      return path ~= '' and resolve(path, true) and within(path, base) and (not filter or path == filter)
+    end
+    local function collect()
+      local items, truncated = {}, false
+      for _, id in ipairs(vim.api.nvim_list_bufs()) do
+        if eligible(id) then
+          for _, diagnostic in ipairs(vim.diagnostic.get(id)) do
+            if #items == 200 then truncated = true; break end
+            items[#items + 1] = { path = vim.api.nvim_buf_get_name(id), line = diagnostic.lnum + 1, column = diagnostic.col + 1,
+              severity = diagnostic.severity, message = diagnostic.message, source = diagnostic.source }
+          end
         end
       end
-      if #items >= 200 then break end
+      return items, truncated
     end
-    return done(vim.json.encode(items))
+    if not args.wait_ms or args.wait_ms == 0 then
+      local items = collect()
+      return done(vim.json.encode(items))
+    end
+    local started, finished = vim.uv.hrtime(), false
+    local event, timer
+    local function cleanup()
+      if event then pcall(vim.api.nvim_del_autocmd, event) end
+      if timer then timer:stop(); timer:close() end
+    end
+    local function finish(updated)
+      if finished then return end
+      finished = true
+      cleanup()
+      if active and not active() then return end
+      local ok, items, truncated = pcall(collect)
+      if not ok then return done('Error: diagnostics collection failed: ' .. tostring(items)) end
+      done(vim.json.encode({ diagnostics = items, truncated = truncated, updated = updated, timed_out = not updated,
+        waited_ms = math.floor((vim.uv.hrtime() - started) / 1000000),
+        note = 'Observed updates are not proof of a complete or fresh check; no tests or linters were run.' }))
+    end
+    event = vim.api.nvim_create_autocmd('DiagnosticChanged', { callback = function(event_args)
+      if not finished and eligible(event_args.buf) then vim.schedule(function() finish(true) end) end
+    end })
+    timer = vim.uv.new_timer()
+    timer:start(10, 10, vim.schedule_wrap(function()
+      if finished then return end
+      if active and not active() then finished = true; cleanup(); return end
+      if (vim.uv.hrtime() - started) / 1000000 >= args.wait_ms then finish(false) end
+    end))
+    return
   elseif name == 'git_status' or name == 'git_diff' then
     if vim.fn.executable('git') ~= 1 then return done('Error: git is required') end
     local argv = { 'git', '--no-pager', '--literal-pathspecs', '-c', 'core.fsmonitor=false' }
     if name == 'git_status' then
       vim.list_extend(argv, { 'status', '--short', '--untracked-files=all', '--', '.' })
     else
-      vim.list_extend(argv, { 'diff', '--no-ext-diff', '--no-textconv', '--' })
+      vim.list_extend(argv, { 'diff', '--no-ext-diff', '--no-textconv' })
+      if args.staged then argv[#argv + 1] = '--cached' end
+      if args.base then
+        if args.base:find('%c') or args.base:sub(1, 1) == '-' then return done('Error: invalid base revision') end
+        local verify = { 'git', '--no-pager', '-c', 'core.fsmonitor=false', 'rev-parse', '--verify',
+          '--end-of-options', args.base .. '^{commit}' }
+        return runner.run(verify, base, function(result)
+          local revision = vim.trim(result.stdout or '')
+          if result.code ~= 0 or not revision:match('^%x+$') then
+            return done('Error: base must resolve to one commit\n' .. runner.format(result))
+          end
+          -- The resolved hash cannot be interpreted as an option or path.
+          argv[#argv + 1] = revision
+          argv[#argv + 1] = '--'
+          if args.path ~= nil and args.path ~= '' then
+            local path, err = git_path(args.path, base)
+            if not path then return done('Error: ' .. err) end
+            argv[#argv + 1] = path
+          else argv[#argv + 1] = '.' end
+          process(argv, base, done, active)
+        end, active)
+      end
+      argv[#argv + 1] = '--'
       if args.path ~= nil and args.path ~= '' then
         local path, err = git_path(args.path, base)
         if not path then return done('Error: ' .. err) end

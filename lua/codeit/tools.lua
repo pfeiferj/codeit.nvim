@@ -3,7 +3,7 @@ local agent_tools = require('codeit.agent_tools')
 local approval = require('codeit.approval')
 local file_buffer = require('codeit.file_buffer')
 
-local gated = { edit_file = true, create_file = true,
+local gated = { edit_file = true, create_file = true, save_buffer = true,
   run_command = true, fetch_url = true }
 
 function M.configure(opts)
@@ -23,6 +23,16 @@ M.specs = {
   },
 }
 
+M.specs[#M.specs + 1] = {
+  type = 'function', ['function'] = {
+    name = 'ask_user',
+    description = 'Pause for a necessary clarification. Ask only when inspecting the project cannot resolve it. Optional choices (up to 10) plus free-text answer. Dismissal cancels the task; never treat this answer as approval to write or save.',
+    parameters = { type = 'object', properties = {
+      question = { type = 'string', minLength = 1, maxLength = 2000 },
+      choices = { type = 'array', maxItems = 10, items = { type = 'string', minLength = 1, maxLength = 200 } },
+    }, required = { 'question' } },
+  },
+}
 vim.list_extend(M.specs, agent_tools.specs)
 M.specs[#M.specs + 1] = {
   type = 'function', ['function'] = {
@@ -49,6 +59,41 @@ end
 
 local execute_approved
 
+local function validate_value(value, property, key)
+  local kind = property.type
+  if kind == 'integer' then
+    if type(value) ~= 'number' or value == math.huge or value % 1 ~= 0
+      or value < (property.minimum or 0) or property.maximum and value > property.maximum then
+      return key .. ' must be a valid integer'
+    end
+  elseif kind == 'array' then
+    if type(value) ~= 'table' or not vim.islist(value) then return key .. ' must be an array' end
+    if #value < (property.minItems or 0) or property.maxItems and #value > property.maxItems then
+      return key .. ' has invalid number of items'
+    end
+    if property.items then
+      for index, item in ipairs(value) do
+        local err = validate_value(item, property.items, key .. '[' .. index .. ']')
+        if err then return err end
+      end
+    end
+  elseif kind == 'object' then
+    if type(value) ~= 'table' or vim.islist(value) and #value > 0 then return key .. ' must be an object' end
+    for _, required in ipairs(property.required or {}) do
+      if value[required] == nil then return key .. ': missing argument ' .. required end
+    end
+    for field, item in pairs(value) do
+      local child = property.properties[field]
+      if not child then return key .. ': unknown argument ' .. tostring(field) end
+      local err = validate_value(item, child, key .. '.' .. field)
+      if err then return err end
+    end
+  elseif type(value) ~= kind then return key .. ' must be a ' .. kind end
+  if kind == 'string' and (#value < (property.minLength or 0) or property.maxLength and #value > property.maxLength) then
+    return key .. ' has invalid length'
+  end
+end
+
 function M.validate(name, args)
   if type(name) ~= 'string' or type(args) ~= 'table' or vim.islist(args) and #args > 0 then
     return 'tool name must be a string and arguments must be an object'
@@ -62,18 +107,32 @@ function M.validate(name, args)
       for key, value in pairs(args) do
         local property = fn.parameters.properties[key]
         if not property then return 'unknown argument ' .. tostring(key) end
-        local kind = property.type
-        if kind == 'integer' then
-          if type(value) ~= 'number' or value == math.huge or value % 1 ~= 0
-            or value < (property.minimum or 0) then return key .. ' must be a valid integer' end
-        elseif kind == 'array' then
-          if type(value) ~= 'table' or not vim.islist(value) then return key .. ' must be an array' end
-        elseif type(value) ~= kind then return key .. ' must be a ' .. kind end
+        local err = validate_value(value, property, tostring(key))
+        if err then return err end
       end
-      if name == 'read_file' or name == 'edit_file' then
+      if name == 'read_file' or name == 'edit_file' or name == 'save_buffer' then
         if args.path ~= nil and args.buffer_id ~= nil then return 'specify path OR buffer_id, not both' end
-        if name == 'edit_file' and (args.start_line == nil) ~= (args.end_line == nil) then
-          return 'edit range requires both start_line and end_line'
+        if name == 'edit_file' then
+          if args.edits ~= nil then
+            if args.old_text ~= nil or args.new_text ~= nil or args.start_line ~= nil or args.end_line ~= nil then
+              return 'use edits OR the single-edit fields, not both'
+            end
+          elseif args.old_text == nil or args.new_text == nil then return 'missing argument old_text or new_text' end
+          local replacements = args.edits or { args }
+          local total = 0
+          for _, edit in ipairs(replacements) do
+            if (edit.start_line == nil) ~= (edit.end_line == nil) then return 'edit range requires both start_line and end_line' end
+            if edit.end_line and edit.end_line < edit.start_line then return 'invalid edit range' end
+            if edit.old_text == '' then return 'old_text must be nonempty' end
+            total = total + #edit.old_text + #edit.new_text
+          end
+          if total > 200000 then return 'replacement text must total at most 200KB' end
+        end
+      end
+      if name == 'ask_user' then
+        if vim.trim(args.question) == '' or args.question:find('%c') then return 'question must be nonempty single-line text' end
+        for _, choice in ipairs(args.choices or {}) do
+          if vim.trim(choice) == '' or choice:find('%c') then return 'choices must be nonempty single-line text' end
         end
       end
       return
@@ -131,6 +190,27 @@ function M.execute(name, args, source, done, active, context)
 end
 
 execute_approved = function(name, args, source, done, active, gate, reads, prepare)
+  if name == 'ask_user' then
+    local function input()
+      if active and not active() then return end
+      vim.ui.input({ prompt = 'Codeit: ' .. args.question .. ' ' }, function(answer)
+        if answer == nil then return done('Cancelled by user', 'cancel') end
+        done(vim.json.encode({ answer = answer }))
+      end)
+    end
+    if not args.choices or #args.choices == 0 then return input() end
+    local options = {}
+    for _, choice in ipairs(args.choices) do options[#options + 1] = { answer = choice, label = choice } end
+    options[#options + 1] = { label = 'Other (type an answer)' }
+    vim.ui.select(options, { prompt = 'Codeit: ' .. args.question,
+      format_item = function(item) return item.label end }, function(choice)
+      if active and not active() then return end
+      if not choice then return done('Cancelled by user', 'cancel') end
+      if choice.answer then return done(vim.json.encode({ answer = choice.answer })) end
+      input()
+    end)
+    return
+  end
   if name == 'list_buffers' then
     return done(vim.json.encode(file_buffer.list(source, args.include_external)))
   end

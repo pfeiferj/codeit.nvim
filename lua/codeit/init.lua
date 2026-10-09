@@ -522,6 +522,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
       local fn = type(call) == 'table' and call['function']
       if type(fn) == 'table' then
         local ok, args = pcall(vim.json.decode, fn.arguments or '{}')
+        if fn.name == 'ask_user' then break end -- Later calls may be invalidated by the answer.
         if ok and type(args) == 'table' and type(fn.name) == 'string' and not tools.validate(fn.name, args) then
           local prefetched, assessment = pcall(approval.prefetch, fn.name, args,
             { user_request = user_request, review = review, source_buffer = source },
@@ -553,7 +554,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
         table.insert(messages, { role = 'tool', tool_call_id = call.id, content = result })
         if type(result) == 'string' and not result:match('^Error:') and not result:match('^Rejected') then
           local path
-          if vim.tbl_contains({ 'read_file', 'edit_file', 'create_file' }, fn.name) then
+          if vim.tbl_contains({ 'read_file', 'edit_file', 'create_file', 'save_buffer' }, fn.name) then
             path = args and args.path
             if path == nil and fn.name ~= 'create_file' then
               local buffer = args and (args.buffer_id or source)
@@ -568,12 +569,14 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
             selected_skills[#selected_skills + 1] = args.name
           end
         end
-        if not prepare() then
-          -- Keep the provider protocol balanced without executing calls planned
-          -- before the newly activated instructions/skill were seen.
+        local answered = fn.name == 'ask_user' and type(result) == 'string' and result:sub(1, 1) == '{'
+        if not prepare() or answered then
+          -- Calls planned before an instruction update or clarification answer
+          -- must be reconsidered, while preserving matching tool results.
           for remaining = index + 1, #calls do
             table.insert(messages, { role = 'tool', tool_call_id = calls[remaining].id,
-              content = 'Deferred: project instructions or selected skills changed. Review the new context and reissue this call if still appropriate; it was not executed.' })
+              content = answered and 'Deferred: a user clarification was answered. Review the answer before reissuing this call; it was not executed.'
+                or 'Deferred: project instructions or selected skills changed. Review the new context and reissue this call if still appropriate; it was not executed.' })
           end
           save()
           render()

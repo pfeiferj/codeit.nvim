@@ -7,10 +7,10 @@ local options = {
   { key = '4', id = 'cancel', label = 'Cancel' },
   { key = '5', id = 'review', label = 'Ask reviewer' },
 }
-local function open(before, after, path)
+local function open(before, after, path, warning)
   local calls, result = 0, nil
   local previous = vim.api.nvim_get_current_win()
-  popup.show({ path = path or 'example.lua', before = before, after = after }, options, function(choice)
+  popup.show({ path = path or 'example.lua', before = before, after = after, warning = warning }, options, function(choice)
     calls, result = calls + 1, choice
   end)
   local win = vim.api.nvim_get_current_win()
@@ -197,6 +197,14 @@ assert(vim.api.nvim_win_get_cursor(win)[1] == 1, 'unchanged previews should open
 assert_hunk_counter(buf, 0, 0)
 maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == 1)
 close('2', 'always')
+win, buf, lines, maps, close = open('disk\n', 'all buffer changes\n', 'save.txt',
+  'SAVE ALL BUFFER CHANGES (including the user\'s edits)')
+local pinned = header_marks(buf)
+local warning_text = {}
+for _, chunk in ipairs(pinned[1][4].virt_text) do warning_text[#warning_text + 1] = chunk[1] end
+assert(table.concat(warning_text):find('SAVE ALL BUFFER CHANGES', 1, true), 'saving must show a pinned safety warning')
+assert(not table.concat(warning_text):find('1 Approve', 1, true), 'warning must have its own row')
+close('<CR>', 'once')
 local dismissed = 0
 popup.show({ path = 'example.lua', before = 'same\n', after = 'same\n' }, options, function(choice)
   assert(choice == nil)

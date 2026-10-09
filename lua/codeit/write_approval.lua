@@ -57,6 +57,7 @@ function M.show(diff, options, callback)
     labels[#labels + 1] = option.key .. ' ' .. (short[option.id] or option.label)
       .. (option.id == 'once' and ' (Enter)' or '')
   end
+  if diff.warning then table.insert(labels, 1, diff.warning) end
   labels[#labels + 1] = 'Esc Reject'
   local body, highlights, hunks = preview_lines(diff)
   local counter_width = #tostring(#hunks)
@@ -66,6 +67,10 @@ function M.show(diff, options, callback)
   local length = 0
   local width = geometry().width
   for _, label in ipairs(labels) do
+    if diff.warning and label ~= diff.warning and #headers == 1 then
+      headers[#headers + 1] = {}
+      length = 0
+    end
     local size = vim.fn.strdisplaywidth(label)
     if length > 0 and length + 2 + size > width then
       headers[#headers + 1] = {}

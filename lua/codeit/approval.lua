@@ -248,7 +248,8 @@ local assessment_system = 'You are an independent tool-call reviewer. Do not use
 function M.prefetch(name, args, context, active)
   if not context or not context.review then return nil end
   local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
-  if workspace_read(name, args, context, workspace) or name == 'edit_file' or name == 'create_file' then return nil end
+  if name == 'ask_user' or name == 'save_buffer' or workspace_read(name, args, context, workspace)
+    or name == 'edit_file' or name == 'create_file' then return nil end
   load()
   if remembered[vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args }))] then return nil end
   local summary, unsafe, ready = nil, nil, false
@@ -285,11 +286,15 @@ function M.request(name, args, prompt, active, done, action, context)
       or (decision == 'approve' and not verdict) then verdict, reason = decision, message end
   end
   if verdict == 'reject' then return done('Rejected by approval policy' .. (reason and ': ' .. tostring(reason) or '')) end
-  if verdict == 'approve' or (verdict ~= 'ask' and (remembered[signature]
-    or auto_read(name, args, workspace, context.source_buffer))) then return action() end
+  -- The question itself is the interaction: no redundant approve-this-question UI.
+  if name == 'ask_user' then return action() end
+  -- Saving user changes always needs a fresh explicit decision, even with a
+  -- remembered call or an approve validator. Reject validators still win.
+  if name ~= 'save_buffer' and (verdict == 'approve' or (verdict ~= 'ask' and (remembered[signature]
+    or auto_read(name, args, workspace, context.source_buffer)))) then return action() end
 
   local function live() return not active or active() end
-  local skip_summary = workspace_read(name, args, context, workspace)
+  local skip_summary = name == 'save_buffer' or workspace_read(name, args, context, workspace)
   local summary, unsafe = context.review and 'Waiting for provider…' or 'Review unavailable (reviewer not configured)', false
   local update_prompt
   local prompt_version = 0
@@ -326,6 +331,11 @@ function M.request(name, args, prompt, active, done, action, context)
       { key = '3', id = 'reject', label = 'Reject (optional reason)' },
       { key = '4', id = 'cancel', label = 'Cancel task' },
     }
+    if name == 'save_buffer' then
+      options[1].label = 'Save ALL buffer changes once'
+      table.remove(options, 2)
+      for index, option in ipairs(options) do option.key = tostring(index) end
+    end
     if read_tools[name] then
       options[#options + 1] = { key = '5', id = 'tracked', label = 'Trust workspace (Git-tracked reads)' }
       options[#options + 1] = { key = '6', id = 'all', label = 'Trust workspace (all reads)' }
@@ -339,6 +349,7 @@ function M.request(name, args, prompt, active, done, action, context)
       prompt_version = prompt_version + 1
       if not live() then return end
       if choice == 'once' then return action() end
+      if choice == 'always' and name == 'save_buffer' then return done('Rejected: saving requires approval once') end
       if choice == 'always' then
         remembered[signature] = true
         persist()
