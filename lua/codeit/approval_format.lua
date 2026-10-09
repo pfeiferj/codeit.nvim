@@ -51,7 +51,7 @@ function M.call(name, args)
       end
     end
   end
-  local lines = { '**' .. tostring(name):gsub('([\\`*{}%[%]()<>#!|])', '\\%1') .. '**', '' }
+  local lines = { '# ' .. tostring(name):gsub('([\\`*{}%[%]()<>#!|])', '\\%1'), '' }
   vim.list_extend(lines, markdown.fence(input, language))
   if extras and next(extras) then
     vim.list_extend(lines, { '', 'Other arguments:', '' })

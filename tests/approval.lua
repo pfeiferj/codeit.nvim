@@ -43,10 +43,10 @@ approval.setup({ validators = {} })
 choices = { 'once' }
 call('read_file', { path = 'x' })
 assert(result == 'executed' and actions == 1 and #prompts == 1)
-assert(prompts[#prompts]:find('**read_file**\n\n```json\n{\n  "path": "x"\n}\n```', 1, true))
+assert(prompts[#prompts]:find('# read_file\n\n```json\n{\n  "path": "x"\n}\n```', 1, true))
 choices = { 'reject' }; inputs = { 'do not expose this file' }
 call('run_command', { argv = { 'echo', 'a' } })
-assert(prompts[#prompts]:find('**run_command**\n\n```bash\necho a\n```', 1, true))
+assert(prompts[#prompts]:find('# run_command\n\n```bash\necho a\n```', 1, true))
 assert(result == 'Rejected by user: do not expose this file' and actions == 1)
 choices = { 'always' }
 call('run_command', { argv = { 'echo', 'a' } })

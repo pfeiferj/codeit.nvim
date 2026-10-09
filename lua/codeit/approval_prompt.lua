@@ -22,8 +22,7 @@ end
 --- Show a non-blocking keyboard-driven choice window. Each option has a single-key normal-mode mapping.
 function M.show(prompt, options, callback, config)
   config = config or {}
-  local lines = { '# ' .. vim.trim(config.title or 'Approve tool call'), '' }
-  vim.list_extend(lines, vim.split(prompt, '\n', { plain = true }))
+  local lines = vim.split(prompt, '\n', { plain = true })
   lines[#lines + 1] = ''
   lines[#lines + 1] = '## Choices'
   local choice_lines = {}
@@ -71,7 +70,7 @@ function M.show(prompt, options, callback, config)
     if finished or not vim.api.nvim_buf_is_valid(buf) then return end
     local replacement = vim.split(updated_prompt, '\n', { plain = true })
     vim.bo[buf].modifiable = true
-    vim.api.nvim_buf_set_lines(buf, 2, 2 + #vim.split(prompt, '\n', { plain = true }), false, replacement)
+    vim.api.nvim_buf_set_lines(buf, 0, #vim.split(prompt, '\n', { plain = true }), false, replacement)
     vim.bo[buf].modifiable = false
     prompt = updated_prompt
   end

@@ -8,7 +8,7 @@ local function open_and_press(key, expected, config, option_line)
   local result, calls
   calls = 0
   local previous = vim.api.nvim_get_current_win()
-  prompt.show('Read file?\nReason', options, function(choice)
+  prompt.show('# read_file\n\nRead file?\nReason', options, function(choice)
     calls = calls + 1
     result = choice or 'rejected'
   end, config)
@@ -18,6 +18,9 @@ local function open_and_press(key, expected, config, option_line)
     'decision window should fill most of the editor')
   local buf = vim.api.nvim_win_get_buf(win)
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  assert(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == '# read_file',
+    'tool name must be the only top-level Markdown heading')
+  assert(not text:find('# Approve tool call', 1, true), 'approval heading should not be duplicated')
   assert(text:find('Read file?', 1, true) and text:find('Reason', 1, true))
   assert(text:find('**[2]** Trust workspace', 1, true))
   assert(text:find('**[Esc]** ' .. (config and config.dismiss or 'Reject'), 1, true))
@@ -53,12 +56,13 @@ open_and_press('<Esc>', 'rejected')
 open_and_press('<CR>', 'tracked', { title = ' Tool-call reviewer ', dismiss = 'Back to approval' }, 2)
 open_and_press('<Esc>', 'rejected', { title = ' Tool-call reviewer ', dismiss = 'Back to approval' })
 local updated_choice
-local update = prompt.show('Run command?\n\nSummary: Waiting for provider…', options,
+local update = prompt.show('# run_command\n\nRun command?\n\nSummary: Waiting for provider…', options,
   function(choice) updated_choice = choice end)
 local updated_win = vim.api.nvim_get_current_win()
 local updated_buf = vim.api.nvim_win_get_buf(updated_win)
 local choice_row = vim.api.nvim_win_get_cursor(updated_win)[1]
-update('Run command?\n\n**Summary: Potentially unsafe.**')
+update('# run_command\n\nRun command?\n\n**Summary: Potentially unsafe.**')
+assert(vim.api.nvim_buf_get_lines(updated_buf, 0, 1, false)[1] == '# run_command')
 assert(vim.api.nvim_get_current_win() == updated_win)
 assert(vim.api.nvim_win_get_cursor(updated_win)[1] == choice_row)
 assert(table.concat(vim.api.nvim_buf_get_lines(updated_buf, 0, -1, false), '\n')
