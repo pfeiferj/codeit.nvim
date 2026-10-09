@@ -15,7 +15,7 @@ M.specs = {
   spec('read_file', 'Read a workspace file (including unsaved Neovim buffer changes). Lines are 1-based and inclusive; omitted end_line reads to EOF and a range past EOF returns the available lines.', {
     path = { type = 'string' }, start_line = { type = 'integer' }, end_line = { type = 'integer' },
   }, { 'path' }),
-  spec('edit_file', 'Replace exactly one occurrence of old_text in a workspace file buffer. Does not save the buffer. Requires confirmation; read the file first.', {
+  spec('edit_file', 'Replace exactly one occurrence of old_text in a workspace file buffer. Saves the file unless the buffer already has unwritten changes. Requires confirmation; read the file first.', {
     path = { type = 'string' }, old_text = { type = 'string' }, new_text = { type = 'string' },
   }, { 'path', 'old_text', 'new_text' }),
   spec('create_file', 'Create a new workspace file on disk, in an existing directory. Requires confirmation; never overwrites.', {
@@ -28,8 +28,8 @@ M.specs = {
     path = { type = 'string', description = 'Optional workspace file path to filter by; empty string returns workspace diagnostics' },
   }),
   spec('git_status', 'Read workspace Git status (short format).'),
-  spec('git_diff', 'Read unstaged Git diff for workspace files. Does not include untracked files.', {
-    path = { type = 'string', description = 'Optional workspace file path' },
+  spec('git_diff', 'Read unstaged Git diff for workspace files. Does not include untracked files. Omit path or pass an empty string for all workspace diffs.', {
+    path = { type = 'string', description = 'Optional workspace file path; empty string returns all workspace diffs' },
   }),
   spec('fetch_url', 'Fetch a public HTTP(S) URL after user confirmation; returns truncated response text.', {
     url = { type = 'string' },
@@ -125,9 +125,15 @@ function M.execute(name, args, done, active, approve)
     if not path then return done('Error: ' .. err) end
     if name == 'create_file' then
       if type(args.content) ~= 'string' or #args.content > 200000 then return done('Error: content must be a string of at most 200KB') end
+      local function has_unsaved_buffer()
+        local id = vim.fn.bufnr(path)
+        return id ~= -1 and vim.api.nvim_buf_is_loaded(id) and vim.bo[id].modified
+      end
+      if has_unsaved_buffer() then return done('Error: file has existing unwritten buffer changes') end
       return approve('Create ' .. path .. '?', function()
         local checked, failure = resolve(args.path, false)
         if not checked or checked ~= path then return done('Error: ' .. tostring(failure or 'Path changed')) end
+        if has_unsaved_buffer() then return done('Error: file has existing unwritten buffer changes') end
         local fd, open_err = vim.uv.fs_open(path, 'wx', 420)
         if not fd then return done('Error: ' .. tostring(open_err)) end
         local written, write_err = vim.uv.fs_write(fd, args.content, 0)
@@ -158,6 +164,7 @@ function M.execute(name, args, done, active, approve)
     if not first then return done('Error: old_text not found; read the file again') end
     if text:find(args.old_text, first + 1, true) then return done('Error: old_text is not unique') end
     local tick = vim.api.nvim_buf_get_changedtick(id)
+    local was_modified = vim.bo[id].modified
     local replacement = text:sub(1, first - 1) .. args.new_text .. text:sub(first + #args.old_text)
     local new_lines = vim.split(replacement, '\n', { plain = true })
     local eol = vim.bo[id].endofline and '\n' or ''
@@ -166,11 +173,13 @@ function M.execute(name, args, done, active, approve)
     return approve('Replace in ' .. path .. '?', function()
       local checked = resolve(args.path, true)
       if checked ~= path or not vim.api.nvim_buf_is_valid(id) or not vim.api.nvim_buf_is_loaded(id)
-        or vim.api.nvim_buf_get_changedtick(id) ~= tick or not vim.bo[id].modifiable then
+        or vim.api.nvim_buf_get_changedtick(id) ~= tick or vim.bo[id].modified ~= was_modified
+        or not vim.bo[id].modifiable then
         return done('Error: file or buffer changed while awaiting confirmation')
       end
       local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, 0, -1, false, new_lines)
-      done(ok and 'Applied edit to buffer (not saved)' or ('Error: ' .. tostring(edit_err)))
+      if not ok then return done('Error: ' .. tostring(edit_err)) end
+      done(require('codeit.write_buffer').finish(id, was_modified))
     end, preview)
   elseif name == 'run_command' then
     if type(args.argv) ~= 'table' or #args.argv == 0 or #args.argv > 40 then return done('Error: argv must be a nonempty array') end
@@ -208,7 +217,7 @@ function M.execute(name, args, done, active, approve)
       vim.list_extend(argv, { 'status', '--short', '--untracked-files=all', '--', '.' })
     else
       vim.list_extend(argv, { 'diff', '--no-ext-diff', '--' })
-      if args.path ~= nil then
+      if args.path ~= nil and args.path ~= '' then
         local path, err = resolve(args.path, true)
         if not path then return done('Error: ' .. err) end
         argv[#argv + 1] = path

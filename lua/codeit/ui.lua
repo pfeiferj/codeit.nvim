@@ -214,10 +214,13 @@ function M.render(messages, status, provider, model, billing)
   if billing then table.insert(lines, '> ' .. billing) end
   billing_line = billing
   table.insert(lines, '')
+  local tool_names = {}
   for _, message in ipairs(messages) do
     if message.role ~= 'system' then
       local label = ({ user = 'You', assistant = 'Assistant', tool = 'Tool' })[message.role] or message.role
-      if message.role == 'tool' then label = 'Tool: ' .. (message.name or message.tool_call_id or '') end
+      if message.role == 'tool' then
+        label = 'Tool: ' .. (message.name or tool_names[message.tool_call_id] or message.tool_call_id or '')
+      end
       table.insert(lines, '## ' .. label)
       local content = message.content
       if type(content) == 'table' then
@@ -231,7 +234,9 @@ function M.render(messages, status, provider, model, billing)
         vim.list_extend(lines, vim.split(content, '\n', { plain = true }))
       end
       for _, call in ipairs(message.tool_calls or {}) do
-        table.insert(lines, '*Calling `' .. (call['function'] and call['function'].name or 'unknown tool') .. '`…*')
+        local name = call['function'] and call['function'].name or 'unknown tool'
+        if call.id then tool_names[call.id] = name end
+        table.insert(lines, '*Calling `' .. name .. '`…*')
       end
       table.insert(lines, '')
     end

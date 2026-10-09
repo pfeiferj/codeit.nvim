@@ -37,7 +37,7 @@ M.specs = {
     type = 'function',
     ['function'] = {
       name = 'replace_buffer_lines',
-      description = 'Replace a range of lines in a loaded buffer after user confirmation. Lines are 1-based and inclusive; expected_text must match the existing lines exactly.',
+      description = 'Replace a range of lines in a loaded buffer after user confirmation. Saves named file buffers unless they already have unwritten changes. Lines are 1-based and inclusive; expected_text must match the existing lines exactly.',
       parameters = {
         type = 'object',
         properties = {
@@ -138,6 +138,7 @@ execute_approved = function(name, args, source, done, active, gate)
     return done('Error: buffer contents changed; read the buffer again before editing')
   end
   local changedtick = vim.api.nvim_buf_get_changedtick(id)
+  local was_modified = vim.bo[id].modified
   local replacement = args.new_text == '' and {} or vim.split(args.new_text, '\n', { plain = true })
   local before = vim.api.nvim_buf_get_lines(id, 0, -1, false)
   local after = vim.deepcopy(before)
@@ -148,12 +149,14 @@ execute_approved = function(name, args, source, done, active, gate)
     before = table.concat(before, '\n') .. eol, after = table.concat(after, '\n') .. eol }
   return gate(string.format('Replace lines %d-%d in %s?', start, last, preview.path), function()
     if active and not active() then return end
-    if not valid_buffer(id) or vim.api.nvim_buf_get_changedtick(id) ~= changedtick then
+    if not valid_buffer(id) or vim.api.nvim_buf_get_changedtick(id) ~= changedtick
+      or vim.bo[id].modified ~= was_modified then
       return done('Error: buffer changed while awaiting confirmation')
     end
     if not vim.bo[id].modifiable then return done('Error: buffer is not modifiable') end
     local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, start - 1, last, false, replacement)
-    done(ok and 'Applied edit' or ('Error: ' .. tostring(edit_err)))
+    if not ok then return done('Error: ' .. tostring(edit_err)) end
+    done(require('codeit.write_buffer').finish(id, was_modified))
   end, preview)
 end
 

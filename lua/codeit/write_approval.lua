@@ -98,7 +98,7 @@ function M.show(diff, options, callback)
   local win = vim.api.nvim_open_win(buf, true, geometry())
   vim.wo[win].wrap = false
   vim.wo[win].cursorline = false
-  vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  vim.api.nvim_win_set_cursor(win, { hunks[1] or 1, 0 })
   local function update_header()
     vim.api.nvim_buf_clear_namespace(buf, header_ns, 0, -1)
     if not vim.api.nvim_win_is_valid(win) then return end

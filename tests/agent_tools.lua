@@ -26,6 +26,12 @@ end
 has(run('create_file', { path = 'sub/demo.txt', content = 'alpha\nbeta\n' }, 'reject'), 'Rejected')
 assert(preview and preview.before == '' and preview.after == 'alpha\nbeta\n' and preview.path == dir .. '/sub/demo.txt')
 assert(vim.fn.filereadable('sub/demo.txt') == 0)
+local unwritten = vim.fn.bufadd(dir .. '/sub/unwritten.txt')
+vim.fn.bufload(unwritten)
+vim.api.nvim_buf_set_lines(unwritten, 0, -1, false, { 'my draft' })
+has(run('create_file', { path = 'sub/unwritten.txt', content = 'agent content' }), 'existing unwritten')
+assert(vim.fn.filereadable('sub/unwritten.txt') == 0 and vim.bo[unwritten].modified,
+  'create_file must not write over an unsaved new-file buffer')
 has(run('create_file', { path = 'sub/demo.txt', content = 'alpha\nbeta\n' }), 'Created')
 has(run('create_file', { path = 'sub/demo.txt', content = '' }), 'already exists')
 local read = vim.json.decode(run('read_file', { path = 'sub/demo.txt' }))
@@ -47,6 +53,7 @@ has(run('edit_file', { path = 'sub/demo.txt', old_text = 'alpha', new_text = 'ga
 assert(preview and preview.before == 'alpha\nbeta\n' and preview.after == 'gamma\nbeta\n',
   'edit preview must contain the whole file, not just the replaced text')
 assert(vim.json.decode(run('read_file', { path = 'sub/demo.txt' })).lines[1] == 'alpha')
+vim.bo[vim.fn.bufnr(dir .. '/sub/demo.txt')].modified = true -- Simulate a pre-existing unsaved edit.
 has(run('edit_file', { path = 'sub/demo.txt', old_text = 'alpha', new_text = 'gamma' }), 'not saved')
 assert(vim.json.decode(run('read_file', { path = 'sub/demo.txt' })).lines[1] == 'gamma')
 assert(vim.fn.readfile('sub/demo.txt')[1] == 'alpha', 'edits should remain unsaved')
@@ -56,6 +63,31 @@ has(run('edit_file', { path = 'sub/demo.txt', old_text = 'gamma', new_text = 'de
 assert(preview.before == 'gamma\nbeta' and preview.after == 'delta\nbeta')
 vim.bo[edited].endofline = true
 has(run('edit_file', { path = 'sub/demo.txt', old_text = 'missing', new_text = 'x' }), 'not found')
+vim.fn.writefile({ 'old', 'keep' }, 'sub/clean.txt')
+local clean = vim.fn.bufadd(dir .. '/sub/clean.txt')
+vim.fn.bufload(clean)
+assert(not vim.bo[clean].modified)
+has(run('edit_file', { path = 'sub/clean.txt', old_text = 'old', new_text = 'new' }), 'saved file')
+assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and not vim.bo[clean].modified,
+  'edit_file should save clean files and clear their modified flag')
+has(run('replace_buffer_lines', { buffer_id = clean, start_line = 2, end_line = 2,
+  expected_text = 'keep', new_text = 'replaced' }), 'saved file')
+assert(vim.fn.readfile('sub/clean.txt')[2] == 'replaced' and not vim.bo[clean].modified,
+  'replace_buffer_lines should save clean files')
+vim.api.nvim_buf_set_lines(clean, 0, 1, false, { 'unsaved' })
+has(run('replace_buffer_lines', { buffer_id = clean, start_line = 2, end_line = 2,
+  expected_text = 'replaced', new_text = 'also unsaved' }), 'not saved')
+assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and vim.fn.readfile('sub/clean.txt')[2] == 'replaced')
+assert(vim.bo[clean].modified and vim.api.nvim_buf_get_lines(clean, 0, 2, false)[2] == 'also unsaved',
+  'existing unwritten changes must never be saved by a write tool')
+vim.api.nvim_buf_set_lines(clean, 0, 2, false, { 'new', 'replaced' })
+vim.bo[clean].modified = false
+vim.bo[clean].readonly = true
+has(run('edit_file', { path = 'sub/clean.txt', old_text = 'new', new_text = 'blocked' }),
+  'could not save file')
+assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and vim.bo[clean].modified,
+  'failed saves must report an error and leave the edit available in the buffer')
+vim.bo[clean].readonly = false
 local list = vim.json.decode(run('list_workspace_files', { query = 'demo' }))
 assert(vim.tbl_contains(list, 'sub/demo.txt'))
 has(run('search_workspace', { query = 'alpha' }), 'sub/demo.txt:1:alpha')
@@ -111,6 +143,14 @@ has(run('create_file', { path = 'sub/link', content = 'x' }), 'outside the works
 vim.fn.delete(outside)
 vim.fn.system({ 'git', 'init', '-q', dir })
 has(run('git_status', {}), 'sub/demo.txt')
+vim.fn.writefile({ 'tracked' }, 'sub/tracked.txt')
+vim.fn.system({ 'git', 'add', 'sub/tracked.txt' })
+vim.fn.writefile({ 'changed' }, 'sub/tracked.txt')
+local all_diff = run('git_diff', {})
+has(all_diff, 'sub/tracked.txt')
+assert(run('git_diff', { path = '' }) == all_diff, 'empty path should return the workspace diff')
+assert(run('git_diff', { path = 'sub/tracked.txt' }) == all_diff, 'explicit file path should still work')
+has(run('git_diff', { path = '../outside' }), 'outside the workspace')
 vim.cmd.cd(root)
 vim.fn.delete(dir, 'rf')
 print('codeit agent tool tests passed')

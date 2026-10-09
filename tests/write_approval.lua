@@ -71,6 +71,7 @@ assert(table.concat(lines, '\n'):find('line 20', 1, true), 'the full file should
 local hunks = {}
 for i, line in ipairs(lines) do if line == 'line 4' or line == 'line 35' then hunks[#hunks + 1] = i end end
 assert(#hunks == 2, 'both changed regions should appear in the file')
+assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[1], 'review should open at the first hunk')
 local function scroll(topline)
   vim.api.nvim_win_call(win, function() vim.fn.winrestview({ topline = topline }) end)
   vim.api.nvim_exec_autocmds('WinScrolled', { pattern = tostring(win) })
@@ -92,7 +93,6 @@ assert(scroll(10) == header_count and scroll(20) == header_count and scroll(5) =
   'scrolling must move rather than duplicate shortcuts')
 assert(#vim.api.nvim_buf_get_extmarks(buf, namespaces['codeit-write-approval'], 0, -1, {}) == 4,
   'scrolling must preserve change highlights')
-maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[1])
 maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[2])
 maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[1])
 maps['{'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[2])
@@ -120,6 +120,7 @@ assert(table.concat(lines, '\n'):find('goodbye', 1, true) and not table.concat(l
 close('3', 'reject')
 win, buf, lines, maps, close = open('same\n', 'same\n')
 assert(table.concat(lines, '\n'):find('same', 1, true))
+assert(vim.api.nvim_win_get_cursor(win)[1] == 1, 'unchanged previews should open at the top')
 maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == 1)
 close('2', 'always')
 local dismissed = 0

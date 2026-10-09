@@ -42,12 +42,28 @@ assert(calls[1].options.stdin:find('"properties":{}', 1, true), 'empty tool prop
 wait_for_response({ provider = 'copilot', model = 'gpt-4o' })
 assert(vim.tbl_contains(calls[3].args, 'https://api.githubcopilot.com/chat/completions'))
 assert(vim.json.decode(calls[3].options.stdin).usage == nil)
-http_response = '{"error":{"message":"Invalid tool schema"}}\n400'
+local log_path = vim.fn.stdpath('state') .. '/codeit/provider-errors.log'
+local before = vim.fn.filereadable(log_path) == 1 and table.concat(vim.fn.readfile(log_path), '\n') or ''
+http_response = '{"error":{"message":"Invalid tool schema","debug":"schema details"}}\n400'
 local failure
 providers.chat({ provider = 'openrouter', model = 'openai/gpt-4o-mini' }, {}, require('codeit.tools').specs,
   function(_, err) failure = err end)
 assert(vim.wait(2000, function() return failure ~= nil end), 'timed out waiting for HTTP error')
 assert(failure == 'HTTP 400: Invalid tool schema', failure)
+local logged = table.concat(vim.fn.readfile(log_path), '\n')
+assert(#logged > #before and logged:find('openrouter/openai/gpt-4o-mini: HTTP 400: Invalid tool schema', #before + 1, true))
+assert(logged:find('schema details', #before + 1, true), 'full provider response should be logged')
+assert(not logged:find('test-openrouter-key', 1, true), 'do not log authorization tokens')
+assert(vim.uv.fs_stat(log_path).mode % 512 == 384, 'new error logs should be private')
+http_response = '{"error":{"message":"Metadata unavailable","debug":"metadata details"}}\n503'
+local metadata_error
+providers.context_limit({ provider = 'openrouter', model = 'test-metadata-error' }, function(_, err)
+  metadata_error = err
+end)
+assert(vim.wait(2000, function() return metadata_error ~= nil end), 'timed out waiting for metadata error')
+assert(metadata_error == 'HTTP 503: Metadata unavailable')
+assert(table.concat(vim.fn.readfile(log_path), '\n'):find('metadata details', #logged + 1, true),
+  'metadata provider failures should also be logged')
 vim.system = system
 vim.env.OPENROUTER_API_KEY = openrouter
 vim.env.GH_TOKEN = gh

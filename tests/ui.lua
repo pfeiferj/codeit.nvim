@@ -70,6 +70,20 @@ assert(ui.take_input() == 'first line\nsecond line')
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, -4, -1, false), { '## Message', '', '' }),
   'sending should preserve the separator')
 assert(ui.take_input() == nil, 'empty drafts should not send')
+ui.render({
+  { role = 'assistant', content = vim.NIL, tool_calls = {
+    { id = 'call_hash_1', ['function'] = { name = 'read_file', arguments = '{}' } },
+    { id = 'call_hash_2', ['function'] = { name = 'git_diff', arguments = '{}' } },
+  } },
+  { role = 'tool', tool_call_id = 'call_hash_2', content = 'diff' },
+  { role = 'tool', tool_call_id = 'call_hash_1', content = 'file' },
+  { role = 'tool', tool_call_id = 'unmatched', content = 'other' },
+}, 'Ready', 'copilot', 'model-b', nil)
+local transcript = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
+assert(transcript:find('## Tool: git_diff\ndiff', 1, true))
+assert(transcript:find('## Tool: read_file\nfile', 1, true))
+assert(transcript:find('## Tool: unmatched\nother', 1, true), 'unmatched results retain their ID')
+assert(not transcript:find('## Tool: call_hash_', 1, true), 'matched results should not show call hashes')
 ui.close()
 assert(#marks() == 0)
 ui.open(function() sent = ui.take_input() end, ui.close)
