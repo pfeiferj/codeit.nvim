@@ -140,5 +140,53 @@ assert(history.load(workspace, first_id).summary == nil, 'resuming and sending a
 assert(requests[#requests].config.provider == 'openrouter')
 assert(requests[#requests].config.model == 'openai/gpt-4o-mini')
 assert(requests[#requests].messages[3].content == 'first answer')
+-- Mixed-provider history uses the active provider/model, not saved chat settings.
+local old_copilot = {
+  provider = 'copilot', model = 'saved-copilot-model', updated_at = 1,
+  messages = {
+    { role = 'user', content = 'old Copilot task' },
+    { role = 'assistant', content = 'completed Copilot task' },
+  },
+}
+assert(history.save(workspace, 'old-copilot', old_copilot))
+plugin.setup({ provider = 'openrouter', models = { openrouter = 'active-openrouter-model' } })
+local before_mixed = #requests
+plugin.history()
+assert(#requests == before_mixed + 1)
+assert(requests[#requests].config.provider == 'openrouter', 'old Copilot chats must use active OpenRouter')
+assert(requests[#requests].config.model == 'active-openrouter-model', 'summaries must use the active model')
+plugin.history()
+assert(#requests == before_mixed + 1, 'same-provider history views still share requests')
+local openrouter_summary = responses[#responses]
+
+-- Switching providers must not reuse an in-flight request to the previous provider.
+plugin.setup({ provider = 'copilot', models = { copilot = 'active-copilot-model' } })
+plugin.history()
+assert(#requests == before_mixed + 2, 'different active providers need separate summary requests')
+assert(requests[#requests].config.provider == 'copilot')
+assert(requests[#requests].config.model == 'active-copilot-model')
+openrouter_summary({ role = 'assistant', content = 'Completed the old Copilot task.' })
+responses[#responses]({ role = 'assistant', content = 'Completed the old Copilot task.' })
+local saved_copilot = history.load(workspace, 'old-copilot')
+assert(saved_copilot.provider == 'copilot' and saved_copilot.model == 'saved-copilot-model',
+  'summarizing must not change the saved provider/model')
+
+local old_openrouter = vim.deepcopy(old_copilot)
+old_openrouter.provider, old_openrouter.model = 'openrouter', 'saved-openrouter-model'
+assert(history.save(workspace, 'old-openrouter', old_openrouter))
+plugin.history()
+assert(#requests == before_mixed + 3)
+assert(requests[#requests].config.provider == 'copilot', 'old OpenRouter chats must use active Copilot')
+assert(requests[#requests].config.model == 'active-copilot-model')
+responses[#responses]({ role = 'assistant', content = 'Completed the old OpenRouter task.' })
+
+-- A resumed chat's model override is also the active model for history summaries.
+assert(history.save(workspace, 'old-copilot', old_copilot, { clear_summary = true }))
+assert(plugin.resume('old-openrouter'))
+plugin.history()
+assert(requests[#requests].config.provider == 'openrouter')
+assert(requests[#requests].config.model == 'saved-openrouter-model')
+responses[#responses]({ role = 'assistant', content = 'Completed the old Copilot task.' })
+
 vim.fn.delete(temp, 'rf')
 print('codeit history tests passed')
