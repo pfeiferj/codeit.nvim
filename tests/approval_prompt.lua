@@ -175,4 +175,32 @@ vim.api.nvim_win_close(pending_win, true)
 assert(vim.wait(1000, function() return backs == 2 end))
 replies[3]('Late answer') -- A stale response must not reopen the reviewer.
 assert(backs == 2 and vim.api.nvim_get_current_win() == previous)
+-- Tool-limit decisions use the same keyboard-driven popup, with safe dismissal.
+local limit_prompt = require('codeit.tool_limit_prompt')
+local function limit_choice(key, expected, default_rounds)
+  local result, calls = false, 0
+  limit_prompt.show(default_rounds or 12, function() return true end, function(rounds)
+    result, calls = rounds, calls + 1
+  end)
+  local win = vim.api.nvim_get_current_win()
+  local buf = vim.api.nvim_win_get_buf(win)
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  assert(text:find('Tool limit reached', 1, true) and text:find('Individual tool approvals still apply', 1, true))
+  assert(text:find('**[Esc]** Decline additional tools', 1, true))
+  if key == 'close' then vim.api.nvim_win_close(win, true) else mapping(buf, key)() end
+  assert(vim.wait(1000, function() return calls == 1 end))
+  assert(result == expected and not vim.api.nvim_win_is_valid(win))
+  vim.wait(20)
+  assert(calls == 1, 'closing the limit popup must not decide twice')
+end
+limit_choice('1', 12)
+limit_choice('<CR>', 12)
+limit_choice('3', nil)
+limit_choice('<Esc>', nil)
+limit_choice('close', nil)
+vim.ui.input = function(opts, cb)
+  assert(opts.default == '12')
+  cb('3')
+end
+limit_choice('2', 3)
 print('codeit approval prompt tests passed')

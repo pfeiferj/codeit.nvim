@@ -1,8 +1,8 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local requests, callbacks, executed = {}, {}, {}
 package.loaded['codeit.providers'] = {
-  chat = function(config, messages, _, callback)
-    requests[#requests + 1] = { config = config, messages = vim.deepcopy(messages) }
+  chat = function(config, messages, specs, callback)
+    requests[#requests + 1] = { config = config, messages = vim.deepcopy(messages), specs = specs }
     callbacks[#callbacks + 1] = callback
   end,
 }
@@ -13,6 +13,29 @@ tools.execute = function(name, _, _, callback)
 end
 local plugin = require('codeit')
 local history = require('codeit.history')
+local prompts, pending, input = {}, nil, nil
+require('codeit.approval_prompt').show = function(text, options, cb, config)
+  assert(text:find('Tool limit reached', 1, true) and config.dismiss == 'Decline additional tools')
+  prompts[#prompts + 1] = options
+  assert(not pending, 'only one limit decision may be pending')
+  pending = cb
+end
+vim.ui.input = function(opts, cb)
+  assert(opts.prompt == 'Additional tool rounds: ')
+  input = cb
+end
+local function choose(choice)
+  local cb = pending
+  assert(cb, 'missing limit prompt')
+  pending = nil
+  cb(choice)
+end
+local function enter(value)
+  local cb = input
+  assert(cb, 'missing custom allowance prompt')
+  input = nil
+  cb(value)
+end
 local function reply(message)
   local callback = table.remove(callbacks, 1)
   assert(callback, 'missing provider callback')
@@ -54,10 +77,26 @@ for _, limit in ipairs({ 0, 1 }) do
   local before_limit = #executed
   reply(batch('blocked'))
   assert(#executed == before_limit, 'the over-limit batch must not execute')
-  assert(#callbacks == 0, 'the limit must stop further requests')
+  assert(#callbacks == 0 and pending, 'the limit must pause for the user')
   local saved = history.load(history.workspace(), id)
   assert_balanced(saved.messages)
-  assert(#saved.messages == 2 + limit * 3, 'only completed batches should be saved')
+  assert(#saved.messages == 2 + limit * 3, 'the pending batch must not be saved before a decision')
+  local count = #requests
+  plugin.send('Must wait for the decision')
+  assert(#requests == count, 'the turn must remain busy while prompting')
+  if limit == 0 then choose(nil) else choose('stop') end
+  assert(#executed == before_limit, 'declined calls must not execute')
+  assert(#callbacks == 1 and #requests[#requests].specs == 0,
+    'declining must request one tool-free final response')
+  local rejected = requests[#requests].messages
+  assert_balanced(rejected)
+  for i = #rejected - 1, #rejected do
+    assert(rejected[i].role == 'tool' and rejected[i].content:find('Error: Tool call limit reached', 1, true))
+  end
+  reply({ role = 'assistant', content = 'Stopped because no more tools were allowed.' })
+  saved = history.load(history.workspace(), id)
+  assert_balanced(saved.messages)
+  assert(#saved.messages == 6 + limit * 3, 'declined calls and final answer must be saved')
   plugin.send('Continue after the limit')
   local followup = requests[#requests].messages
   assert_balanced(followup)
@@ -70,10 +109,96 @@ for _, limit in ipairs({ 0, 1 }) do
   reply({ role = 'assistant', content = 'Still recovered.' })
 end
 
+-- Default and custom extensions apply to this turn, and can be granted repeatedly.
+plugin.setup({ max_tool_rounds = 1, max_context_tokens = false })
+plugin.send('Continue with extra tools')
+local before = #executed
+reply(batch('first'))
+reply(batch('default-extra'))
+assert(#executed == before + 2 and pending)
+local count = #requests
+choose('continue')
+assert(#executed == before + 4 and #requests == count + 1,
+  'approval must execute the held batch without re-requesting it')
+reply(batch('custom-extra'))
+choose('custom')
+for _, invalid in ipairs({ '0', '-1', '1.5', 'not a number', '1e309' }) do
+  enter(invalid)
+  assert(input and #executed == before + 4, 'invalid allowances must not execute tools')
+end
+enter('2')
+assert(#executed == before + 6)
+reply(batch('last-custom-round'))
+assert(#executed == before + 8 and not pending, 'custom allowance must cover exactly two rounds')
+reply(batch('blocked-again'))
+assert(pending and #executed == before + 8, 'exhausting the extension must prompt again')
+choose('stop')
+reply({ role = 'assistant', content = 'Done.' })
+plugin.send('Fresh turn has the original limit')
+reply(batch('new-turn-allowed'))
+reply(batch('new-turn-blocked'))
+assert(pending, 'extensions must not change the configured limit for later turns')
+choose('stop')
+reply({ role = 'assistant', content = 'Done again.' })
+
+-- Zero disables the default continuation choice but still allows a custom grant.
+plugin.setup({ max_tool_rounds = 0, max_context_tokens = false })
+plugin.send('Custom grant from zero')
+reply(batch('zero'))
+for _, option in ipairs(prompts[#prompts]) do assert(option.id ~= 'continue') end
+choose('custom')
+enter('1')
+reply({ role = 'assistant', content = 'One round was enough.' })
+
+-- Cancelling custom input declines safely; a provider cannot ignore disabled tools.
+plugin.send('Cancel the custom allowance')
+reply(batch('cancelled'))
+choose('custom')
+enter(nil)
+local prompt_count, executed_count = #prompts, #executed
+reply(batch('ignores-disabled-tools'))
+assert(#callbacks == 0 and #prompts == prompt_count and #executed == executed_count,
+  'a provider ignoring disabled tools must stop without a new prompt or execution')
+assert_balanced(history.list(history.workspace())[1].messages)
+
+-- Stale selection and input callbacks cannot resume a reset or another workspace.
+for _, custom in ipairs({ false, true }) do
+  plugin.new()
+  plugin.send('Prompt then reset')
+  reply(batch('stale'))
+  if custom then choose('custom') end
+  plugin.new()
+  if custom then enter('4') else choose('continue') end
+  assert(#callbacks == 0 and #executed == executed_count)
+end
+plugin.send('Prompt then change workspace')
+reply(batch('workspace'))
+local root, temporary = vim.fn.getcwd(), vim.fn.tempname()
+vim.fn.mkdir(temporary, 'p')
+vim.cmd.cd(temporary)
+choose('custom')
+assert(not input and #callbacks == 0 and #executed == executed_count)
+vim.cmd.cd(root)
+vim.fn.delete(temporary, 'rf')
+
+-- Malformed calls fail before asking for an extension.
+plugin.setup({ max_tool_rounds = 0, max_context_tokens = false })
+plugin.send('Malformed batch')
+prompt_count = #prompts
+local malformed = batch('duplicate')
+malformed.tool_calls[2].id = malformed.tool_calls[1].id
+reply(malformed)
+assert(#prompts == prompt_count and not pending and #callbacks == 0)
+
 -- A normal assistant response at the boundary is allowed.
 plugin.setup({ max_tool_rounds = 0, max_context_tokens = false })
 plugin.send('No tools needed')
 reply({ role = 'assistant', content = 'Finished without tools.' })
 local saved = history.list(history.workspace())[1]
 assert(saved.messages[#saved.messages].content == 'Finished without tools.')
+assert(#prompts == prompt_count, 'a final answer at the limit must not prompt')
+for _, invalid in ipairs({ -1, 0.5, '12', math.huge }) do
+  local ok, err = pcall(plugin.setup, { max_tool_rounds = invalid })
+  assert(not ok and tostring(err):find('nonnegative whole number', 1, true))
+end
 print('codeit tool limit tests passed')
