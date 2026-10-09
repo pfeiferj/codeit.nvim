@@ -51,7 +51,7 @@ local summary_row
 for i, line in ipairs(lines) do
   if line == 'Project summary.' then summary_row = i - 1; break end
 end
-assert(summary_row and table.concat(lines, '\n'):find('You are a Neovim coding agent', 1, true))
+assert(summary_row and table.concat(lines, '\n'):find('You are a coding assistant operating inside Neovim', 1, true))
 vim.api.nvim_buf_set_lines(ctx, 0, 1, false, { 'changed heading' })
 assert(not pcall(vim.cmd, 'write'))
 assert(history.load(workspace, chat_id).context_summary == 'Project summary.')
