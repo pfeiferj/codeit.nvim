@@ -16,6 +16,7 @@ local defaults = {
 }
 local config = vim.deepcopy(defaults)
 local messages = {}
+local session_prompt
 local context_summary, compacted_until
 local cost, missing_cost = 0, 0
 local tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
@@ -52,6 +53,7 @@ local function sync_workspace()
   busy = false
   workspace, chat_id, chat_model = current, nil, nil
   messages = {}
+  session_prompt = nil
   context_summary, compacted_until = nil, nil
   cost, missing_cost = 0, 0
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
@@ -115,6 +117,10 @@ local function complete()
   set_status('Ready')
 end
 
+local function current_prompt()
+  return messages[1] and messages[1].content or session_prompt or config.system_prompt
+end
+
 local function request_messages()
   if not context_summary or not compacted_until then return messages end
   local result = { messages[1], {
@@ -134,6 +140,125 @@ local function estimate_context()
   for _, message in ipairs(request_messages()) do count = count + message_tokens(message) end
   context_tokens = count
   context_estimated = true
+end
+
+local function context_guard()
+  local selected_workspace, selected_chat = workspace, chat_id
+  local view_generation, snapshot = generation, vim.json.encode({
+    messages = messages, summary = context_summary or vim.NIL, checkpoint = compacted_until or vim.NIL,
+    prompt = current_prompt(),
+  })
+  return function(refresh)
+    if refresh then
+      selected_chat = chat_id
+      snapshot = vim.json.encode({ messages = messages, summary = context_summary or vim.NIL,
+        checkpoint = compacted_until or vim.NIL, prompt = current_prompt() })
+      return true
+    end
+    if busy or generation ~= view_generation or workspace ~= selected_workspace
+      or history.workspace() ~= selected_workspace or chat_id ~= selected_chat
+      or snapshot ~= vim.json.encode({
+        messages = messages, summary = context_summary or vim.NIL, checkpoint = compacted_until or vim.NIL,
+        prompt = current_prompt(),
+      }) then
+      return false, 'conversation changed; reopen the editor before saving'
+    end
+    return true
+  end
+end
+
+local function valid_context(value)
+  if type(value) ~= 'table' or not vim.islist(value) or #value == 0 then
+    return false, 'context must be a nonempty JSON array of messages'
+  end
+  local pending = {}
+  for i, message in ipairs(value) do
+    if type(message) ~= 'table' or not vim.tbl_contains({ 'system', 'user', 'assistant', 'tool' }, message.role)
+      or (message.content ~= vim.NIL and type(message.content) ~= 'string' and type(message.content) ~= 'table') then
+      return false, 'invalid message at index ' .. i
+    end
+    if i == 1 and (message.role ~= 'system' or type(message.content) ~= 'string'
+      or vim.trim(message.content) == '') then
+      return false, 'first message must be a nonempty system prompt'
+    end
+    if type(message.content) == 'table' then
+      if not vim.islist(message.content) then return false, 'invalid content parts at index ' .. i end
+      for _, part in ipairs(message.content) do
+        if type(part) ~= 'table' or type(part.type) ~= 'string'
+          or (part.type == 'text' and type(part.text) ~= 'string') then
+          return false, 'invalid content part at index ' .. i
+        end
+      end
+    end
+    if message.tool_calls ~= nil and message.tool_calls ~= vim.NIL and message.role ~= 'assistant' then
+      return false, 'tool calls require an assistant message at index ' .. i
+    end
+    if message.tool_calls == vim.NIL then return false, 'tool calls must be an array at index ' .. i end
+    if message.role == 'assistant' and message.tool_calls ~= nil then
+      if next(pending) then return false, 'missing tool results before message ' .. i end
+      if type(message.tool_calls) ~= 'table' or not vim.islist(message.tool_calls) then
+        return false, 'invalid tool calls at index ' .. i
+      end
+      for _, call in ipairs(message.tool_calls) do
+        if type(call) ~= 'table' or type(call.id) ~= 'string' or call.id == ''
+          or pending[call.id] or type(call['function']) ~= 'table'
+          or type(call['function'].name) ~= 'string' or type(call['function'].arguments) ~= 'string' then
+          return false, 'invalid or duplicate tool call at index ' .. i
+        end
+        pending[call.id] = true
+      end
+    elseif message.role == 'tool' then
+      if type(message.tool_call_id) ~= 'string' or not pending[message.tool_call_id] then
+        return false, 'tool result without a matching call at index ' .. i
+      end
+      pending[message.tool_call_id] = nil
+    elseif next(pending) then
+      return false, 'missing tool results before message ' .. i
+    end
+  end
+  if next(pending) then return false, 'context ends with unfinished tool calls' end
+  return true
+end
+
+function M.context_full()
+  sync_workspace()
+  local guard = context_guard()
+  local effective = vim.deepcopy(request_messages())
+  if #effective == 0 then effective = { { role = 'system', content = current_prompt() } } end
+  ui.show_context_full(effective, function(edited)
+    local ok, err = guard()
+    if not ok then return false, err end
+    ok, err = valid_context(edited)
+    if not ok then return false, err end
+    messages = edited
+    session_prompt = edited[1].content
+    context_summary, compacted_until = nil, nil
+    if not chat_id then chat_id = history.new_id() end
+    estimate_context()
+    save(true)
+    guard(true)
+    render()
+    return true
+  end)
+end
+
+function M.system_prompt()
+  sync_workspace()
+  local guard = context_guard()
+  ui.show_system_prompt(current_prompt(), function(edited)
+    local ok, err = guard()
+    if not ok then return false, err end
+    if vim.trim(edited) == '' then return false, 'system prompt cannot be empty' end
+    session_prompt = edited
+    if messages[1] then messages[1].content = edited end
+    if chat_id then
+      estimate_context()
+      save()
+    end
+    guard(true)
+    render()
+    return true
+  end)
 end
 
 function M.context()
@@ -339,7 +464,7 @@ function M.send(text)
   text = text or ui.take_input()
   if not text or vim.trim(text) == '' then return end
   if #messages == 0 then
-    table.insert(messages, { role = 'system', content = config.system_prompt })
+    table.insert(messages, { role = 'system', content = current_prompt() })
   end
   table.insert(messages, { role = 'user', content = text })
   if not chat_id then chat_id = history.new_id() end
@@ -372,6 +497,7 @@ function M.new()
   busy = false
   chat_id, chat_model = nil, nil
   messages = {}
+  session_prompt = nil
   context_summary, compacted_until = nil, nil
   cost, missing_cost = 0, 0
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
@@ -402,6 +528,7 @@ function M.resume(id)
   chat_id, chat_model = id, chat.model
   config.provider = chat.provider
   messages = chat.messages
+  session_prompt = nil
   context_summary, compacted_until = chat.context_summary, chat.compacted_until
   cost, missing_cost = tonumber(chat.cost) or 0, tonumber(chat.missing_cost) or 0
   tokens_in, tokens_out = tonumber(chat.tokens_in) or 0, tonumber(chat.tokens_out) or 0
@@ -557,6 +684,10 @@ function M.setup(opts)
     { desc = 'Summarize completed conversation turns for future requests', force = true })
   vim.api.nvim_create_user_command('CodeitContext', M.context,
     { desc = 'View the effective chat context and edit its compacted summary', force = true })
+  vim.api.nvim_create_user_command('CodeitContextFull', M.context_full,
+    { desc = 'Edit the entire effective chat context as JSON', force = true })
+  vim.api.nvim_create_user_command('CodeitSystemPrompt', M.system_prompt,
+    { desc = 'Edit the system prompt for the current conversation', force = true })
   vim.api.nvim_create_user_command('CodeitHistory', M.history,
     { desc = 'Browse and resume saved chats for this workspace', force = true })
   vim.api.nvim_create_user_command('CodeitTrust', function(args)

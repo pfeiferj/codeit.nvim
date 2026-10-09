@@ -20,6 +20,8 @@ local function pretty_json(value, depth)
   return '{\n' .. table.concat(parts, ',\n') .. '\n' .. indent .. '}'
 end
 
+M.pretty_json = function(value) return pretty_json(value, 0) end
+
 local function shell_arg(arg)
   if arg:match('^[%w_@%%+=:,./-]+$') then return arg end
   return "'" .. arg:gsub("'", "'\\''") .. "'"

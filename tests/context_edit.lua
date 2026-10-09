@@ -1,0 +1,71 @@
+vim.opt.runtimepath:prepend(vim.fn.getcwd())
+local temp = vim.fn.tempname()
+vim.fn.mkdir(temp, 'p')
+vim.fn.chdir(temp)
+local history = require('codeit.history')
+local requests, callbacks = {}, {}
+package.loaded['codeit.providers'] = {
+  chat = function(_, messages, _, callback)
+    requests[#requests + 1] = vim.deepcopy(messages)
+    callbacks[#callbacks + 1] = callback
+  end,
+}
+local plugin = require('codeit')
+plugin.setup({ provider = 'openrouter', max_context_tokens = false })
+assert(vim.fn.exists(':CodeitContextFull') == 2 and vim.fn.exists(':CodeitSystemPrompt') == 2)
+plugin.system_prompt()
+local prompt = vim.fn.bufnr('codeit://system-prompt')
+vim.api.nvim_buf_set_lines(prompt, 0, -1, false, { 'Custom prompt' })
+vim.cmd('write')
+vim.cmd('close')
+plugin.send('first')
+assert(requests[1][1].content == 'Custom prompt')
+callbacks[1]({ role = 'assistant', content = 'answer' })
+local id = history.list(history.workspace())[1].id
+plugin.compact()
+callbacks[2]({ role = 'assistant', content = 'Summary.' })
+plugin.context_full()
+local buf = vim.fn.bufnr('codeit://context-full')
+local function replace(value)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false,
+    vim.split(require('codeit.approval_format').pretty_json(value), '\n', { plain = true }))
+end
+local effective = vim.json.decode(table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'))
+assert(#effective == 2 and effective[2].content:find('Summary.', 1, true))
+effective[1].content = 'Changed again'
+effective[2].content = 'Edited context'
+effective[3] = { role = 'user', content = 'Inserted turn' }
+replace(effective)
+vim.cmd('write')
+local saved = history.load(history.workspace(), id)
+assert(#saved.messages == 3 and saved.messages[3].content == 'Inserted turn')
+assert(saved.context_summary == nil and saved.compacted_until == nil)
+effective[3] = { role = 'tool', tool_call_id = 'missing', content = 'bad' }
+replace(effective)
+assert(not pcall(vim.cmd, 'write'))
+assert(history.load(history.workspace(), id).messages[3].role == 'user')
+replace(saved.messages)
+vim.cmd('write') -- repeated saves work
+vim.cmd('close')
+plugin.send('next')
+assert(requests[3][1].content == 'Changed again' and requests[3][2].content == 'Edited context')
+callbacks[3]({ role = 'assistant', content = 'done' })
+plugin.context_full()
+buf = vim.fn.bufnr('codeit://context-full')
+plugin.send('advance while editing')
+assert(not pcall(vim.cmd, 'write'))
+callbacks[4]({ role = 'assistant', content = 'advanced' })
+vim.cmd('close')
+plugin.resume(id)
+assert(history.load(history.workspace(), id).messages[1].content == 'Changed again')
+plugin.system_prompt()
+prompt = vim.fn.bufnr('codeit://system-prompt')
+vim.api.nvim_buf_set_lines(prompt, 0, -1, false, { 'Resumed prompt' })
+vim.cmd('write')
+assert(history.load(history.workspace(), id).messages[1].content == 'Resumed prompt')
+vim.cmd('close')
+plugin.new()
+plugin.send('fresh')
+assert(requests[5][1].content ~= 'Resumed prompt')
+vim.fn.delete(temp, 'rf')
+print('codeit context editing tests passed')
