@@ -1,10 +1,50 @@
 local M = {}
 local markdown = require('codeit.markdown')
+local slash_commands = require('codeit.slash_commands')
 
 local transcript, transcript_win
 local draft_start = 2 -- zero-based first line of the draft
 local billing_line
 local header_ns = vim.api.nvim_create_namespace('codeit_sticky_header')
+local slash_group = vim.api.nvim_create_augroup('codeit_slash_completion', { clear = true })
+local completion, command_results = nil, {}
+
+-- Keep the first Tab's matches even after replacing the typed prefix.
+local function tab_complete()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row, col = cursor[1], cursor[2]
+  local line = vim.api.nvim_get_current_line()
+  local prefix = line:sub(1, col)
+  local same = completion and completion.row == row and completion.col == col
+    and completion.line == line
+  if not same then
+    completion = nil
+    if row ~= draft_start + 1 or not prefix:match('^/[%w]*$') then return '<Tab>' end
+    local matches = {}
+    for _, item in ipairs(slash_commands.complete_items()) do
+      if item.word:sub(1, #prefix) == prefix then matches[#matches + 1] = item.word end
+    end
+    if #matches == 0 then return '<Tab>' end
+    completion = { matches = matches, index = 0, row = row }
+  end
+  local current = completion
+  current.index = current.index % #current.matches + 1
+  -- <Cmd> runs after <C-e> has dismissed the popup, without leaving insert mode.
+  return (vim.fn.pumvisible() == 1 and '<C-e>' or '')
+    .. '<Cmd>lua require("codeit.ui").cycle_slash()<CR>'
+end
+
+function M.cycle_slash()
+  local current = completion
+  if not current or not M.is_open() or vim.api.nvim_get_current_buf() ~= transcript then return end
+  local row, col = current.row, vim.api.nvim_win_get_cursor(0)[2]
+  if vim.api.nvim_win_get_cursor(0)[1] ~= row then return end
+  local word = current.matches[current.index]
+  vim.api.nvim_buf_set_text(transcript, row - 1, 0, row - 1, col, { word })
+  vim.api.nvim_win_set_cursor(0, { row, #word })
+  current.col = #word
+  current.line = vim.api.nvim_get_current_line()
+end
 
 local function update_header()
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
@@ -67,6 +107,7 @@ function M.open(on_send, on_close)
   vim.cmd('botright 70vsplit')
   transcript_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(transcript_win, transcript)
+  vim.bo[transcript].completeopt = 'menuone,noselect'
   vim.wo[transcript_win].wrap = true
   vim.wo[transcript_win].number = false
   vim.wo[transcript_win].relativenumber = false
@@ -75,11 +116,56 @@ function M.open(on_send, on_close)
     vim.cmd('stopinsert')
     on_send()
   end, { buffer = transcript, desc = 'Send codeit message' })
+  vim.keymap.set('i', '<CR>', function()
+    if vim.fn.pumvisible() == 1 then
+      vim.schedule(function()
+        if not M.is_open() then return end
+        local command, args = slash_commands.parse(M.peek_input() or '')
+        if command and (command.command ~= 'CodeitProvider' or args ~= '')
+          and (command.command ~= 'CodeitSend' or args ~= '') then
+          vim.cmd('stopinsert')
+          on_send()
+        end
+      end)
+      return '<C-y>'
+    end
+    local text = M.peek_input()
+    if text and slash_commands.parse(text) ~= nil then
+      vim.schedule(function()
+        if M.is_open() then
+          vim.cmd('stopinsert')
+          on_send()
+        end
+      end)
+      return ''
+    end
+    return '<CR>'
+  end, { buffer = transcript, expr = true, desc = 'Run slash command or insert newline' })
+  vim.api.nvim_clear_autocmds({ group = slash_group })
+  vim.api.nvim_create_autocmd('InsertCharPre', {
+    group = slash_group,
+    buffer = transcript,
+    callback = function()
+      if vim.v.char ~= '/' or vim.api.nvim_get_current_buf() ~= transcript then return end
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      if cursor[1] ~= draft_start + 1 or cursor[2] ~= 0 then return end
+      vim.schedule(function()
+        if not M.is_open() or vim.api.nvim_get_current_buf() ~= transcript
+          or vim.api.nvim_get_mode().mode:sub(1, 1) ~= 'i' then return end
+        local row = vim.api.nvim_win_get_cursor(0)[1]
+        if row ~= draft_start + 1 or vim.api.nvim_get_current_line():sub(1, 1) ~= '/' then return end
+        vim.fn.complete(1, slash_commands.complete_items())
+      end)
+    end,
+  })
+  vim.keymap.set('i', '<Tab>', tab_complete,
+    { buffer = transcript, expr = true, desc = 'Complete or cycle slash commands' })
   vim.keymap.set('n', 'q', on_close, { buffer = transcript, desc = 'Close codeit chat' })
   focus_draft()
 end
 
 function M.close()
+  completion = nil
   if valid(transcript_win) then vim.api.nvim_win_close(transcript_win, true) end
   transcript_win = nil
   if transcript and vim.api.nvim_buf_is_valid(transcript) then
@@ -98,13 +184,28 @@ vim.api.nvim_create_autocmd('WinClosed', {
   end,
 })
 
-function M.take_input()
+function M.peek_input()
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return nil end
   local text = vim.trim(table.concat(vim.api.nvim_buf_get_lines(transcript, draft_start, -1, false), '\n'))
   if text == '' then return nil end
+  return text
+end
+
+function M.take_input()
+  local text = M.peek_input()
+  if not text then return nil end
+  completion = nil
   vim.api.nvim_buf_set_lines(transcript, draft_start, -1, false, { '' })
   focus_draft()
   return text
+end
+
+function M.clear_command_results()
+  command_results = {}
+end
+
+function M.add_command_result(command, output)
+  command_results[#command_results + 1] = { command = command, output = output }
 end
 
 function M.render(messages, status, provider, model, billing)
@@ -134,6 +235,11 @@ function M.render(messages, status, provider, model, billing)
       end
       table.insert(lines, '')
     end
+  end
+  for _, result in ipairs(command_results) do
+    table.insert(lines, '## Command: `' .. result.command .. '`')
+    vim.list_extend(lines, vim.split(result.output, '\n', { plain = true }))
+    table.insert(lines, '')
   end
   if status and status ~= '' then table.insert(lines, '* ' .. status) end
   table.insert(lines, '')

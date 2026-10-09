@@ -4,6 +4,7 @@ local tools = require('codeit.tools')
 local approval = require('codeit.approval')
 local history = require('codeit.history')
 local history_picker = require('codeit.history_picker')
+local slash_commands = require('codeit.slash_commands')
 
 local M = {}
 local defaults = {
@@ -59,6 +60,7 @@ local function sync_workspace()
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
   context_tokens, context_estimated = nil, nil
   source = nil
+  ui.clear_command_results()
   status = 'Ready (new workspace)'
 end
 
@@ -457,12 +459,53 @@ end
 
 function M.send(text)
   sync_workspace()
+  local from_draft = text == nil
+  text = text or ui.peek_input()
+  if not text or vim.trim(text) == '' then return end
+  if from_draft then
+    local command, args = slash_commands.parse(text)
+    if command == false then
+      vim.notify('codeit: ' .. args, vim.log.levels.WARN)
+      return
+    elseif command then
+      if (command.command == 'CodeitProvider' or command.command == 'CodeitSend') and args == '' then
+        vim.notify('codeit: /' .. command.name .. ' requires an argument', vim.log.levels.WARN)
+        return
+      end
+      ui.take_input()
+      local previous_status = status
+      local notices = {}
+      local notify = vim.notify
+      vim.notify = function(message, level, opts)
+        notices[#notices + 1] = tostring(message)
+        return notify(message, level, opts)
+      end
+      local ok, result = pcall(vim.api.nvim_cmd,
+        { cmd = command.command, args = args ~= '' and { args } or {} }, { output = true })
+      vim.notify = notify
+      if not ok then
+        vim.notify('codeit: ' .. tostring(result), vim.log.levels.ERROR)
+        return
+      end
+      local output = vim.trim(table.concat(notices, '\n'))
+      if result.output and vim.trim(result.output) ~= '' then
+        local ex_output = vim.trim(result.output)
+        if output == '' then output = ex_output
+        elseif not output:find(ex_output, 1, true) then output = output .. '\n' .. ex_output end
+      end
+      if output == '' then
+        output = status ~= previous_status and status or 'Ran :' .. command.command
+      end
+      ui.add_command_result(text, output)
+      render()
+      return
+    end
+  end
   if busy then
     vim.notify('codeit: wait for the current response', vim.log.levels.WARN)
     return
   end
-  text = text or ui.take_input()
-  if not text or vim.trim(text) == '' then return end
+  if from_draft then ui.take_input() end
   if #messages == 0 then
     table.insert(messages, { role = 'system', content = current_prompt() })
   end
@@ -503,6 +546,7 @@ function M.new()
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
   context_tokens, context_estimated = nil, nil
   status = 'New conversation'
+  ui.clear_command_results()
   render()
 end
 
@@ -536,6 +580,7 @@ function M.resume(id)
   context_tokens = tonumber(chat.context_tokens)
   context_estimated = chat.context_estimated == true
   status = 'Resumed conversation'
+  ui.clear_command_results()
   M.open()
   render()
   return true
