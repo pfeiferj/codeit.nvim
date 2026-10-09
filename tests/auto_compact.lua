@@ -6,13 +6,14 @@ local history = require('codeit.history')
 local workspace = history.workspace()
 local requests, callbacks = {}, {}
 package.loaded['codeit.providers'] = {
-  chat = function(_, messages, specs, callback)
-    requests[#requests + 1] = { messages = vim.deepcopy(messages), specs = specs }
+  chat = function(config, messages, specs, callback)
+    requests[#requests + 1] = { config = vim.deepcopy(config), messages = vim.deepcopy(messages), specs = specs }
     callbacks[#callbacks + 1] = callback
   end,
 }
 local plugin = require('codeit')
-plugin.setup({ system_prompt = 'system', max_context_tokens = 400 })
+plugin.setup({ system_prompt = 'system', max_context_tokens = 400,
+  secondary_models = { openrouter = 'compact-model' } })
 local user = string.rep('u', 180)
 local answer = string.rep('a', 180)
 local function respond(index)
@@ -26,6 +27,7 @@ end
 local chat_id = history.list(workspace)[1].id
 plugin.send(user .. '4')
 assert(#requests == 4 and #requests[4].specs == 0, 'compaction must precede main request')
+assert(requests[4].config.model == 'compact-model', 'automatic compaction uses the secondary model')
 local first = requests[4].messages[2].content
 assert(first:find('Previous summary', 1, true) == nil)
 assert(first:find(user .. '1', 1, true) and first:find(user .. '2', 1, true))
@@ -37,6 +39,7 @@ callbacks[4]({ role = 'assistant', content = long_summary })
 local saved = history.load(workspace, chat_id)
 assert(saved.compacted_until == 5 and saved.context_summary == long_summary)
 assert(#requests == 5 and #requests[5].messages == 5)
+assert(requests[5].config.model == 'openai/gpt-4o-mini', 'main request keeps the main model after compaction')
 assert(requests[5].messages[2].content:find(long_summary, 1, true))
 assert(requests[5].messages[3].content == user .. '3')
 assert(requests[5].messages[5].content == user .. '4')
@@ -107,10 +110,11 @@ local metadata_callbacks = {}
 provider.context_limit = function(config, callback)
   metadata_callbacks[#metadata_callbacks + 1] = { model = config.model, callback = callback }
 end
-plugin.setup({ system_prompt = 'system' })
+plugin.setup({ system_prompt = 'system', secondary_models = { openrouter = 'compact-model' } })
 local before = #requests
 plugin.send(user .. '1')
 assert(#requests == before and #metadata_callbacks == 1)
+assert(metadata_callbacks[1].model == 'openai/gpt-4o-mini', 'threshold detection still uses the main model')
 metadata_callbacks[1].callback(400)
 assert(#requests == before + 1)
 respond(#requests)

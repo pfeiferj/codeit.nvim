@@ -33,11 +33,12 @@ local file = vim.api.nvim_get_current_buf()
 vim.api.nvim_buf_set_name(file, vim.fn.getcwd() .. '/test.lua')
 vim.api.nvim_buf_set_lines(file, 0, -1, false, { 'before', 'second' })
 local plugin = require('codeit')
-plugin.setup({ provider = 'openrouter' })
+plugin.setup({ provider = 'openrouter', secondary_models = { openrouter = 'review-model' } })
 plugin.open()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
 plugin.send('Show me the buffer')
 assert(requests[1].messages[2].content == 'Show me the buffer')
+assert(requests[1].config.model == 'openai/gpt-4o-mini', 'main requests use the main model')
 local prompt_ui = require('codeit.approval_prompt')
 local read_choice
 prompt_ui.show = function(_, _, callback) read_choice = callback end
@@ -111,13 +112,16 @@ selections = { 'review', 'reject' }
 questions = { 'What will happen?', 'Do not run it' }
 tool_reply('run_command', { argv = { 'echo', 'test' } })
 assert(#requests[#requests].specs == 0, 'reviewer must not receive tools')
+assert(requests[#requests].config.model == 'review-model', 'tool assessments use the secondary model')
 reply({ role = 'assistant', content = '{"summary":"Prints test.","safe":true}' })
 assert(#requests[#requests].specs == 0, 'follow-up reviewer must not receive tools')
+assert(requests[#requests].config.model == 'review-model', 'interactive reviewer uses the secondary model')
 reply({ role = 'assistant', content = 'It prints test.' },
   { cost = 0.000321, prompt_tokens = 40, completion_tokens = 10 })
 reviewer_back()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
 assert(vim.deep_equal(requests[#requests].specs, requests[1].specs), 'main chat must retain tools')
+assert(requests[#requests].config.model == 'openai/gpt-4o-mini', 'main chat must retain its model after review')
 -- Rejection goes into the main tool result, not into the reviewer history.
 assert(#responses == 1)
 reply({ role = 'assistant', content = 'Understood.' },

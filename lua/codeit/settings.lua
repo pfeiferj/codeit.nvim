@@ -2,6 +2,18 @@ local M = {}
 M.tiers = { '', 'default', 'flex', 'priority', 'fast', 'ultrafast' }
 M.efforts = { '', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh' }
 
+function M.validate_secondary_models(models)
+  if type(models) ~= 'table' then return false, 'invalid secondary models' end
+  for provider, model in pairs(models) do
+    if not vim.tbl_contains({ 'openrouter', 'copilot' }, provider)
+      or type(model) ~= 'string' or model:find('%c')
+      or (model ~= '' and vim.trim(model) == '') then
+      return false, 'secondary model IDs must be strings keyed by provider (blank = main model)'
+    end
+  end
+  return true
+end
+
 function M.validate(settings)
   if type(settings) ~= 'table' or not vim.tbl_contains({ 'openrouter', 'copilot' }, settings.provider)
     or type(settings.models) ~= 'table' then return false, 'invalid provider settings' end
@@ -9,6 +21,10 @@ function M.validate(settings)
     if type(settings.models[provider]) ~= 'string' or vim.trim(settings.models[provider]) == '' then
       return false, 'model IDs must be nonempty strings'
     end
+  end
+  if settings.secondary_models ~= nil then
+    local ok, err = M.validate_secondary_models(settings.secondary_models)
+    if not ok then return false, err end
   end
   local options = settings.request_options
   if type(options) ~= 'table' then return false, 'invalid request options' end
@@ -57,7 +73,11 @@ function M.resolve(base, workspace)
   for _, saved in ipairs({ data.global or {}, data.workspaces[workspace] or {} }) do
     if type(saved) ~= 'table' or next(saved) then
       local ok, message = M.validate(saved)
-      if ok then result = vim.deepcopy(saved)
+      if ok then
+        -- Legacy snapshots predate secondary models; keep the lower-precedence setting.
+        local secondary_models = result.secondary_models
+        result = vim.deepcopy(saved)
+        if result.secondary_models == nil then result.secondary_models = vim.deepcopy(secondary_models or {}) end
       else vim.notify('codeit: ignoring saved settings: ' .. message, vim.log.levels.WARN) end
     end
   end

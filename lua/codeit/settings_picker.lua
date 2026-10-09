@@ -38,9 +38,11 @@ end
 
 function M.show(current, apply, live)
   local draft = vim.deepcopy(current)
+  draft.secondary_models = draft.secondary_models or {}
   local function valid() return not live or live() end
   local menu
-  local function choose_model()
+  local function choose_model(secondary)
+    local models_setting = secondary and draft.secondary_models or draft.models
     vim.notify('codeit: loading ' .. draft.provider .. ' models…')
     providers.models(draft.provider, function(models, err)
       if not valid() then return end
@@ -56,13 +58,13 @@ function M.show(current, apply, live)
             return search()
           end
           vim.ui.select(matches, {
-            prompt = draft.provider .. ' models (' .. #matches .. ' matches)',
+            prompt = draft.provider .. (secondary and ' secondary' or '') .. ' models (' .. #matches .. ' matches)',
             format_item = function(item)
               return item.id .. (item.name and ' — ' .. item.name or '')
             end,
           }, function(item)
             if not valid() then return end
-            if item then draft.models[draft.provider] = item.id; return menu() end
+            if item then models_setting[draft.provider] = item.id; return menu() end
             search()
           end)
         end)
@@ -109,10 +111,15 @@ function M.show(current, apply, live)
   menu = function()
     if not valid() then return end
     local options = draft.request_options.openrouter or {}
+    local secondary_model = draft.secondary_models[draft.provider]
     local items = {
       { id = 'provider', label = 'Backend: ' .. draft.provider },
       { id = 'model', label = 'Search models: ' .. draft.models[draft.provider] },
       { id = 'manual', label = 'Enter model ID manually' },
+      { id = 'secondary_model', label = 'Search secondary models: '
+        .. (secondary_model and secondary_model ~= '' and secondary_model or '(main model)') },
+      { id = 'secondary_manual', label = 'Enter secondary model ID manually' },
+      { id = 'secondary_clear', label = 'Use main model for secondary tasks' },
     }
     if draft.provider == 'openrouter' then
       vim.list_extend(items, {
@@ -136,14 +143,22 @@ function M.show(current, apply, live)
           if provider then draft.provider = provider end
           menu()
         end)
-      elseif id == 'model' then
-        choose_model()
+      elseif id == 'model' or id == 'secondary_model' then
+        choose_model(id == 'secondary_model')
+      elseif id == 'secondary_clear' then
+        draft.secondary_models[draft.provider] = ''
+        menu()
       elseif id == 'preferred_provider' then
         choose_upstream(options)
-      elseif id == 'manual' then
-        vim.ui.input({ prompt = 'Model ID: ', default = draft.models[draft.provider] }, function(value)
+      elseif id == 'manual' or id == 'secondary_manual' then
+        local secondary = id == 'secondary_manual'
+        local models_setting = secondary and draft.secondary_models or draft.models
+        vim.ui.input({ prompt = secondary and 'Secondary model ID (blank = main model): ' or 'Model ID: ',
+          default = models_setting[draft.provider] or '' }, function(value)
           if not valid() then return end
-          if value ~= nil and vim.trim(value) ~= '' then draft.models[draft.provider] = vim.trim(value) end
+          if value ~= nil and (secondary or vim.trim(value) ~= '') then
+            models_setting[draft.provider] = vim.trim(value)
+          end
           menu()
         end)
       elseif id == 'service_tier' or id == 'effort' then
