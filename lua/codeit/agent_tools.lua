@@ -15,6 +15,19 @@ local function spec(name, description, properties, required)
       required = required or {}, additionalProperties = false } } }
 end
 
+local function edit_properties(target)
+  local properties = {
+    start_line = replacement_properties.start_line, end_line = replacement_properties.end_line,
+    old_text = replacement_properties.old_text, new_text = replacement_properties.new_text,
+    edits = { type = 'array', minItems = 1, maxItems = 50, items = {
+      type = 'object', properties = replacement_properties, required = { 'old_text', 'new_text' }, additionalProperties = false,
+    } },
+  }
+  if target == 'path' then properties.path = { type = 'string', minLength = 1 }
+  elseif target == 'buffer_id' then properties.buffer_id = { type = 'integer', minimum = 1 } end
+  return properties
+end
+
 M.specs = {
   spec('list_workspace_files', 'List workspace files respecting gitignore. Returns files, truncated, and next_offset; at most 200 files/20000 encoded bytes per page. Filtering occurs before pagination. Requires ripgrep.', {
     directory = { type = 'string', description = 'Optional existing workspace directory, default workspace root; returned paths stay workspace-relative' },
@@ -27,24 +40,27 @@ M.specs = {
     glob = { type = 'string', maxLength = 500, description = 'Optional filename/path glob, e.g. *.lua, src/*.lua or !*.lock; filtered after gitignore. Simple Vim glob syntax; braces unsupported.' },
     context_lines = { type = 'integer', minimum = 0, maximum = 20, description = 'Surrounding lines per match (default 0, maximum 20)' },
   }, { 'query' }),
-  spec('read_file', 'Read a workspace path OR loaded ordinary buffer_id (including unnamed buffers); omit both to use the source buffer active before chat opened. Never specify both. Includes unsaved changes; clean buffers refresh from disk. Lines are 1-based/inclusive. At most 200 lines/20000 encoded bytes, even with end_line. Returns path, buffer_id, total_lines, truncated, next_start_line, modified; continue at next_start_line. Ranges past EOF return available lines.', {
-    path = { type = 'string', description = 'Workspace file path; mutually exclusive with buffer_id' },
-    buffer_id = { type = 'integer', minimum = 1, description = 'Loaded ordinary buffer ID; omit path and buffer_id for source buffer' },
+  spec('read_file', 'Read a workspace file by path, including unsaved changes if loaded. Clean buffers refresh from disk. Lines are 1-based/inclusive. At most 200 lines/20000 encoded bytes, even with end_line. Returns path, buffer_id, total_lines, truncated, next_start_line, modified; continue at next_start_line. Ranges past EOF return available lines. For a loaded buffer ID or the source buffer, use read_loaded_buffer or read_source_buffer instead.', {
+    path = { type = 'string', minLength = 1, description = 'Workspace file path (required). Do not pass a buffer ID.' },
+    start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
+  }, { 'path' }),
+  spec('read_loaded_buffer', 'Read a loaded ordinary buffer by ID, including unnamed buffers and unsaved changes. Use read_file instead for a workspace path. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, total_lines, truncated, next_start_line, modified.', {
+    buffer_id = { type = 'integer', minimum = 1, description = 'Loaded ordinary buffer ID (required). Do not pass a path.' },
+    start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
+  }, { 'buffer_id' }),
+  spec('read_source_buffer', 'Read the ordinary buffer active before the chat opened. No path or buffer ID needed. Includes unsaved changes. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, total_lines, truncated, next_start_line, modified.', {
     start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }),
-  spec('edit_file', 'Atomically replace exact text in one workspace path OR loaded ordinary buffer_id; omit both for source. Read first. Use old_text/new_text for one edit OR edits (1-50 replacements), never both. Every nonempty old_text must match once in the ORIGINAL revision; optional paired start_line/end_line scope each match. Overlaps/invalid matches reject the whole batch before approval. Total replacement text at most 200KB. One preview/approval, one buffer change; save clean named files, preserve unsaved/unnamed buffers. Disk save failure leaves the complete edit in the buffer.', {
-    path = { type = 'string', description = 'Workspace path; mutually exclusive with buffer_id' },
-    buffer_id = { type = 'integer', minimum = 1, description = 'Loaded ordinary buffer ID; omit both targets for source' },
-    start_line = replacement_properties.start_line, end_line = replacement_properties.end_line,
-    old_text = replacement_properties.old_text, new_text = replacement_properties.new_text,
-    edits = { type = 'array', minItems = 1, maxItems = 50, items = {
-      type = 'object', properties = replacement_properties, required = { 'old_text', 'new_text' }, additionalProperties = false,
-    } },
-  }),
-  spec('save_buffer', 'Save ALL current changes in a named loaded ordinary buffer, including the user\'s changes, after explicit approval with a disk-to-buffer preview. Never implicitly save before tests. Workspace path OR buffer_id; omit both for source. Does not name unnamed buffers or force overwrite externally changed files. Returns saved/not-saved; saving uses normal Neovim write hooks.', {
-    path = { type = 'string', description = 'Workspace path of an already-loaded buffer; mutually exclusive with buffer_id' },
+  spec('edit_file', 'Edit a workspace file by path. Read first. Use old_text/new_text for one replacement OR edits (1-50 replacements), never both. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes. Use edit_loaded_buffer or edit_source_buffer for buffer targets.', edit_properties('path'), { 'path' }),
+  spec('edit_loaded_buffer', 'Edit a loaded ordinary buffer by ID, including unnamed or unsaved buffers. Read first. Use old_text/new_text for one replacement OR edits (1-50 replacements), never both. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties('buffer_id'), { 'buffer_id' }),
+  spec('edit_source_buffer', 'Edit the ordinary buffer active before chat opened. No path or buffer ID needed. Read first. Use old_text/new_text for one replacement OR edits (1-50 replacements), never both. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties()),
+  spec('save_buffer', 'Save ALL changes in a named loaded ordinary buffer by workspace path, including the user\'s changes. Requires explicit approval with a disk-to-buffer preview. The buffer must already be loaded; no implicit save before tests.', {
+    path = { type = 'string', minLength = 1 },
+  }, { 'path' }),
+  spec('save_loaded_buffer', 'Save ALL changes in a named loaded ordinary buffer by ID, including the user\'s changes. Requires explicit approval with a disk-to-buffer preview. Does not name unnamed buffers or force overwrite externally changed files.', {
     buffer_id = { type = 'integer', minimum = 1 },
-  }),
+  }, { 'buffer_id' }),
+  spec('save_source_buffer', 'Save ALL changes in the named ordinary buffer active before chat opened, including the user\'s changes. No target argument needed. Requires explicit approval with a disk-to-buffer preview; cannot name unnamed buffers.'),
   spec('create_file', 'Create a new workspace file on disk, in an existing directory (content at most 200KB). Requires confirmation; never overwrites.', {
     path = { type = 'string' }, content = { type = 'string' },
   }, { 'path', 'content' }),
@@ -191,14 +207,14 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
     local argv = { 'rg', '--json', '--hidden', '-F', '--max-columns', '300', '--max-filesize', '1M',
       '-g', '!.git', '-C', tostring(args.context_lines or 0), '-e', args.query, '--', scope(dir, base) }
     return require('codeit.workspace_search').run(argv, base, args, done, active)
-  elseif name == 'save_buffer' then
+  elseif name == 'save_buffer' or name == 'save_loaded_buffer' or name == 'save_source_buffer' then
     local id, err
     if args.path then
       local path
       path, err = resolve(args.path, false)
       if not path then return done('Error: ' .. err) end
       id = vim.fn.bufnr(path)
-      if not buffers.valid(id) then return done('Error: save_buffer requires an already-loaded buffer') end
+if not buffers.valid(id) then return done('Error: saving requires an already-loaded buffer') end
     else
       id, err = buffers.target(args, source)
       if not id then return done('Error: ' .. err) end
@@ -228,7 +244,10 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
       done('Saved ALL current buffer changes to ' .. path)
     end, { path = path, filetype = vim.bo[id].filetype, before = before, after = after,
       warning = 'SAVE ALL BUFFER CHANGES (including the user\'s edits)' })
-  elseif name == 'read_file' or name == 'edit_file' or name == 'create_file' then
+  elseif name == 'read_file' or name == 'read_loaded_buffer' or name == 'read_source_buffer'
+    or name == 'edit_file' or name == 'edit_loaded_buffer' or name == 'edit_source_buffer'
+    or name == 'create_file' then
+    local reading = name == 'read_file' or name == 'read_loaded_buffer' or name == 'read_source_buffer'
     local path, id, err
     if name ~= 'create_file' and args.path == nil then
       id, err = buffers.target(args, source)
@@ -239,7 +258,7 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
       if not path then return done('Error: ' .. err) end
     end
     local original_path = path
-    if name ~= 'read_file' and prepare and not prepare(path) then
+    if not reading and prepare and not prepare(path) then
       return done('Error: new project instructions discovered; review them before reissuing this write')
     end
     if name == 'create_file' then
@@ -269,7 +288,7 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
       id, err = file_buffer(path)
       if not id then return done('Error: ' .. err) end
     end
-    if name == 'read_file' then
+    if reading then
       local start, last = args.start_line or 1, args.end_line
       if not integer(start, 1) or last ~= nil and (not integer(last, 1) or last < start) then
         return done('Error: invalid range')

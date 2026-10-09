@@ -41,7 +41,7 @@ assert(requests[1].messages[2].content == 'Show me the buffer')
 local prompt_ui = require('codeit.approval_prompt')
 local read_choice
 prompt_ui.show = function(_, _, callback) read_choice = callback end
-tool_reply('read_file', { start_line = 1, end_line = 1 })
+tool_reply('read_source_buffer', { start_line = 1, end_line = 1 })
 assert(read_choice, 'untrusted buffer reads must request approval immediately')
 assert(#requests == 1, 'workspace reads must not request a summary')
 read_choice('once')
@@ -74,7 +74,7 @@ write_ui.show = function(diff, _, callback)
   edit_diff = diff
 end
 plugin.send('Change it')
-tool_reply('edit_file', {
+tool_reply('edit_source_buffer', {
   start_line = 1, end_line = 1, old_text = 'before', new_text = 'after',
 })
 assert(select_callback)
@@ -86,7 +86,7 @@ assert(first_line(file) == 'after')
 reply({ role = 'assistant', content = 'Done.' })
 
 plugin.send('Another change')
-tool_reply('edit_file', {
+tool_reply('edit_source_buffer', {
   start_line = 1, end_line = 1, old_text = 'after', new_text = 'oops',
 })
 plugin.new()

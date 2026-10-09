@@ -554,7 +554,9 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
         table.insert(messages, { role = 'tool', tool_call_id = call.id, content = result })
         if type(result) == 'string' and not result:match('^Error:') and not result:match('^Rejected') then
           local path
-          if vim.tbl_contains({ 'read_file', 'edit_file', 'create_file', 'save_buffer' }, fn.name) then
+          if vim.tbl_contains({ 'read_file', 'read_loaded_buffer', 'read_source_buffer',
+            'edit_file', 'edit_loaded_buffer', 'edit_source_buffer', 'create_file',
+            'save_buffer', 'save_loaded_buffer', 'save_source_buffer' }, fn.name) then
             path = args and args.path
             if path == nil and fn.name ~= 'create_file' then
               local buffer = args and (args.buffer_id or source)

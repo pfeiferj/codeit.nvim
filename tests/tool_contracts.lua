@@ -46,7 +46,7 @@ assert(vim.json.decode(run('read_file', { path = 'sample.txt' })).lines[1] == 'a
 local id = vim.fn.bufnr(dir .. '/sample.txt')
 vim.api.nvim_buf_set_lines(id, 0, -1, false, { 'unsaved' })
 vim.fn.writefile({ 'external' }, 'sample.txt')
-assert(vim.json.decode(run('read_file', { buffer_id = id })).lines[1] == 'unsaved')
+assert(vim.json.decode(run('read_loaded_buffer', { buffer_id = id })).lines[1] == 'unsaved')
 local clean = vim.fn.bufadd(dir .. '/new.txt')
 vim.fn.bufload(clean)
 has(run('create_file', { path = 'new.txt', content = 'created\n' }), 'Created')
@@ -68,14 +68,14 @@ has(run('read_file', { path = 'long-line.txt' }), 'Line exceeds')
 -- Invalid arguments are ordinary errors; deferred approval actions are guarded too.
 for _, args in ipairs({ { buffer_id = id, start_line = 'bad' }, { buffer_id = 1.5 },
   { buffer_id = vim.NIL }, { buffer_id = id, end_line = false } }) do
-  has(run('read_file', args), 'Error:')
+  has(run('read_loaded_buffer', args), 'Error:')
 end
 has(run('run_command', { argv = { [1] = 'echo', extra = 'x' } }), 'Error:')
 has(run('run_command', { argv = { 'echo', '\0' } }), 'Error:')
 has(run('run_command', { argv = { 'printf', '<%s>', '' } }), '<>')
 local pending, result
 prompt.show = function(_, _, cb) pending = cb end
-tools.execute('read_file', { buffer_id = clean }, nil, function(value) result = value end,
+tools.execute('read_loaded_buffer', { buffer_id = clean }, nil, function(value) result = value end,
   function() return true end)
 local get = vim.api.nvim_buf_get_lines
 vim.api.nvim_buf_get_lines = function() error('simulated API failure') end

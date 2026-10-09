@@ -43,20 +43,20 @@ for _, invalid in ipairs({
   { { old_text = 'second', new_text = 'ok' }, { old_text = 'last', new_text = 'no', start_line = 99, end_line = 99 } },
 }) do
   count = approvals
-  has(run('edit_file', { buffer_id = read.buffer_id, edits = invalid }, nil, ctx), 'Error:')
+  has(run('edit_loaded_buffer', { buffer_id = read.buffer_id, edits = invalid }, nil, ctx), 'Error:')
   assert(content(read.buffer_id) == original and approvals == count, 'invalid batches must not mutate or prompt')
 end
-has(run('edit_file', { buffer_id = read.buffer_id, edits = {}, old_text = 'beta', new_text = 'bad' }), 'Error:')
-has(run('edit_file', { buffer_id = read.buffer_id, edits = { { old_text = 'beta' } } }), 'Error:')
-has(run('edit_file', { buffer_id = read.buffer_id, edits = { { old_text = 'beta', new_text = 'x', extra = 1 } } }), 'Error:')
-has(run('edit_file', { buffer_id = read.buffer_id, edits = { { old_text = 'beta', new_text = 'x', start_line = 1.5, end_line = 1 } } }), 'Error:')
+has(run('edit_loaded_buffer', { buffer_id = read.buffer_id, edits = {}, old_text = 'beta', new_text = 'bad' }), 'Error:')
+has(run('edit_loaded_buffer', { buffer_id = read.buffer_id, edits = { { old_text = 'beta' } } }), 'Error:')
+has(run('edit_loaded_buffer', { buffer_id = read.buffer_id, edits = { { old_text = 'beta', new_text = 'x', extra = 1 } } }), 'Error:')
+has(run('edit_loaded_buffer', { buffer_id = read.buffer_id, edits = { { old_text = 'beta', new_text = 'x', start_line = 1.5, end_line = 1 } } }), 'Error:')
 choice = 'reject'
-has(run('edit_file', { buffer_id = read.buffer_id, edits = { { old_text = 'beta', new_text = 'bad' } } }, nil, ctx), 'Rejected')
+has(run('edit_loaded_buffer', { buffer_id = read.buffer_id, edits = { { old_text = 'beta', new_text = 'bad' } } }, nil, ctx), 'Rejected')
 assert(content(read.buffer_id) == original)
 choice = 'once'
 local pending, result
 writes.show = function(diff, _, cb) preview = diff; pending = cb end
-tools.execute('edit_file', { buffer_id = read.buffer_id, edits = { { old_text = 'beta', new_text = 'bad' } } }, nil,
+tools.execute('edit_loaded_buffer', { buffer_id = read.buffer_id, edits = { { old_text = 'beta', new_text = 'bad' } } }, nil,
   function(value) result = value end, function() return true end, ctx)
 vim.api.nvim_buf_set_lines(read.buffer_id, 0, 1, false, { 'user edit' })
 pending('once')
@@ -66,7 +66,7 @@ writes.show = function(_, _, cb) cb('once') end
 vim.fn.writefile({ 'one', 'two' }, 'src/fail-save.txt')
 local failure_id = loaded(dir .. '/src/fail-save.txt')
 vim.bo[failure_id].readonly = true
-has(run('edit_file', { buffer_id = failure_id, edits = {
+has(run('edit_loaded_buffer', { buffer_id = failure_id, edits = {
   { old_text = 'one', new_text = 'first' }, { old_text = 'two', new_text = 'second' },
 } }), 'could not save file')
 assert(content(failure_id) == 'first\nsecond' and vim.bo[failure_id].modified)
@@ -84,7 +84,7 @@ writes.show = function(diff, options, cb)
 end
 approval.setup({ trusted_workspaces = { [dir] = 'all' }, validators = { function() return 'approve' end } })
 count = approvals
-has(run('save_buffer', {}, id), 'Saved ALL')
+has(run('save_source_buffer', {}, id), 'Saved ALL')
 assert(approvals == count + 1 and not vim.bo[id].modified)
 assert(vim.deep_equal(vim.fn.readfile('src/save.txt'), { 'user change', 'agent change' }))
 assert(preview.before == 'disk\n' and preview.after == 'user change\nagent change\n')
@@ -94,32 +94,37 @@ has(run('save_buffer', { path = 'src/save.txt' }), 'Rejected')
 assert(vim.fn.readfile('src/save.txt')[1] == 'user change' and vim.bo[id].modified)
 choice = 'once'
 vim.bo[id].readonly = true
-has(run('save_buffer', { buffer_id = id }), 'Error: not saved')
+has(run('save_loaded_buffer', { buffer_id = id }), 'Error: not saved')
 assert(vim.bo[id].modified)
 vim.bo[id].readonly = false
 local unnamed = vim.api.nvim_create_buf(true, false)
-has(run('save_buffer', {}, unnamed), 'no file name')
+has(run('save_source_buffer', {}, unnamed), 'no file name')
 local new_id = loaded(dir .. '/src/new.txt')
 vim.api.nvim_buf_set_lines(new_id, 0, -1, false, { 'new file draft' })
 has(run('save_buffer', { path = 'src/new.txt' }), 'Saved ALL')
 assert(vim.fn.readfile('src/new.txt')[1] == 'new file draft')
 writes.show = function(_, _, cb) pending = cb end
 result = nil
-tools.execute('save_buffer', { buffer_id = id }, nil, function(value) result = value end, function() return true end)
+tools.execute('save_loaded_buffer', { buffer_id = id }, nil, function(value) result = value end, function() return true end)
 vim.fn.writefile({ 'external changed' }, 'src/save.txt')
 pending('once')
 has(result, 'changed while awaiting confirmation')
 assert(vim.fn.readfile('src/save.txt')[1] == 'external changed')
 result = nil
-tools.execute('save_buffer', { buffer_id = new_id }, nil, function(value) result = value end, function() return true end)
+tools.execute('save_loaded_buffer', { buffer_id = new_id }, nil, function(value) result = value end, function() return true end)
 vim.api.nvim_buf_set_lines(new_id, 0, -1, false, { 'manual during approval' })
 pending('once')
 has(result, 'changed while awaiting confirmation')
 assert(vim.fn.readfile('src/new.txt')[1] == 'new file draft')
 has(run('save_buffer', { path = 'not-loaded.txt' }), 'already-loaded')
-has(run('save_buffer', { path = 'src/save.txt', buffer_id = id }), 'not both')
-approval.setup({ validators = { function(name) if name == 'save_buffer' then return 'reject', 'blocked' end end } })
-has(run('save_buffer', { buffer_id = id }), 'Rejected by approval policy')
+has(run('save_buffer', { path = 'src/save.txt', buffer_id = id }), 'unknown argument buffer_id')
+has(run('save_loaded_buffer', { buffer_id = id, path = 'src/save.txt' }), 'unknown argument path')
+has(run('save_source_buffer', { path = 'src/save.txt' }, id), 'unknown argument path')
+has(run('save_buffer', {}), 'missing argument path')
+has(run('save_loaded_buffer', {}), 'missing argument buffer_id')
+has(run('save_source_buffer', {}), 'no source buffer')
+approval.setup({ validators = { function(name) if name == 'save_loaded_buffer' then return 'reject', 'blocked' end end } })
+has(run('save_loaded_buffer', { buffer_id = id }), 'Rejected by approval policy')
 
 -- Questions use choices or free text, respect reject validators, and cancel cleanly.
 approval.setup({})

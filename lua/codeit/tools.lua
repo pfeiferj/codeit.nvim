@@ -3,7 +3,8 @@ local agent_tools = require('codeit.agent_tools')
 local approval = require('codeit.approval')
 local file_buffer = require('codeit.file_buffer')
 
-local gated = { edit_file = true, create_file = true, save_buffer = true,
+local gated = { edit_file = true, edit_loaded_buffer = true, edit_source_buffer = true,
+  create_file = true, save_buffer = true, save_loaded_buffer = true, save_source_buffer = true,
   run_command = true, fetch_url = true }
 
 function M.configure(opts)
@@ -110,24 +111,21 @@ function M.validate(name, args)
         local err = validate_value(value, property, tostring(key))
         if err then return err end
       end
-      if name == 'read_file' or name == 'edit_file' or name == 'save_buffer' then
-        if args.path ~= nil and args.buffer_id ~= nil then return 'specify path OR buffer_id, not both' end
-        if name == 'edit_file' then
-          if args.edits ~= nil then
-            if args.old_text ~= nil or args.new_text ~= nil or args.start_line ~= nil or args.end_line ~= nil then
-              return 'use edits OR the single-edit fields, not both'
-            end
-          elseif args.old_text == nil or args.new_text == nil then return 'missing argument old_text or new_text' end
-          local replacements = args.edits or { args }
-          local total = 0
-          for _, edit in ipairs(replacements) do
-            if (edit.start_line == nil) ~= (edit.end_line == nil) then return 'edit range requires both start_line and end_line' end
-            if edit.end_line and edit.end_line < edit.start_line then return 'invalid edit range' end
-            if edit.old_text == '' then return 'old_text must be nonempty' end
-            total = total + #edit.old_text + #edit.new_text
+      if name == 'edit_file' or name == 'edit_loaded_buffer' or name == 'edit_source_buffer' then
+        if args.edits ~= nil then
+          if args.old_text ~= nil or args.new_text ~= nil or args.start_line ~= nil or args.end_line ~= nil then
+            return 'use edits OR the single-edit fields, not both'
           end
-          if total > 200000 then return 'replacement text must total at most 200KB' end
+        elseif args.old_text == nil or args.new_text == nil then return 'missing argument old_text or new_text' end
+        local replacements = args.edits or { args }
+        local total = 0
+        for _, edit in ipairs(replacements) do
+          if (edit.start_line == nil) ~= (edit.end_line == nil) then return 'edit range requires both start_line and end_line' end
+          if edit.end_line and edit.end_line < edit.start_line then return 'invalid edit range' end
+          if edit.old_text == '' then return 'old_text must be nonempty' end
+          total = total + #edit.old_text + #edit.new_text
         end
+        if total > 200000 then return 'replacement text must total at most 200KB' end
       end
       if name == 'ask_user' then
         if vim.trim(args.question) == '' or args.question:find('%c') then return 'question must be nonempty single-line text' end
@@ -138,7 +136,7 @@ function M.validate(name, args)
       return
     end
   end
-  return 'unknown tool ' .. name .. '; use the advertised tools (read_file/edit_file accept buffer_id)'
+  return 'unknown tool ' .. name .. '; use the advertised tools (read_loaded_buffer accepts buffer_id)'
 end
 
 --- Execute a tool and call done(result_string, optional_cancel_signal).

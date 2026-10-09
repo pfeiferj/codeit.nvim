@@ -23,7 +23,7 @@ local function last() return requests[#requests].messages end
 plugin.send('Clarify this task')
 local names = {}
 for _, spec in ipairs(requests[1].specs) do names[spec['function'].name] = true end
-assert(names.ask_user and names.save_buffer)
+assert(names.ask_user and names.save_buffer and names.save_loaded_buffer and names.save_source_buffer)
 tool('ask_user', { question = 'Which approach?' })
 assert(pending and #callbacks == 0, 'question must pause without a reviewer request')
 pending('Use the simpler approach')
@@ -71,7 +71,7 @@ require('codeit.write_approval').show = function(diff, _, cb)
   pending = cb
 end
 plugin.send('Save this named buffer')
-tool('save_buffer', { buffer_id = id })
+tool('save_loaded_buffer', { buffer_id = id })
 assert(#callbacks == 0 and vim.fn.readfile('save.txt')[1] == 'before')
 pending('once')
 assert(vim.fn.readfile('save.txt')[1] == 'unsaved user change')

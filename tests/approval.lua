@@ -169,10 +169,10 @@ local read_context = { review = function(_, cb)
   cb('{"summary":"Reads an external buffer.","safe":true}')
 end }
 read_context.source_buffer = workspace_buffer
-assert(approval.prefetch('read_file', {}, read_context) == nil)
+assert(approval.prefetch('read_source_buffer', {}, read_context) == nil)
 assert(approval.prefetch('search_workspace', { query = 'x' }, read_context) == nil)
 read_context.source_buffer = external_buffer
-local external_summary = approval.prefetch('read_file', {}, read_context)
+local external_summary = approval.prefetch('read_source_buffer', {}, read_context)
 assert(external_summary and read_reviews == 1)
 external_summary(function(text) assert(text == 'Reads an external buffer.') end)
 vim.api.nvim_buf_delete(workspace_buffer, { force = true })

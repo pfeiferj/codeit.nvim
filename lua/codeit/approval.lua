@@ -4,9 +4,13 @@ local approval_format = require('codeit.approval_format')
 local write_approval = require('codeit.write_approval')
 local buffers = require('codeit.file_buffer')
 
+local save_tools = { save_buffer = true, save_loaded_buffer = true, save_source_buffer = true }
+local edit_tools = { edit_file = true, edit_loaded_buffer = true, edit_source_buffer = true }
+
 local read_tools = {
   list_buffers = true, list_workspace_files = true,
-  search_workspace = true, read_file = true, get_diagnostics = true,
+  search_workspace = true, read_file = true, read_loaded_buffer = true,
+  read_source_buffer = true, get_diagnostics = true,
   git_status = true, git_diff = true, load_skill = true,
 }
 
@@ -52,8 +56,9 @@ local function auto_read(name, args, workspace, source)
     local real = trusted_path(path, workspace)
     return real and (mode == 'all' or tracked(real, workspace)) or false
   end
-  if name == 'read_file' then
-    return allowed(args.path or buffer_path(args.buffer_id or source))
+  if name == 'read_file' then return allowed(args.path) end
+  if name == 'read_loaded_buffer' or name == 'read_source_buffer' then
+    return allowed(buffer_path(args.buffer_id or source))
   end
   if name == 'list_buffers' then
     if args.include_external then return false end
@@ -229,7 +234,7 @@ local function workspace_read(name, args, context, workspace)
     local real = vim.uv.fs_realpath(path) or vim.uv.fs_realpath(vim.fn.fnamemodify(path, ':h'))
     return real and within(real, workspace) or false
   end
-  if name == 'read_file' and args.path == nil then
+  if name == 'read_loaded_buffer' or name == 'read_source_buffer' then
     return local_buffer(buffer_path(args.buffer_id or context.source_buffer))
   end
   if name == 'list_buffers' then
@@ -248,8 +253,8 @@ local assessment_system = 'You are an independent tool-call reviewer. Do not use
 function M.prefetch(name, args, context, active)
   if not context or not context.review then return nil end
   local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
-  if name == 'ask_user' or name == 'save_buffer' or workspace_read(name, args, context, workspace)
-    or name == 'edit_file' or name == 'create_file' then return nil end
+if name == 'ask_user' or save_tools[name] or workspace_read(name, args, context, workspace)
+    or edit_tools[name] or name == 'create_file' then return nil end
   load()
   if remembered[vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args }))] then return nil end
   local summary, unsafe, ready = nil, nil, false
@@ -290,11 +295,11 @@ function M.request(name, args, prompt, active, done, action, context)
   if name == 'ask_user' then return action() end
   -- Saving user changes always needs a fresh explicit decision, even with a
   -- remembered call or an approve validator. Reject validators still win.
-  if name ~= 'save_buffer' and (verdict == 'approve' or (verdict ~= 'ask' and (remembered[signature]
+if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (remembered[signature]
     or auto_read(name, args, workspace, context.source_buffer)))) then return action() end
 
   local function live() return not active or active() end
-  local skip_summary = name == 'save_buffer' or workspace_read(name, args, context, workspace)
+  local skip_summary = save_tools[name] or workspace_read(name, args, context, workspace)
   local summary, unsafe = context.review and 'Waiting for provider…' or 'Review unavailable (reviewer not configured)', false
   local update_prompt
   local prompt_version = 0
@@ -331,7 +336,7 @@ function M.request(name, args, prompt, active, done, action, context)
       { key = '3', id = 'reject', label = 'Reject (optional reason)' },
       { key = '4', id = 'cancel', label = 'Cancel task' },
     }
-    if name == 'save_buffer' then
+    if save_tools[name] then
       options[1].label = 'Save ALL buffer changes once'
       table.remove(options, 2)
       for index, option in ipairs(options) do option.key = tostring(index) end
@@ -349,7 +354,7 @@ function M.request(name, args, prompt, active, done, action, context)
       prompt_version = prompt_version + 1
       if not live() then return end
       if choice == 'once' then return action() end
-      if choice == 'always' and name == 'save_buffer' then return done('Rejected: saving requires approval once') end
+      if choice == 'always' and save_tools[name] then return done('Rejected: saving requires approval once') end
       if choice == 'always' then
         remembered[signature] = true
         persist()
