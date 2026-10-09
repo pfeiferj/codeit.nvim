@@ -90,35 +90,35 @@ local function directories(workspace, paths)
   return result
 end
 
-local function skill_roots(base)
-  if base:sub(-7) == '/.claude' or base:sub(-7) == '/.agents'
-    or base:sub(-15) == '/.config/codeit' then
-    return { base .. '/skills' }
+local function skill_roots(workspace)
+  local roots = {}
+  for _, base in ipairs(globals()) do
+    roots[#roots + 1] = { path = base .. '/skills', base = base }
   end
-  return { base .. '/.agents/skills', base .. '/.claude/skills' }
+  local home = vim.uv.fs_realpath(vim.fn.expand('~'))
+  if home then roots[#roots + 1] = { path = home .. '/.agents/skills', base = home .. '/.agents' } end
+  roots[#roots + 1] = { path = workspace .. '/.agents/skills', base = workspace }
+  roots[#roots + 1] = { path = workspace .. '/.claude/skills', base = workspace }
+  return roots
 end
 
 local function skills(workspace, mode)
   local result = {}
-  local bases = globals()
-  local home = vim.uv.fs_realpath(vim.fn.expand('~'))
-  if home then bases[#bases + 1] = home .. '/.agents' end
-  bases[#bases + 1] = workspace
-  for _, base in ipairs(bases) do
-    for _, root in ipairs(skill_roots(base)) do
-      local scan = vim.uv.fs_scandir(root)
-      if scan then
-        while true do
-          local name = vim.uv.fs_scandir_next(scan)
-          if not name then break end
-          if name:match('^[%w_%-]+$') then
-            local path = root .. '/' .. name .. '/SKILL.md'
-            local content = read(path, base, workspace, mode)
+  for _, root in ipairs(skill_roots(workspace)) do
+    local scan = vim.uv.fs_scandir(root.path)
+    if scan then
+      while true do
+        local name = vim.uv.fs_scandir_next(scan)
+        if not name then break end
+        if name:match('^[%w_%-]+$') then
+          for _, path in ipairs(matching_files(root.path .. '/' .. name, { ['skill.md'] = true })) do
+            local content = read(path, root.base, workspace, mode)
             if content then
               local frontmatter = content:match('^%-%-%-\r?\n(.-)\n%-%-%-')
               local description = frontmatter and frontmatter:match('^description:%s*([^\n]+)')
                 or frontmatter and frontmatter:match('\ndescription:%s*([^\n]+)') or name
               result[name] = { path = path, content = content, description = vim.trim(description) }
+              break
             end
           end
         end

@@ -5,11 +5,24 @@ local home = vim.fn.expand('~')
 local workspace = temp .. '/project'
 vim.fn.mkdir(workspace .. '/src/inner', 'p')
 vim.fn.mkdir(workspace .. '/.agents/skills/review', 'p')
-vim.fn.mkdir(home .. '/.claude/skills/global', 'p')
-vim.fn.mkdir(home .. '/.config/codeit', 'p')
+local global_skills = {
+  { name = 'global', path = home .. '/.claude/skills/global/SKILL.md' },
+  { name = 'lowercase', path = home .. '/.claude/skills/lowercase/skill.md' },
+  { name = 'agents', path = home .. '/.agents/skills/agents/SKILL.md' },
+  { name = 'config', path = home .. '/.config/codeit/skills/config/Skill.md' },
+}
+for _, skill in ipairs(global_skills) do
+  vim.fn.mkdir(vim.fn.fnamemodify(skill.path, ':h'), 'p')
+  vim.fn.writefile({ '---', 'description: Global ' .. skill.name .. ' description', '---',
+    'Global ' .. skill.name .. ' instructions' }, skill.path)
+end
+vim.fn.mkdir(home .. '/.claude/skills/review', 'p')
+vim.fn.writefile({ 'shadowed global review instructions' }, home .. '/.claude/skills/review/SKILL.md')
 vim.fn.writefile({ 'global claude' }, home .. '/.claude/CLAUDE.md')
 vim.fn.writefile({ 'global config' }, home .. '/.config/codeit/AGENTS.md')
-vim.fn.writefile({ 'global skill' }, home .. '/.claude/skills/global/SKILL.md')
+vim.fn.mkdir(temp .. '/outside-skill', 'p')
+vim.fn.writefile({ 'escaped global skill instructions' }, temp .. '/outside-skill/SKILL.md')
+assert(vim.uv.fs_symlink(temp .. '/outside-skill', home .. '/.agents/skills/escape'))
 vim.fn.writefile({ 'root instruction' }, workspace .. '/AGENTS.md')
 vim.fn.writefile({ 'nested instruction' }, workspace .. '/src/CLAUDE.md')
 vim.fn.writefile({ 'deep instruction' }, workspace .. '/src/inner/AGENTS.md')
@@ -33,6 +46,19 @@ end
 assert(#files.messages(history.workspace(), nil) == 0)
 local content = text(files.messages(history.workspace(), 'tracked'))
 assert(content:find('global claude', 1, true) and content:find('global config', 1, true))
+for _, skill in ipairs(global_skills) do
+  assert(content:find('Global ' .. skill.name .. ' description', 1, true))
+  assert(not content:find('Global ' .. skill.name .. ' instructions', 1, true))
+  assert(not files.skill(skill.name, history.workspace(), nil))
+  for _, mode in ipairs({ 'tracked', 'all' }) do
+    local available = files.skill(skill.name, history.workspace(), mode)
+    assert(available and available.path == skill.path, 'global skill not discovered: ' .. skill.path)
+    assert(text(files.messages(history.workspace(), mode, {}, { skill.name }))
+      :find('Global ' .. skill.name .. ' instructions', 1, true))
+  end
+end
+assert(not files.skill('escape', history.workspace(), 'all'))
+assert(not content:find('shadowed global review instructions', 1, true))
 assert(content:find('root instruction', 1, true))
 assert(not content:find('nested instruction', 1, true))
 assert(content:find('Check changes carefully', 1, true))
@@ -42,7 +68,8 @@ assert(nested:find('nested instruction', 1, true) and nested:find('deep instruct
 assert(nested:find('global claude', 1, true) < nested:find('root instruction', 1, true))
 assert(text(files.messages(history.workspace(), 'tracked', {}, { 'review' })):find('review secret', 1, true))
 local skill = files.skill('review', history.workspace(), 'tracked')
-assert(skill and skill.content:find('review secret', 1, true))
+assert(skill and skill.path == workspace .. '/.agents/skills/review/SKILL.md'
+  and skill.content:find('review secret', 1, true))
 vim.fn.writefile({ 'untracked secret' }, workspace .. '/src/inner/CLAUDE.md')
 assert(not text(files.messages(history.workspace(), 'tracked', { 'src/inner/main.lua' })):find('untracked secret', 1, true))
 assert(text(files.messages(history.workspace(), 'all', { 'src/inner/main.lua' })):find('untracked secret', 1, true))
@@ -80,10 +107,23 @@ end
 assert(toggle_path(workspace .. '/AGENTS.md'):find('[off]', 1, true))
 assert(not text(files.messages(workspace, 'tracked')):find('root instruction', 1, true))
 assert(toggle_path(workspace .. '/AGENTS.md'):find('[on]', 1, true))
+for _, global in ipairs(global_skills) do
+  assert(toggle_path(global.path):find('[on]', 1, true))
+  assert(toggle_path(global.path):find('[off]', 1, true))
+  assert(not files.skill(global.name, workspace, 'tracked'))
+  local disabled = text(files.messages(workspace, 'tracked', {}, { global.name }))
+  assert(not disabled:find('Global ' .. global.name .. ' description', 1, true))
+  assert(not disabled:find('Global ' .. global.name .. ' instructions', 1, true))
+  assert(toggle_path(global.path):find('[on]', 1, true))
+  assert(files.skill(global.name, workspace, 'tracked'))
+end
 plugin.send('start')
 assert(toolsets[1].load_skill and not toolsets[1].read_buffer and not toolsets[1].replace_buffer_lines)
 assert(text(requests[1]):find('root instruction', 1, true))
 assert(not text(requests[1]):find('nested instruction', 1, true))
+for _, global in ipairs(global_skills) do
+  assert(text(requests[1]):find('Global ' .. global.name .. ' instructions', 1, true))
+end
 callbacks[1]({ role = 'assistant', content = 'ok' })
 plugin.send('read nested file')
 callbacks[2]({ role = 'assistant', tool_calls = { { id = 'read', type = 'function',
@@ -106,12 +146,19 @@ assert(not table.concat(vim.api.nvim_buf_get_lines(disabled_view, 0, -1, false),
   :find('review secret', 1, true))
 vim.cmd('close')
 assert(toggle_path(skill.path):find('[on]', 1, true))
+for _, global in ipairs(global_skills) do
+  assert(toggle_path(global.path):find('[off]', 1, true))
+end
 local id = history.list(workspace)[1].id
 plugin.new()
 plugin.resume(id)
 plugin.send('continued')
 assert(text(requests[6]):find('nested instruction', 1, true)
   and text(requests[6]):find('review secret', 1, true))
+for _, global in ipairs(global_skills) do
+  assert(not files.skill(global.name, workspace, 'tracked'))
+  assert(not text(requests[6]):find('Global ' .. global.name .. ' instructions', 1, true))
+end
 vim.fn.writefile({ 'updated root instruction' }, workspace .. '/AGENTS.md')
 plugin.context_full()
 local context_buf = vim.fn.bufnr('codeit://context-full')
@@ -141,6 +188,9 @@ for _, message in ipairs(requests[8]) do
 end
 assert(not text(headers):find('updated root instruction', 1, true))
 plugin.new()
+for _, global in ipairs(global_skills) do
+  assert(files.skill(global.name, workspace, 'tracked'), 'new chats must reset global skill toggles')
+end
 assert(text(files.messages(workspace, 'tracked')):find('updated root instruction', 1, true))
 vim.fn.chdir(root)
 vim.fn.delete(temp, 'rf')
