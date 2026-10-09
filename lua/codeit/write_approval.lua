@@ -1,6 +1,7 @@
 local M = {}
 local ns = vim.api.nvim_create_namespace('codeit-write-approval')
 local header_ns = vim.api.nvim_create_namespace('codeit-write-approval-header')
+local hunk_ns = vim.api.nvim_create_namespace('codeit-write-approval-hunks')
 
 local function geometry(path)
   local title = ' Review file edit '
@@ -104,7 +105,14 @@ function M.show(diff, options, callback)
     vim.api.nvim_buf_set_extmark(buf, ns, row, 0,
       { end_row = row + 1, hl_group = highlight[2], hl_eol = true, priority = 200 })
   end
-  for i, row in ipairs(hunks) do hunks[i] = offset + row end
+  vim.api.nvim_set_hl(0, 'CodeitApprovalHunk', { default = true, link = 'Title' })
+  for i, row in ipairs(hunks) do
+    hunks[i] = offset + row
+    vim.api.nvim_buf_set_extmark(buf, hunk_ns, hunks[i] - 1, 0, {
+      virt_text = { { ' Hunk ' .. i .. '/' .. #hunks, 'CodeitApprovalHunk' } },
+      virt_text_pos = 'eol', hl_mode = 'combine', priority = 200,
+    })
+  end
   vim.bo[buf].modifiable = false
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local win = vim.api.nvim_open_win(buf, true, geometry(diff.path))

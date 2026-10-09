@@ -46,6 +46,20 @@ local namespaces = vim.api.nvim_get_namespaces()
 local function header_marks(buffer)
   return vim.api.nvim_buf_get_extmarks(buffer, namespaces['codeit-write-approval-header'], 0, -1, { details = true })
 end
+local function assert_hunk_labels(buffer, first_lines)
+  local marks = vim.api.nvim_buf_get_extmarks(buffer, namespaces['codeit-write-approval-hunks'],
+    0, -1, { details = true })
+  local contents = vim.api.nvim_buf_get_lines(buffer, 0, -1, false)
+  assert(#marks == #first_lines, 'each hunk must have exactly one virtual label')
+  for i, mark in ipairs(marks) do
+    local details = mark[4]
+    assert(contents[mark[2] + 1] == first_lines[i], 'label must be on the first line of the hunk')
+    assert(mark[3] == 0 and details.virt_text_pos == 'eol', 'hunk labels must appear at end of line')
+    assert(vim.deep_equal(details.virt_text, { { ' Hunk ' .. i .. '/' .. #first_lines, 'CodeitApprovalHunk' } }),
+      'label must show the hunk number and total')
+    assert(details.hl_mode == 'combine', 'labels must preserve the underlying diff highlight')
+  end
+end
 local function assert_hunk_counter(buffer, current, total)
   local text = {}
   for _, mark in ipairs(header_marks(buffer)) do
@@ -88,7 +102,13 @@ header = table.concat(header)
 assert(header:find('1 Approve (Enter)', 1, true) and header:find('5 Review', 1, true)
   and header:find('Esc Reject', 1, true) and header:find('{ / } Hunks', 1, true))
 assert(maps['{'] and maps['}'] and maps['5'] and maps['<Esc>'])
+assert_hunk_labels(buf, { 'local x = 1' })
+assert(not text:find('Hunk 1/1', 1, true), 'hunk labels must not be part of the preview text')
 close('1', 'once')
+
+win, buf, lines, maps, close = open('old first\nold second\n', 'new first\nnew second\n')
+assert_hunk_labels(buf, { 'old first' })
+close('3', 'reject')
 
 win, buf, lines, maps, close = open('before\n', 'after\n')
 assert(maps['<CR>'], 'Enter must be mapped in the write approval buffer')
@@ -107,6 +127,7 @@ assert(table.concat(lines, '\n'):find('line 20', 1, true), 'the full file should
 local hunks = {}
 for i, line in ipairs(lines) do if line == 'line 4' or line == 'line 35' then hunks[#hunks + 1] = i end end
 assert(#hunks == 2, 'both changed regions should appear in the file')
+assert_hunk_labels(buf, { 'line 4', 'line 35' })
 assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[1], 'review should open at the first hunk')
 local function scroll(topline)
   vim.api.nvim_win_call(win, function() vim.fn.winrestview({ topline = topline }) end)
@@ -129,6 +150,7 @@ assert(#vim.api.nvim_buf_get_extmarks(buf, namespaces['codeit-write-approval'], 
 maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[2])
 maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[1])
 maps['{'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[2])
+assert_hunk_labels(buf, { 'line 4', 'line 35' })
 close('5', 'review')
 
 -- Opening and navigation center distant hunks and immediately repin the header.
@@ -168,6 +190,9 @@ win, buf, lines, maps, close = open(table.concat(original, '\n') .. '\n', table.
 assert_hunk_counter(buf, 1, 20)
 maps['}'](); maps['}']()
 assert_hunk_counter(buf, 3, 20)
+local first_lines = {}
+for i = 1, 20 do first_lines[i] = 'line ' .. i * 10 end
+assert_hunk_labels(buf, first_lines)
 for _, mark in ipairs(header_marks(buf)) do assert_full_header(win, mark) end
 close('3', 'reject')
 
@@ -183,18 +208,22 @@ for _, mark in ipairs(change_marks) do
   end
 end
 assert(groups['+literal'] == 'DiffAdd' and groups.remove == 'DiffDelete')
+assert_hunk_labels(buf, { '+literal', 'remove' })
 close('3', 'reject')
 
 win, buf, lines, maps, close = open('', 'hello\n', 'new.txt')
+assert_hunk_labels(buf, { 'hello' })
 assert(table.concat(lines, '\n'):find('hello', 1, true) and not table.concat(lines, '\n'):find('/dev/null', 1, true))
 close('<Esc>', nil)
 win, buf, lines, maps, close = open('goodbye\n', '', 'removed.txt')
+assert_hunk_labels(buf, { 'goodbye' })
 assert(table.concat(lines, '\n'):find('goodbye', 1, true) and not table.concat(lines, '\n'):find('/dev/null', 1, true))
 close('3', 'reject')
 win, buf, lines, maps, close = open('same\n', 'same\n')
 assert(table.concat(lines, '\n'):find('same', 1, true))
 assert(vim.api.nvim_win_get_cursor(win)[1] == 1, 'unchanged previews should open at the top')
 assert_hunk_counter(buf, 0, 0)
+assert_hunk_labels(buf, {})
 maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == 1)
 close('2', 'always')
 win, buf, lines, maps, close = open('disk\n', 'all buffer changes\n', 'save.txt',
