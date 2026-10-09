@@ -41,13 +41,14 @@ local function reply(message)
   assert(callback, 'missing provider callback')
   callback(message)
 end
+local reasoning = { { type = 'reasoning', id = 'rs_limit', summary = {}, encrypted_content = 'encrypted-limit' } }
 local function batch(prefix)
   local calls = {}
   for i = 1, 2 do
     calls[i] = { id = prefix .. i, type = 'function',
       ['function'] = { name = 'read_file', arguments = '{"path":"README.md"}' } }
   end
-  return { role = 'assistant', tool_calls = calls }
+  return { role = 'assistant', tool_calls = calls, _copilot_reasoning = reasoning }
 end
 local function assert_balanced(messages)
   local pending = {}
@@ -89,6 +90,8 @@ for _, limit in ipairs({ 0, 1 }) do
   assert(#callbacks == 1 and #requests[#requests].specs == 0,
     'declining must request one tool-free final response')
   local rejected = requests[#requests].messages
+  assert(vim.deep_equal(rejected[#rejected - 2]._copilot_reasoning, reasoning),
+    'declined tool batches must retain reasoning for the tool-free follow-up')
   assert_balanced(rejected)
   for i = #rejected - 1, #rejected do
     assert(rejected[i].role == 'tool' and rejected[i].content:find('Error: Tool call limit reached', 1, true))
@@ -97,6 +100,8 @@ for _, limit in ipairs({ 0, 1 }) do
   saved = history.load(history.workspace(), id)
   assert_balanced(saved.messages)
   assert(#saved.messages == 6 + limit * 3, 'declined calls and final answer must be saved')
+  assert(vim.deep_equal(saved.messages[#saved.messages - 3]._copilot_reasoning, reasoning),
+    'encrypted reasoning must survive history save/load')
   plugin.send('Continue after the limit')
   local followup = requests[#requests].messages
   assert_balanced(followup)

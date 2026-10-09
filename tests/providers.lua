@@ -7,12 +7,15 @@ local gh = vim.env.GH_TOKEN
 vim.env.OPENROUTER_API_KEY = 'test-openrouter-key'
 vim.env.GH_TOKEN = 'test-github-key'
 local calls = {}
+local catalog_response = '{"data":[{"id":"gpt-4o"}]}\n200'
 local http_response = '{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"cost":0.00042,"prompt_tokens":100,"completion_tokens":25,"total_tokens":125}}\n200'
 vim.system = function(args, options, callback)
   table.insert(calls, { args = args, options = options })
   local result
   if vim.tbl_contains(args, 'https://api.github.com/copilot_internal/v2/token') then
     result = { code = 0, stdout = vim.json.encode({ token = 'copilot-key', expires_at = os.time() + 300 }) .. '\n200' }
+  elseif args[#args]:match('/models$') then
+    result = { code = 0, stdout = catalog_response }
   else
     result = { code = 0, stdout = http_response }
   end
@@ -21,12 +24,19 @@ end
 local providers = require('codeit.providers')
 local function wait_for_response(config, specs)
   local answer, err, billing
-  providers.chat(config, { { role = 'user', content = 'hello' } }, specs or {}, function(message, failure, usage)
+  providers.chat(config, {
+    { role = 'user', content = 'hello' },
+    { role = 'assistant', content = 'prior reply', _copilot_reasoning = {
+      { type = 'reasoning', encrypted_content = 'private-replay-data' },
+    } },
+  }, specs or {}, function(message, failure, usage)
     answer, err, billing = message, failure, usage
   end)
   assert(vim.wait(2000, function() return answer ~= nil or err ~= nil end), 'timed out')
   assert(not err, tostring(err))
   assert(answer.content == 'ok')
+  assert(vim.json.decode(calls[#calls].options.stdin).messages[2]._copilot_reasoning == nil,
+    'Responses replay metadata must not leak to Copilot or OpenRouter chat completions')
   if config.provider == 'openrouter' then
     assert(billing.cost == 0.00042)
     assert(billing.prompt_tokens == 100 and billing.completion_tokens == 25 and billing.total_tokens == 125)
@@ -42,8 +52,9 @@ assert(payload.usage.include == true)
 assert(payload.tools[1]['function'].parameters.properties ~= vim.NIL)
 assert(calls[1].options.stdin:find('"properties":{}', 1, true), 'empty tool properties must encode as {}')
 wait_for_response({ provider = 'copilot', model = 'gpt-4o' })
-assert(vim.tbl_contains(calls[3].args, 'https://api.githubcopilot.com/chat/completions'))
-assert(vim.json.decode(calls[3].options.stdin).usage == nil)
+assert(vim.tbl_contains(calls[3].args, 'https://api.githubcopilot.com/models'))
+assert(vim.tbl_contains(calls[4].args, 'https://api.githubcopilot.com/chat/completions'))
+assert(vim.json.decode(calls[4].options.stdin).usage == nil)
 local business_options = { api_host = 'api.business.githubcopilot.com' }
 wait_for_response({ provider = 'copilot', model = 'gpt-4o', options = business_options })
 assert(vim.tbl_contains(calls[#calls].args, 'https://api.business.githubcopilot.com/chat/completions'))
@@ -70,7 +81,7 @@ payload = vim.json.decode(calls[#calls].options.stdin)
 assert(payload.provider == nil and payload.service_tier == nil and payload.reasoning == nil,
   'OpenRouter options must not leak to Copilot')
 
-http_response = vim.json.encode({ data = { { id = 'z-model', name = 'Last' }, { id = 'a-model', name = 'First' } } }) .. '\n200'
+catalog_response = vim.json.encode({ data = { { id = 'z-model', name = 'Last' }, { id = 'a-model', name = 'First' } } }) .. '\n200'
 for _, backend in ipairs({ 'openrouter', 'copilot' }) do
   local models, catalog_error
   providers.models(backend, function(result, err) models, catalog_error = result, err end)
@@ -142,7 +153,7 @@ assert(#logged > #before and logged:find('openrouter/openai/gpt-4o-mini: HTTP 40
 assert(logged:find('schema details', #before + 1, true), 'full provider response should be logged')
 assert(not logged:find('test-openrouter-key', 1, true), 'do not log authorization tokens')
 assert(vim.uv.fs_stat(log_path).mode % 512 == 384, 'new error logs should be private')
-http_response = '{"error":{"message":"Metadata unavailable","debug":"metadata details"}}\n503'
+catalog_response = '{"error":{"message":"Metadata unavailable","debug":"metadata details"}}\n503'
 local metadata_error
 providers.context_limit({ provider = 'openrouter', model = 'test-metadata-error' }, function(_, err)
   metadata_error = err

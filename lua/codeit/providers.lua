@@ -2,6 +2,7 @@ local M = {}
 
 local copilot_token
 local copilot_expires = 0
+local copilot_catalogs = {}
 local limits, pending = {}, {}
 
 local function log_error(config, err, detail)
@@ -166,6 +167,18 @@ local function copilot_url(options)
   return 'https://' .. host
 end
 
+local function copilot_endpoint(model)
+  local endpoints = model and model.supported_endpoints
+  -- Older catalogs do not report endpoints; retain their chat-completions behavior.
+  if endpoints == nil or endpoints == vim.NIL then return '/chat/completions' end
+  if type(endpoints) == 'table' then
+    if vim.tbl_contains(endpoints, '/chat/completions') then return '/chat/completions' end
+    if vim.tbl_contains(endpoints, '/responses') then return '/responses' end
+  end
+  return nil, 'Copilot model ' .. tostring(model.id)
+    .. ' does not advertise a supported chat endpoint (/chat/completions or /responses); choose another model'
+end
+
 --- Fetch available models from the selected backend (no completion request).
 --- Optional options uses the same per-provider request options as chat.
 function M.models(provider, callback, options)
@@ -180,6 +193,11 @@ function M.models(provider, callback, options)
       if type(entry) == 'table' and type(entry.id) == 'string' then models[#models + 1] = entry end
     end
     table.sort(models, function(a, b) return a.id < b.id end)
+    if provider == 'copilot' then
+      local catalog = {}
+      for _, model in ipairs(models) do catalog[model.id] = model end
+      copilot_catalogs[copilot_url(options)] = catalog
+    end
     callback(models)
   end
   if provider == 'openrouter' then
@@ -283,17 +301,30 @@ function M.context_limit(config, callback)
   end, config.options)
 end
 
---- Send an OpenAI-compatible chat completion. callback(message, error).
+--- Send a chat request, normalizing provider responses. callback(message, error, usage).
 function M.chat(config, messages, tools, callback)
   local on_result = callback
   callback = function(message, err, usage, detail)
     if err then log_error(config, err, detail) end
     on_result(message, err, usage)
   end
-  local function send(url, token, extra_headers)
+  local function send(url, token, extra_headers, endpoint)
     local headers = { 'Content-Type: application/json', 'Authorization: Bearer ' .. token }
     vim.list_extend(headers, extra_headers or {})
-    local body = { model = config.model, messages = messages }
+    local body = { model = config.model }
+    if endpoint == '/responses' then
+      local err
+      body, err = require('codeit.copilot_responses').body(config.model, messages, tools)
+      if err then return callback(nil, err) end
+    else
+      body.messages = {}
+      for _, message in ipairs(messages) do
+        local copy = vim.tbl_extend('force', {}, message)
+        -- Responses replay metadata is private, not a chat-completions message field.
+        copy._copilot_reasoning = nil
+        body.messages[#body.messages + 1] = copy
+      end
+    end
     if config.provider == 'openrouter' then
       body.usage = { include = true }
       local options = config.options or {}
@@ -303,12 +334,16 @@ function M.chat(config, messages, tools, callback)
       if options.service_tier and options.service_tier ~= '' then body.service_tier = options.service_tier end
       if options.effort and options.effort ~= '' then body.reasoning = { effort = options.effort } end
     end
-    if tools and #tools > 0 then
+    if endpoint ~= '/responses' and tools and #tools > 0 then
       body.tools = tools
       body.tool_choice = 'auto'
     end
     request(url, headers, body, function(response, err, detail)
       if err then return callback(nil, err, nil, detail) end
+      if endpoint == '/responses' then
+        local message, failure = require('codeit.copilot_responses').message(response)
+        return callback(message, failure, nil, failure and vim.json.encode(response) or nil)
+      end
       local choice = response and response.choices and response.choices[1]
       if not choice or not choice.message then
         return callback(nil, 'Response has no assistant message', nil, vim.json.encode(response))
@@ -337,15 +372,25 @@ function M.chat(config, messages, tools, callback)
   elseif config.provider == 'copilot' then
     local url, url_error = copilot_url(config.options)
     if not url then return callback(nil, url_error) end
-    copilot_auth(function(token, err)
-      if err then return callback(nil, err) end
-      send(url .. '/chat/completions', token, {
-        'Editor-Version: Neovim/0.12.0',
-        'Editor-Plugin-Version: codeit.nvim/0.1.0',
-        'Copilot-Integration-Id: vscode-chat',
-        'Openai-Intent: conversation-panel',
-      })
-    end)
+    local function route()
+      local endpoint, endpoint_error = copilot_endpoint(copilot_catalogs[url][config.model])
+      if not endpoint then return callback(nil, endpoint_error) end
+      copilot_auth(function(token, err)
+        if err then return callback(nil, err) end
+        send(url .. endpoint, token, {
+          'Editor-Version: Neovim/0.12.0',
+          'Editor-Plugin-Version: codeit.nvim/0.1.0',
+          'Copilot-Integration-Id: vscode-chat',
+          'Openai-Intent: conversation-panel',
+        }, endpoint)
+      end)
+    end
+    if copilot_catalogs[url] then return route() end
+    -- Manual model IDs and secondary tasks also need endpoint metadata, not just the picker.
+    M.models('copilot', function(_, err, detail)
+      if err then return callback(nil, err, nil, detail) end
+      route()
+    end, config.options)
   else
     callback(nil, 'Unknown provider: ' .. tostring(config.provider))
   end

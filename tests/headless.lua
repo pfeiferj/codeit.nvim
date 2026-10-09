@@ -42,12 +42,18 @@ assert(requests[1].config.model == 'openai/gpt-4o-mini', 'main requests use the 
 local prompt_ui = require('codeit.approval_prompt')
 local read_choice
 prompt_ui.show = function(_, _, callback) read_choice = callback end
-tool_reply('read_source_buffer', { start_line = 1, end_line = 1 })
+local reasoning = { { type = 'reasoning', id = 'rs_1', summary = {}, encrypted_content = 'encrypted' } }
+reply({ role = 'assistant', content = vim.NIL, _copilot_reasoning = reasoning, tool_calls = { {
+  id = 'read_source_buffer', type = 'function',
+  ['function'] = { name = 'read_source_buffer', arguments = '{"start_line":1,"end_line":1}' },
+} } })
 assert(read_choice, 'untrusted buffer reads must request approval immediately')
 assert(#requests == 1, 'workspace reads must not request a summary')
 read_choice('once')
 assert(#requests == 2)
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
+assert(vim.deep_equal(requests[2].messages[3]._copilot_reasoning, reasoning),
+  'encrypted Copilot reasoning must survive the chat loop for tool follow-ups')
 assert(requests[2].messages[4].role == 'tool')
 assert(requests[2].messages[4].content:find('before', 1, true))
 reply({ role = 'assistant', content = 'Here is your buffer.' },
