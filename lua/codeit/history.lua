@@ -86,6 +86,15 @@ function M.load(workspace, id)
       break
     end
   end
+  -- Never skip messages unless the saved checkpoint still covers a complete turn.
+  local cutoff = chat.compacted_until
+  local checkpoint = type(cutoff) == 'number' and cutoff == math.floor(cutoff)
+    and cutoff >= 3 and cutoff <= #chat.messages and chat.messages[cutoff] or nil
+  if type(chat.context_summary) ~= 'string' or chat.context_summary == '' or not checkpoint
+    or checkpoint.role ~= 'assistant'
+    or (type(checkpoint.tool_calls) == 'table' and #checkpoint.tool_calls > 0) then
+    chat.context_summary, chat.compacted_until = nil, nil
+  end
   return chat
 end
 
