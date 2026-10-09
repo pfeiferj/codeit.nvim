@@ -2,9 +2,10 @@ local M = {}
 local approval_prompt = require('codeit.approval_prompt')
 local approval_format = require('codeit.approval_format')
 local write_approval = require('codeit.write_approval')
+local buffers = require('codeit.file_buffer')
 
 local read_tools = {
-  list_buffers = true, read_buffer = true, list_workspace_files = true,
+  list_buffers = true, list_workspace_files = true,
   search_workspace = true, read_file = true, get_diagnostics = true,
   git_status = true, git_diff = true, load_skill = true,
 }
@@ -51,14 +52,13 @@ local function auto_read(name, args, workspace, source)
     local real = trusted_path(path, workspace)
     return real and (mode == 'all' or tracked(real, workspace)) or false
   end
-  if name == 'read_file' or name == 'read_buffer' then
-    if name == 'read_file' then return allowed(args.path) end
-    return allowed(buffer_path(args.buffer_id or source))
+  if name == 'read_file' then
+    return allowed(args.path or buffer_path(args.buffer_id or source))
   end
   if name == 'list_buffers' then
-    for _, id in ipairs(vim.api.nvim_list_bufs()) do
-      local path = buffer_path(id)
-      if path and path ~= '' and not allowed(path) then return false end
+    if args.include_external then return false end
+    for _, item in ipairs(buffers.list(source, false, workspace)) do
+      if not allowed(item.name) then return false end
     end
     return true
   end
@@ -229,13 +229,13 @@ local function workspace_read(name, args, context, workspace)
     local real = vim.uv.fs_realpath(path) or vim.uv.fs_realpath(vim.fn.fnamemodify(path, ':h'))
     return real and within(real, workspace) or false
   end
-  if name == 'read_buffer' then
+  if name == 'read_file' and args.path == nil then
     return local_buffer(buffer_path(args.buffer_id or context.source_buffer))
   end
   if name == 'list_buffers' then
-    for _, id in ipairs(vim.api.nvim_list_bufs()) do
-      local path = buffer_path(id)
-      if path and path ~= '' and not local_buffer(path) then return false end
+    if args.include_external then return false end
+    for _, item in ipairs(buffers.list(context.source_buffer, false, workspace)) do
+      if not local_buffer(item.name) then return false end
     end
   end
   return true
@@ -248,8 +248,7 @@ local assessment_system = 'You are an independent tool-call reviewer. Do not use
 function M.prefetch(name, args, context, active)
   if not context or not context.review then return nil end
   local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
-  if workspace_read(name, args, context, workspace) or name == 'edit_file' or name == 'create_file'
-    or name == 'replace_buffer_lines' then return nil end
+  if workspace_read(name, args, context, workspace) or name == 'edit_file' or name == 'create_file' then return nil end
   load()
   if remembered[vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args }))] then return nil end
   local summary, unsafe, ready = nil, nil, false

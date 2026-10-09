@@ -41,7 +41,7 @@ assert(requests[1].messages[2].content == 'Show me the buffer')
 local prompt_ui = require('codeit.approval_prompt')
 local read_choice
 prompt_ui.show = function(_, _, callback) read_choice = callback end
-tool_reply('read_buffer', { start_line = 1, end_line = 1 })
+tool_reply('read_file', { start_line = 1, end_line = 1 })
 assert(read_choice, 'untrusted buffer reads must request approval immediately')
 assert(#requests == 1, 'workspace reads must not request a summary')
 read_choice('once')
@@ -74,20 +74,20 @@ write_ui.show = function(diff, _, callback)
   edit_diff = diff
 end
 plugin.send('Change it')
-tool_reply('replace_buffer_lines', {
-  start_line = 1, end_line = 1, expected_text = 'before', new_text = 'after',
+tool_reply('edit_file', {
+  start_line = 1, end_line = 1, old_text = 'before', new_text = 'after',
 })
 assert(select_callback)
 assert(edit_diff and edit_diff.before == 'before\nsecond\n' and edit_diff.after == 'after\nsecond\n',
-  'replace_buffer_lines must preview the entire file')
+  'edit_file must preview the entire file')
 assert(first_line(file) == 'before')
 select_callback('once')
 assert(first_line(file) == 'after')
 reply({ role = 'assistant', content = 'Done.' })
 
 plugin.send('Another change')
-tool_reply('replace_buffer_lines', {
-  start_line = 1, end_line = 1, expected_text = 'after', new_text = 'oops',
+tool_reply('edit_file', {
+  start_line = 1, end_line = 1, old_text = 'after', new_text = 'oops',
 })
 plugin.new()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
@@ -117,7 +117,7 @@ reply({ role = 'assistant', content = 'It prints test.' },
   { cost = 0.000321, prompt_tokens = 40, completion_tokens = 10 })
 reviewer_back()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
-assert(requests[#requests].specs == requests[1].specs, 'main chat must retain tools')
+assert(vim.deep_equal(requests[#requests].specs, requests[1].specs), 'main chat must retain tools')
 -- Rejection goes into the main tool result, not into the reviewer history.
 assert(#responses == 1)
 reply({ role = 'assistant', content = 'Understood.' },

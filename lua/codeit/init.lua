@@ -464,7 +464,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
   set_status('Waiting for ' .. config.provider .. '…')
   local advertised = vim.json.encode(context_files.messages(workspace, approval.workspace_trust(workspace),
     context_paths, selected_skills))
-  providers.chat(request_config(), request_messages(), tools.specs, function(message, err, usage)
+  providers.chat(request_config(), request_messages(), tools.request_specs(workspace, approval.workspace_trust(workspace)), function(message, err, usage)
     if id ~= generation then return end
     if workspace ~= history.workspace() then sync_workspace(); render(); return end
     if err then return fail(err) end
@@ -555,10 +555,9 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
           local path
           if vim.tbl_contains({ 'read_file', 'edit_file', 'create_file' }, fn.name) then
             path = args and args.path
-          elseif vim.tbl_contains({ 'read_buffer', 'replace_buffer_lines' }, fn.name) then
-            local buffer = args and (args.buffer_id or source)
-            if type(buffer) == 'number' and vim.api.nvim_buf_is_valid(buffer) then
-              path = vim.api.nvim_buf_get_name(buffer)
+            if path == nil and fn.name ~= 'create_file' then
+              local buffer = args and (args.buffer_id or source)
+              if require('codeit.file_buffer').valid(buffer) then path = vim.api.nvim_buf_get_name(buffer) end
             end
           end
           if type(path) == 'string' and path ~= '' and not vim.tbl_contains(context_paths, path) then

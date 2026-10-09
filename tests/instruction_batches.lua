@@ -51,7 +51,7 @@ finish()
 
 -- Invalid arguments and unexpected API failures keep tool histories balanced/recoverable.
 plugin.send('Read a buffer')
-reply({ call('invalid', 'read_buffer', { buffer_id = 1.5, start_line = 'bad' }) })
+reply({ call('invalid', 'read_file', { buffer_id = 1.5, start_line = 'bad' }) })
 assert(last()[#last()].tool_call_id == 'invalid' and last()[#last()].content:match('^Error:'))
 finish()
 plugin.send('Retry a read')
@@ -95,6 +95,17 @@ vim.fn.writefile({ 'Changed again during approval.' }, 'src/AGENTS.md')
 pending('once')
 assert(vim.fn.readfile('src/main.txt')[1] == 'after')
 assert(last()[#last()].content:find('project instructions changed while awaiting approval', 1, true))
+finish()
+
+-- Unified buffer-ID reads activate nested instructions just like path reads.
+plugin.new()
+plugin.send('Read this loaded buffer and consider an edit')
+assert(not vim.json.encode(last()):find('Changed again during approval.', 1, true))
+reply({ call('buffer-read', 'read_file', { buffer_id = target }),
+  call('buffer-edit', 'edit_file', { buffer_id = target, old_text = 'after', new_text = 'bad' }) })
+assert(vim.json.encode(last()):find('Changed again during approval.', 1, true))
+assert(last()[#last()].tool_call_id == 'buffer-edit' and last()[#last()].content:find('Deferred:', 1, true))
+assert(vim.fn.readfile('src/main.txt')[1] == 'after')
 finish()
 vim.cmd.cd(root)
 vim.fn.delete(dir, 'rf')

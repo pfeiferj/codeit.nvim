@@ -48,9 +48,12 @@ assert(not text(files.messages(history.workspace(), 'tracked', { 'src/inner/main
 assert(text(files.messages(history.workspace(), 'all', { 'src/inner/main.lua' })):find('untracked secret', 1, true))
 vim.uv.fs_symlink(home .. '/.claude/CLAUDE.md', workspace .. '/src/leak.md')
 assert(not text(files.messages(history.workspace(), 'all', { 'src/leak.md' })):find('nested instruction', 1, true))
-local requests, callbacks = {}, {}
-package.loaded['codeit.providers'] = { chat = function(_, messages, _, callback)
+local requests, callbacks, toolsets = {}, {}, {}
+package.loaded['codeit.providers'] = { chat = function(_, messages, specs, callback)
   requests[#requests + 1] = vim.deepcopy(messages)
+  local names = {}
+  for _, spec in ipairs(specs) do names[spec['function'].name] = true end
+  toolsets[#requests] = names
   callbacks[#callbacks + 1] = callback
 end }
 local plugin = require('codeit')
@@ -78,6 +81,7 @@ assert(toggle_path(workspace .. '/AGENTS.md'):find('[off]', 1, true))
 assert(not text(files.messages(workspace, 'tracked')):find('root instruction', 1, true))
 assert(toggle_path(workspace .. '/AGENTS.md'):find('[on]', 1, true))
 plugin.send('start')
+assert(toolsets[1].load_skill and not toolsets[1].read_buffer and not toolsets[1].replace_buffer_lines)
 assert(text(requests[1]):find('root instruction', 1, true))
 assert(not text(requests[1]):find('nested instruction', 1, true))
 callbacks[1]({ role = 'assistant', content = 'ok' })
@@ -117,6 +121,7 @@ vim.cmd('close')
 assert(approval.set_workspace_trust(nil, workspace))
 callbacks[6]({ role = 'assistant', content = 'done' })
 plugin.send('after revoke')
+assert(not toolsets[7].load_skill, 'untrusted requests must not advertise skill loading')
 local system_messages = {}
 for _, message in ipairs(requests[7]) do
   if message.role == 'system' then system_messages[#system_messages + 1] = message end
@@ -129,6 +134,7 @@ assert(toggle_path(workspace .. '/AGENTS.md'):find('[off]', 1, true))
 plugin.resume(id)
 assert(not text(files.messages(workspace, 'tracked')):find('updated root instruction', 1, true))
 plugin.send('disabled root')
+assert(toolsets[8].load_skill, 'restoring trust must restore the skill tool')
 local headers = {}
 for _, message in ipairs(requests[8]) do
   if message.role == 'system' then headers[#headers + 1] = message end

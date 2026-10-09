@@ -1,6 +1,34 @@
 local M = {}
 local versions = {}
 
+function M.valid(id)
+  return type(id) == 'number' and id >= 1 and id < math.huge and id % 1 == 0
+    and vim.api.nvim_buf_is_valid(id) and vim.api.nvim_buf_is_loaded(id)
+end
+
+function M.target(args, source)
+  local id = args.buffer_id or source
+  if not M.valid(id) then return nil, 'Buffer is not loaded or no source buffer is available; specify path or buffer_id' end
+  if vim.bo[id].buftype ~= '' then return nil, 'Only ordinary file buffers can be accessed' end
+  return id
+end
+
+function M.list(source, include_external, workspace)
+  workspace = workspace or vim.uv.fs_realpath(vim.fn.getcwd())
+  local result = {}
+  for _, id in ipairs(vim.api.nvim_list_bufs()) do
+    if M.valid(id) and vim.bo[id].buftype == '' then
+      local path = vim.api.nvim_buf_get_name(id)
+      local real = path ~= '' and (vim.uv.fs_realpath(path) or vim.uv.fs_realpath(vim.fn.fnamemodify(path, ':h')))
+      local local_path = workspace and real and (real == workspace or real:sub(1, #workspace + 1) == workspace .. '/')
+      if include_external or id == source or local_path then
+        result[#result + 1] = { id = id, name = path, modified = vim.bo[id].modified, source = id == source }
+      end
+    end
+  end
+  return result
+end
+
 function M.refresh(id)
   if vim.bo[id].modified or vim.api.nvim_buf_get_name(id) == '' then return end
   if not vim.uv.fs_stat(vim.api.nvim_buf_get_name(id)) then return end
@@ -35,8 +63,10 @@ function M.disk_version(id)
   local text = file:read(200001)
   file:close()
   -- Access time changes when we read the file; it is not a content revision.
-  return vim.json.encode({ dev = stat.dev, ino = stat.ino, size = stat.size,
-    mode = stat.mode, mtime = stat.mtime, ctime = stat.ctime }) .. vim.fn.sha256(text or '')
+  -- Use ordered fields: JSON object iteration order is not a stable fingerprint.
+  return table.concat({ stat.dev, stat.ino, stat.size, stat.mode,
+    stat.mtime.sec, stat.mtime.nsec, stat.ctime.sec, stat.ctime.nsec }, ':')
+    .. ':' .. vim.fn.sha256(text or '')
 end
 
 -- Bound encoded line data, not just raw bytes: JSON escaping can expand it.

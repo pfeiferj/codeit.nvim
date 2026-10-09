@@ -72,13 +72,13 @@ assert(not vim.bo[clean].modified)
 has(run('edit_file', { path = 'sub/clean.txt', old_text = 'old', new_text = 'new' }), 'saved file')
 assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and not vim.bo[clean].modified,
   'edit_file should save clean files and clear their modified flag')
-has(run('replace_buffer_lines', { buffer_id = clean, start_line = 2, end_line = 2,
-  expected_text = 'keep', new_text = 'replaced' }), 'saved file')
+has(run('edit_file', { buffer_id = clean, start_line = 2, end_line = 2,
+  old_text = 'keep', new_text = 'replaced' }), 'saved file')
 assert(vim.fn.readfile('sub/clean.txt')[2] == 'replaced' and not vim.bo[clean].modified,
-  'replace_buffer_lines should save clean files')
+  'edit_file by buffer ID should save clean files')
 vim.api.nvim_buf_set_lines(clean, 0, 1, false, { 'unsaved' })
-has(run('replace_buffer_lines', { buffer_id = clean, start_line = 2, end_line = 2,
-  expected_text = 'replaced', new_text = 'also unsaved' }), 'not saved')
+has(run('edit_file', { buffer_id = clean, start_line = 2, end_line = 2,
+  old_text = 'replaced', new_text = 'also unsaved' }), 'not saved')
 assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and vim.fn.readfile('sub/clean.txt')[2] == 'replaced')
 assert(vim.bo[clean].modified and vim.api.nvim_buf_get_lines(clean, 0, 2, false)[2] == 'also unsaved',
   'existing unwritten changes must never be saved by a write tool')

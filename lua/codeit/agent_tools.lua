@@ -16,12 +16,17 @@ M.specs = {
   spec('search_workspace', 'Search workspace DISK text, not unsaved buffers, with ripgrep (literal, case-sensitive). Returns filenames/line numbers and exit status (1 means no matches). Respects gitignore; skips binary files, files over 1MB, and lines over 300 columns. Output limited to 20000 bytes.', {
     query = { type = 'string', description = 'Nonempty literal text, at most 500 bytes' },
   }, { 'query' }),
-  spec('read_file', 'Read a workspace file including unsaved buffer changes; clean buffers refresh from disk. Lines are 1-based/inclusive. At most 200 lines and 20000 encoded bytes per call, even with explicit end_line. Returns total_lines, truncated, next_start_line, modified; continue at next_start_line. Ranges past EOF return available lines.', {
-    path = { type = 'string' }, start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
-  }, { 'path' }),
-  spec('edit_file', 'Replace exactly one occurrence of nonempty old_text in a workspace file buffer (file and each replacement at most 200KB). Saves unless already modified. Requires confirmation; read first, and use enough context to make old_text unique.', {
-    path = { type = 'string' }, old_text = { type = 'string' }, new_text = { type = 'string' },
-  }, { 'path', 'old_text', 'new_text' }),
+  spec('read_file', 'Read a workspace path OR loaded ordinary buffer_id (including unnamed buffers); omit both to use the source buffer active before chat opened. Never specify both. Includes unsaved changes; clean buffers refresh from disk. Lines are 1-based/inclusive. At most 200 lines/20000 encoded bytes, even with end_line. Returns path, buffer_id, total_lines, truncated, next_start_line, modified; continue at next_start_line. Ranges past EOF return available lines.', {
+    path = { type = 'string', description = 'Workspace file path; mutually exclusive with buffer_id' },
+    buffer_id = { type = 'integer', minimum = 1, description = 'Loaded ordinary buffer ID; omit path and buffer_id for source buffer' },
+    start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
+  }),
+  spec('edit_file', 'Replace exactly one occurrence of nonempty old_text in a workspace path OR loaded ordinary buffer_id; omit both for source buffer. Never specify both. Works on large files and unnamed buffers. Read current contents first. Optional start_line AND end_line restrict exact-text matching to that 1-based inclusive range, useful for repeated text. old_text/new_text each at most 200KB; empty new_text deletes matched text. Requires approval; saves clean named files, leaves already-modified or unnamed buffers unsaved.', {
+    path = { type = 'string', description = 'Workspace file path; mutually exclusive with buffer_id' },
+    buffer_id = { type = 'integer', minimum = 1, description = 'Loaded ordinary buffer ID; omit both targets for source buffer' },
+    start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
+    old_text = { type = 'string' }, new_text = { type = 'string' },
+  }, { 'old_text', 'new_text' }),
   spec('create_file', 'Create a new workspace file on disk, in an existing directory (content at most 200KB). Requires confirmation; never overwrites.', {
     path = { type = 'string' }, content = { type = 'string' },
   }, { 'path', 'content' }),
@@ -101,7 +106,7 @@ local function git_path(path, base)
   return absolute
 end
 
-function M.execute(name, args, done, active, approve, reads, prepare)
+function M.execute(name, args, done, active, approve, reads, prepare, source)
   local base = root()
   if not base then return done('Error: workspace does not exist') end
   if name == 'list_workspace_files' then
@@ -141,8 +146,16 @@ function M.execute(name, args, done, active, approve, reads, prepare)
     if vim.fn.executable('rg') ~= 1 then return done('Error: ripgrep is required') end
     return process({ 'rg', '-n', '--hidden', '-F', '--max-columns', '300', '--max-filesize', '1M', '-g', '!.git', '-e', args.query, '.' }, base, done, active)
   elseif name == 'read_file' or name == 'edit_file' or name == 'create_file' then
-    local path, err = resolve(args.path, name ~= 'create_file')
-    if not path then return done('Error: ' .. err) end
+    local path, id, err
+    if name ~= 'create_file' and args.path == nil then
+      id, err = buffers.target(args, source)
+      if not id then return done('Error: ' .. err) end
+      path = vim.api.nvim_buf_get_name(id)
+    else
+      path, err = resolve(args.path, name ~= 'create_file')
+      if not path then return done('Error: ' .. err) end
+    end
+    local original_path = path
     if name ~= 'read_file' and prepare and not prepare(path) then
       return done('Error: new project instructions discovered; review them before reissuing this write')
     end
@@ -167,8 +180,12 @@ function M.execute(name, args, done, active, approve, reads, prepare)
         done('Created ' .. path)
       end, { path = path, before = '', after = args.content })
     end
-    local id, failure = file_buffer(path)
-    if not id then return done('Error: ' .. failure) end
+    if id then
+      buffers.refresh(id)
+    else
+      id, err = file_buffer(path)
+      if not id then return done('Error: ' .. err) end
+    end
     if name == 'read_file' then
       local start, last = args.start_line or 1, args.end_line
       if not integer(start, 1) or last ~= nil and (not integer(last, 1) or last < start) then
@@ -176,7 +193,7 @@ function M.execute(name, args, done, active, approve, reads, prepare)
       end
       local result, read_err = buffers.read(id, start, last)
       if not result then return done('Error: ' .. read_err) end
-      result.path = path
+      result.path, result.buffer_id = path, id
       buffers.remember(id, reads)
       return done(vim.json.encode(result))
     end
@@ -185,27 +202,34 @@ function M.execute(name, args, done, active, approve, reads, prepare)
       or #args.old_text > 200000 or #args.new_text > 200000 then return done('Error: invalid replacement text') end
     if not vim.bo[id].modifiable then return done('Error: buffer is not modifiable') end
     local lines = vim.api.nvim_buf_get_lines(id, 0, -1, false)
-    local text = table.concat(lines, '\n')
-    if #text > 200000 then return done('Error: file is too large to edit') end
+    local start, last = args.start_line or 1, args.end_line or #lines
+    if not integer(start, 1) or not integer(last, 1) or last < start or last > #lines then
+      return done('Error: invalid edit range')
+    end
+    local text = table.concat(vim.list_slice(lines, start, last), '\n')
     local first = text:find(args.old_text, 1, true)
     if not first then return done('Error: old_text not found; read the file again') end
-    if text:find(args.old_text, first + 1, true) then return done('Error: old_text is not unique') end
+    if text:find(args.old_text, first + 1, true) then return done('Error: old_text is not unique; add context or specify start_line and end_line') end
     local tick = vim.api.nvim_buf_get_changedtick(id)
     local was_modified = vim.bo[id].modified
     local disk_version = buffers.disk_version(id)
     local replacement = text:sub(1, first - 1) .. args.new_text .. text:sub(first + #args.old_text)
     local new_lines = vim.split(replacement, '\n', { plain = true })
+    local after = vim.list_slice(lines, 1, start - 1)
+    vim.list_extend(after, new_lines)
+    vim.list_extend(after, vim.list_slice(lines, last + 1, #lines))
     local eol = vim.bo[id].endofline and '\n' or ''
     local preview = { path = path, filetype = vim.bo[id].filetype,
-      before = text .. eol, after = table.concat(new_lines, '\n') .. eol }
-    return approve('Replace in ' .. path .. '?', function()
-      local checked = resolve(args.path, true)
-      if checked ~= path or not vim.api.nvim_buf_is_valid(id) or not vim.api.nvim_buf_is_loaded(id)
-        or vim.api.nvim_buf_get_changedtick(id) ~= tick or vim.bo[id].modified ~= was_modified
+      before = table.concat(lines, '\n') .. eol, after = table.concat(after, '\n') .. eol }
+    return approve('Replace in ' .. (path ~= '' and path or 'unnamed buffer ' .. id) .. '?', function()
+      local checked = original_path
+      if args.path then checked = resolve(args.path, true) end
+      if checked ~= original_path or not buffers.valid(id) or vim.api.nvim_buf_get_name(id) ~= original_path
+        or vim.bo[id].buftype ~= '' or vim.api.nvim_buf_get_changedtick(id) ~= tick or vim.bo[id].modified ~= was_modified
         or not vim.bo[id].modifiable or buffers.disk_version(id) ~= disk_version then
         return done('Error: file or buffer changed while awaiting confirmation')
       end
-      local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, 0, -1, false, new_lines)
+      local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, start - 1, last, false, new_lines)
       if not ok then return done('Error: ' .. tostring(edit_err)) end
       local result = require('codeit.write_buffer').finish(id, was_modified)
       buffers.remember(id, reads)
