@@ -55,6 +55,19 @@ reply({ role = 'assistant', content = 'Here is your buffer.' },
 contains(vim.fn.bufnr('codeit://chat'), 'Here is your buffer.')
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: 0.15k')
 
+local chat_buf = vim.fn.bufnr('codeit://chat')
+local bottom = vim.api.nvim_buf_line_count(chat_buf)
+vim.api.nvim_buf_set_lines(chat_buf, bottom - 1, -1, false, { 'draft one', 'draft two' })
+plugin.send()
+assert(requests[#requests].messages[#requests[#requests].messages].content == 'draft one\ndraft two')
+assert(vim.api.nvim_buf_get_lines(chat_buf, -2, -1, false)[1] == '', 'sending clears only the draft')
+local waiting_bottom = vim.api.nvim_buf_line_count(chat_buf)
+vim.api.nvim_buf_set_lines(chat_buf, waiting_bottom - 1, -1, false, { 'next draft' })
+reply({ role = 'assistant', content = 'Draft received.' })
+assert(vim.api.nvim_buf_get_lines(chat_buf, -2, -1, false)[1] == 'next draft',
+  'async replies must preserve an unfinished draft')
+assert(require('codeit.ui').take_input() == 'next draft')
+
 local write_ui = require('codeit.write_approval')
 local select_callback, edit_diff
 write_ui.show = function(diff, _, callback)

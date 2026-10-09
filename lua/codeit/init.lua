@@ -25,7 +25,7 @@ local generation = 0
 local workspace, chat_id, chat_model
 local pending_summaries = {}
 local history_view = 0
-local status = 'Ready. Type in the lower pane; press Enter in normal mode or Ctrl-S in insert mode to send.'
+local status = 'Ready. Type below; press Enter in normal mode or Ctrl-S in insert mode to send.'
 
 local function model()
   return chat_model or config.models[config.provider] or 'unknown'

@@ -2,14 +2,16 @@ vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local ui = require('codeit.ui')
 local messages = {}
 for i = 1, 50 do messages[i] = { role = 'user', content = 'message ' .. i } end
-ui.open(function() end, function() end)
+local sent
+ui.open(function() sent = ui.take_input() end, ui.close)
 local chat = vim.fn.bufnr('codeit://chat')
 local win = vim.fn.bufwinid(chat)
-local input = vim.fn.bufnr('codeit://input')
-for _, buf in ipairs({ chat, input }) do
-  assert(vim.bo[buf].filetype == 'markdown' and vim.bo[buf].syntax == 'markdown')
-  assert(vim.b[buf].current_syntax == 'markdown', 'Markdown syntax should be loaded for both chat panes')
-end
+assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, 0, -1, false), { '## Message', '', '' }),
+  'new chats should have a blank line between the heading and draft')
+assert(vim.fn.bufnr('codeit://input') == -1, 'chat must have no separate input buffer')
+assert(#vim.api.nvim_list_wins() == 2, 'chat must use only one sidebar window')
+assert(vim.bo[chat].filetype == 'markdown' and vim.bo[chat].syntax == 'markdown')
+assert(vim.b[chat].current_syntax == 'markdown', 'Markdown syntax should be loaded')
 local ns = vim.api.nvim_get_namespaces().codeit_sticky_header
 assert(ns)
 
@@ -55,37 +57,44 @@ scroll(10)
 assert(#marks() == 0, 'providers without usage must not display a sticky line')
 scroll(1)
 assert(#marks() == 0)
+
+local count = vim.api.nvim_buf_line_count(chat)
+assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, count - 3, count, false), { '## Message', '', '' }),
+  'rendered chats should have a blank line between the heading and draft')
+vim.api.nvim_buf_set_lines(chat, count - 1, -1, false, { 'first line', 'second line' })
+vim.api.nvim_win_set_cursor(win, { count + 1, 4 })
+ui.render(messages, 'Waiting', 'copilot', 'model-b', nil)
+assert(vim.api.nvim_win_get_cursor(win)[2] == 4)
+assert(vim.api.nvim_buf_get_lines(chat, -3, -1, false)[1] == 'first line')
+assert(ui.take_input() == 'first line\nsecond line')
+assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, -4, -1, false), { '## Message', '', '' }),
+  'sending should preserve the separator')
+assert(ui.take_input() == nil, 'empty drafts should not send')
 ui.close()
 assert(#marks() == 0)
+ui.open(function() sent = ui.take_input() end, ui.close)
+assert(ui.is_open() and vim.fn.bufwinid(chat) ~= -1)
+local last = vim.api.nvim_buf_line_count(chat)
+vim.api.nvim_buf_set_lines(chat, last - 1, -1, false, { 'draft after reopen' })
+ui.render(messages, 'Ready', 'copilot', 'model-b', nil)
+assert(ui.take_input() == 'draft after reopen')
+local fresh = vim.api.nvim_buf_line_count(chat)
+vim.api.nvim_buf_set_lines(chat, fresh - 1, -1, false, { 'sent by mapping' })
+vim.api.nvim_win_set_cursor(vim.fn.bufwinid(chat), { fresh, 0 })
+vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<CR>', true, false, true), 'x', false)
+assert(sent == 'sent by mapping', 'normal Enter sends the draft')
 
-local function pane_windows()
-  return vim.fn.bufwinid(chat), vim.fn.bufwinid(input)
-end
-
-for _, pane in ipairs({ 'chat', 'input' }) do
-  ui.open(function() end, ui.close)
-  local chat_win, input_win = pane_windows()
-  assert(ui.is_open())
-  vim.api.nvim_set_current_win(pane == 'chat' and chat_win or input_win)
-  vim.cmd('close')
-  local other = pane == 'chat' and input_win or chat_win
-  assert(vim.wait(1000, function() return not vim.api.nvim_win_is_valid(other) end),
-    'closing ' .. pane .. ' must close the other pane')
-  assert(not ui.is_open())
-end
-
-ui.open(function() end, ui.close)
 vim.cmd('vsplit')
 local unrelated = vim.api.nvim_get_current_win()
 vim.cmd('close')
 assert(not vim.api.nvim_win_is_valid(unrelated) and ui.is_open(), 'unrelated window closures must not close chat')
 ui.close()
-
 ui.open(function() end, ui.close)
 local old_chat = vim.fn.bufwinid(chat)
 vim.api.nvim_win_close(old_chat, true)
 ui.open(function() end, ui.close) -- Reopen before the deferred WinClosed callback runs.
 vim.wait(50, function() return false end)
 assert(ui.is_open(), 'a stale window-close event must not close a reopened chat')
-ui.close()
+vim.cmd('close')
+assert(vim.wait(1000, function() return not ui.is_open() end), 'manually closing the chat must reset the UI')
 print('codeit ui tests passed')
