@@ -1,5 +1,7 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local system = vim.system
+local copilot = vim.env.COPILOT_GITHUB_TOKEN
+vim.env.COPILOT_GITHUB_TOKEN = nil
 local openrouter = vim.env.OPENROUTER_API_KEY
 local gh = vim.env.GH_TOKEN
 vim.env.OPENROUTER_API_KEY = 'test-openrouter-key'
@@ -10,7 +12,7 @@ vim.system = function(args, options, callback)
   table.insert(calls, { args = args, options = options })
   local result
   if vim.tbl_contains(args, 'https://api.github.com/copilot_internal/v2/token') then
-    result = { code = 0, stdout = vim.json.encode({ token = 'copilot-key', expires_at = os.time() + 300 }) }
+    result = { code = 0, stdout = vim.json.encode({ token = 'copilot-key', expires_at = os.time() + 300 }) .. '\n200' }
   else
     result = { code = 0, stdout = http_response }
   end
@@ -117,6 +119,7 @@ assert(metadata_error == 'HTTP 503: Metadata unavailable')
 assert(table.concat(vim.fn.readfile(log_path), '\n'):find('metadata details', #logged + 1, true),
   'metadata provider failures should also be logged')
 vim.system = system
+vim.env.COPILOT_GITHUB_TOKEN = copilot
 vim.env.OPENROUTER_API_KEY = openrouter
 vim.env.GH_TOKEN = gh
 print('codeit provider tests passed')

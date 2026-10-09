@@ -1,5 +1,7 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local original_system, original_key, original_gh = vim.system, vim.env.OPENROUTER_API_KEY, vim.env.GH_TOKEN
+local original_copilot = vim.env.COPILOT_GITHUB_TOKEN
+vim.env.COPILOT_GITHUB_TOKEN = nil
 vim.env.OPENROUTER_API_KEY = 'test-openrouter-key'
 vim.env.GH_TOKEN = 'test-github-key'
 local calls = {}
@@ -25,8 +27,7 @@ local copilot = { provider = 'copilot', model = 'gpt-4o' }
 result = nil
 providers.context_limit(copilot, function(value) result = value end)
 assert(#calls == 2 and vim.tbl_contains(calls[2].args, 'https://api.github.com/copilot_internal/v2/token'))
-calls[2].callback({ code = 0, stdout = vim.json.encode({ token = 'copilot-token', expires_at = os.time() + 3600 }) })
-vim.wait(20)
+reply(2, { token = 'copilot-token', expires_at = os.time() + 3600 })
 assert(#calls == 3 and vim.tbl_contains(calls[3].args, 'https://api.githubcopilot.com/models'),
   'calls=' .. #calls .. ' url=' .. tostring(calls[3] and calls[3].args[#calls[3].args]))
 reply(3, { data = { { id = 'gpt-4o', capabilities = { limits = { max_prompt_tokens = 90000 } } } } })
@@ -42,4 +43,5 @@ providers.context_limit({ provider = 'openrouter', model = 'unknown' }, function
 end)
 assert(#calls == 4)
 vim.system, vim.env.OPENROUTER_API_KEY, vim.env.GH_TOKEN = original_system, original_key, original_gh
+vim.env.COPILOT_GITHUB_TOKEN = original_copilot
 print('codeit model limit tests passed')
