@@ -55,14 +55,19 @@ reply({ role = 'assistant', content = 'Here is your buffer.' },
 contains(vim.fn.bufnr('codeit://chat'), 'Here is your buffer.')
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: 0.15k')
 
-local select_callback
-prompt_ui.show = function(_, _, callback) select_callback = callback end
+local write_ui = require('codeit.write_approval')
+local select_callback, edit_diff
+write_ui.show = function(diff, _, callback)
+  select_callback = callback
+  edit_diff = diff
+end
 plugin.send('Change it')
 tool_reply('replace_buffer_lines', {
   start_line = 1, end_line = 1, expected_text = 'before', new_text = 'after',
 })
-reply({ role = 'assistant', content = '{"summary":"Edits the buffer.","safe":true}' })
 assert(select_callback)
+assert(edit_diff and edit_diff.before == 'before\nsecond\n' and edit_diff.after == 'after\nsecond\n',
+  'replace_buffer_lines must preview the entire file')
 assert(first_line(file) == 'before')
 select_callback('once')
 assert(first_line(file) == 'after')
@@ -73,8 +78,6 @@ tool_reply('replace_buffer_lines', {
   start_line = 1, end_line = 1, expected_text = 'after', new_text = 'oops',
 })
 plugin.new()
-local stale_review = table.remove(responses, 1)
-stale_review({ role = 'assistant', content = '{"summary":"Late edit.","safe":true}' })
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
 select_callback('once')
 assert(first_line(file) == 'after', 'reset must cancel pending edit')

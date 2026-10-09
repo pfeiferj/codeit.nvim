@@ -82,8 +82,9 @@ local execute_approved
 --- Execute a tool and call done(result_string, optional_cancel_signal).
 function M.execute(name, args, source, done, active, context)
   if type(args) ~= 'table' or vim.islist(args) and #args > 0 then return done('Error: arguments must be an object') end
-  local function gate(prompt, action)
+  local function gate(prompt, action, diff)
     local request_context = vim.tbl_extend('force', context or {}, { source_buffer = source })
+    request_context.diff = diff
     return approval.request(name, args, prompt, active, done, action, request_context)
   end
   if not gated[name] then
@@ -123,18 +124,23 @@ execute_approved = function(name, args, source, done, active, gate)
     return done('Error: buffer contents changed; read the buffer again before editing')
   end
   local changedtick = vim.api.nvim_buf_get_changedtick(id)
-  local preview = string.format('Replace lines %d-%d in %s?\nOld:\n%s\nNew:\n%s', start, last,
-    vim.api.nvim_buf_get_name(id), args.expected_text, args.new_text)
-  return gate(preview, function()
+  local replacement = args.new_text == '' and {} or vim.split(args.new_text, '\n', { plain = true })
+  local before = vim.api.nvim_buf_get_lines(id, 0, -1, false)
+  local after = vim.deepcopy(before)
+  for _ = start, last do table.remove(after, start) end
+  for i, line in ipairs(replacement) do table.insert(after, start + i - 1, line) end
+  local eol = vim.bo[id].endofline and '\n' or ''
+  local preview = { path = vim.api.nvim_buf_get_name(id), filetype = vim.bo[id].filetype,
+    before = table.concat(before, '\n') .. eol, after = table.concat(after, '\n') .. eol }
+  return gate(string.format('Replace lines %d-%d in %s?', start, last, preview.path), function()
     if active and not active() then return end
     if not valid_buffer(id) or vim.api.nvim_buf_get_changedtick(id) ~= changedtick then
       return done('Error: buffer changed while awaiting confirmation')
     end
     if not vim.bo[id].modifiable then return done('Error: buffer is not modifiable') end
-    local replacement = args.new_text == '' and {} or vim.split(args.new_text, '\n', { plain = true })
     local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, start - 1, last, false, replacement)
     done(ok and 'Applied edit' or ('Error: ' .. tostring(edit_err)))
-  end)
+  end, preview)
 end
 
 return M

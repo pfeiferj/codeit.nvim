@@ -12,7 +12,7 @@ M.specs = {
   spec('search_workspace', 'Search workspace text with ripgrep (literal, case-sensitive). Returns file names and line numbers.', {
     query = { type = 'string' },
   }, { 'query' }),
-  spec('read_file', 'Read up to 200 lines of a workspace file (including unsaved Neovim buffer changes). Lines are 1-based.', {
+  spec('read_file', 'Read a workspace file (including unsaved Neovim buffer changes). Lines are 1-based and inclusive; omitted end_line reads to EOF and a range past EOF returns the available lines.', {
     path = { type = 'string' }, start_line = { type = 'integer' }, end_line = { type = 'integer' },
   }, { 'path' }),
   spec('edit_file', 'Replace exactly one occurrence of old_text in a workspace file buffer. Does not save the buffer. Requires confirmation; read the file first.', {
@@ -125,7 +125,7 @@ function M.execute(name, args, done, active, approve)
     if not path then return done('Error: ' .. err) end
     if name == 'create_file' then
       if type(args.content) ~= 'string' or #args.content > 200000 then return done('Error: content must be a string of at most 200KB') end
-    return approve('Create ' .. path .. '?', function()
+      return approve('Create ' .. path .. '?', function()
         local checked, failure = resolve(args.path, false)
         if not checked or checked ~= path then return done('Error: ' .. tostring(failure or 'Path changed')) end
         local fd, open_err = vim.uv.fs_open(path, 'wx', 420)
@@ -134,28 +134,19 @@ function M.execute(name, args, done, active, approve)
         vim.uv.fs_close(fd)
         if not written or written ~= #args.content then return done('Error: ' .. tostring(write_err or 'Incomplete write')) end
         done('Created ' .. path)
-      end)
+      end, { path = path, before = '', after = args.content })
     end
     local id, failure = file_buffer(path)
     if not id then return done('Error: ' .. failure) end
     local count = vim.api.nvim_buf_line_count(id)
     if name == 'read_file' then
       local start = args.start_line or 1
-      local last = args.end_line or math.min(start + 199, count)
+      local last = args.end_line or math.max(start, count)
       if type(start) ~= 'number' or type(last) ~= 'number' or start % 1 ~= 0 or last % 1 ~= 0
-        or start < 1 or last < start or last > count or last - start >= 200 then
-        return done('Error: invalid range (maximum 200 lines)')
-      end
-      local lines = vim.api.nvim_buf_get_lines(id, start - 1, last, false)
-      local size = 0
-      local selected = {}
-      for _, line in ipairs(lines) do
-        if size + #line > 20000 then break end
-        selected[#selected + 1] = line
-        size = size + #line
-      end
-      return done(vim.json.encode({ path = path, start_line = start, end_line = start + #selected - 1,
-        lines = selected, truncated = #selected < #lines }))
+        or start < 1 or last < start then return done('Error: invalid range') end
+      local lines = vim.api.nvim_buf_get_lines(id, math.min(start - 1, count), math.min(last, count), false)
+      return done(vim.json.encode({ path = path, start_line = start, end_line = start + #lines - 1,
+        lines = lines, truncated = false }))
     end
     if type(args.old_text) ~= 'string' or args.old_text == '' or type(args.new_text) ~= 'string'
       or #args.old_text > 200000 or #args.new_text > 200000 then return done('Error: invalid replacement text') end
@@ -167,16 +158,20 @@ function M.execute(name, args, done, active, approve)
     if not first then return done('Error: old_text not found; read the file again') end
     if text:find(args.old_text, first + 1, true) then return done('Error: old_text is not unique') end
     local tick = vim.api.nvim_buf_get_changedtick(id)
-    return approve('Replace in ' .. path .. '?\nOld:\n' .. output(args.old_text) .. '\nNew:\n' .. output(args.new_text), function()
+    local replacement = text:sub(1, first - 1) .. args.new_text .. text:sub(first + #args.old_text)
+    local new_lines = vim.split(replacement, '\n', { plain = true })
+    local eol = vim.bo[id].endofline and '\n' or ''
+    local preview = { path = path, filetype = vim.bo[id].filetype,
+      before = text .. eol, after = table.concat(new_lines, '\n') .. eol }
+    return approve('Replace in ' .. path .. '?', function()
       local checked = resolve(args.path, true)
       if checked ~= path or not vim.api.nvim_buf_is_valid(id) or not vim.api.nvim_buf_is_loaded(id)
         or vim.api.nvim_buf_get_changedtick(id) ~= tick or not vim.bo[id].modifiable then
         return done('Error: file or buffer changed while awaiting confirmation')
       end
-      local replacement = text:sub(1, first - 1) .. args.new_text .. text:sub(first + #args.old_text)
-      local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, 0, -1, false, vim.split(replacement, '\n', { plain = true }))
+      local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, 0, -1, false, new_lines)
       done(ok and 'Applied edit to buffer (not saved)' or ('Error: ' .. tostring(edit_err)))
-    end)
+    end, preview)
   elseif name == 'run_command' then
     if type(args.argv) ~= 'table' or #args.argv == 0 or #args.argv > 40 then return done('Error: argv must be a nonempty array') end
     for _, arg in ipairs(args.argv) do

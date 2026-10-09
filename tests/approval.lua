@@ -147,5 +147,28 @@ assert(#prompts == before and pending, 'wait for the reviewer before prompting')
 live = false
 pending('{"summary":"Prints text.","safe":true}')
 assert(#prompts == before, 'stale reviewer response must not open approval')
+local write_ui = require('codeit.write_approval')
+local old_write_show = write_ui.show
+local write_calls = 0
+write_ui.show = function(diff, options, cb)
+  write_calls = write_calls + 1
+  assert(diff.path == 'example.lua' and diff.before == 'before\n' and diff.after == 'after\n')
+  assert(options[5].id == 'review')
+  cb(write_calls == 1 and 'review' or 'once')
+end
+prompt_ui.ask_reviewer = function(_, _, cb) cb('Is the change safe?') end
+local review_calls = 0
+choices = { 'back' }
+call('edit_file', { path = 'example.lua', old_text = 'before', new_text = 'after' }, {
+  diff = { path = 'example.lua', before = 'before\n', after = 'after\n' },
+  review = function(history, cb)
+    review_calls = review_calls + 1
+    assert(history[2].content:find('Proposed unified diff:', 1, true))
+    assert(history[2].content:find('-before\n+after', 1, true))
+    cb('The change is small.')
+  end,
+})
+assert(result == 'executed' and write_calls == 2 and review_calls == 1)
+write_ui.show = old_write_show
 vim.ui.input, prompt_ui.show, prompt_ui.ask_reviewer = original_input, original_show, original_ask
 print('codeit approval tests passed')
