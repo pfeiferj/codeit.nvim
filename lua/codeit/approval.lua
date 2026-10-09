@@ -1,5 +1,6 @@
 local M = {}
 local approval_prompt = require('codeit.approval_prompt')
+local approval_format = require('codeit.approval_format')
 local write_approval = require('codeit.write_approval')
 
 local read_tools = {
@@ -277,7 +278,8 @@ function M.request(name, args, prompt, active, done, action, context)
   local update_prompt
   local prompt_version = 0
   local function prompt_text()
-    return prompt .. (skip_summary and '' or '\n\n' .. (unsafe and '**Summary: ' .. summary .. '**' or 'Summary: ' .. summary))
+    return approval_format.call(name, args)
+      .. (skip_summary and '' or '\n\n' .. (unsafe and '**Summary: ' .. summary .. '**' or 'Summary: ' .. summary))
       .. (reason and '\n\n**Reason:** ' .. tostring(reason) or '')
       .. '\n\n**Workspace:** `' .. workspace .. '`'
   end
