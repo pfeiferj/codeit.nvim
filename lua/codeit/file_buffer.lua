@@ -21,7 +21,7 @@ function M.list(source, include_external, workspace)
       local path = vim.api.nvim_buf_get_name(id)
       local real = path ~= '' and (vim.uv.fs_realpath(path) or vim.uv.fs_realpath(vim.fn.fnamemodify(path, ':h')))
       local local_path = workspace and real and (real == workspace or real:sub(1, #workspace + 1) == workspace .. '/')
-      if include_external or id == source or local_path then
+      if include_external or local_path then
         result[#result + 1] = { id = id, name = path, modified = vim.bo[id].modified, source = id == source }
       end
     end

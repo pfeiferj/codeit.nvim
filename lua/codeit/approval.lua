@@ -62,6 +62,8 @@ local function auto_read(name, args, workspace, source)
   end
   if name == 'list_buffers' then
     if args.include_external then return false end
+    -- The default listing is workspace-only, including named unsaved files.
+    if mode == 'all' then return true end
     for _, item in ipairs(buffers.list(source, false, workspace)) do
       if not allowed(item.name) then return false end
     end

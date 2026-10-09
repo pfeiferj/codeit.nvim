@@ -16,7 +16,7 @@ M.specs = {
     type = 'function',
     ['function'] = {
       name = 'list_buffers',
-      description = 'List loaded ordinary workspace buffers plus the source buffer, including an unnamed source. Returns IDs, names, modified and source flags. Unrelated buffers are hidden by default; include_external=true explicitly lists all ordinary buffers subject to approval.',
+      description = 'List loaded ordinary workspace buffers. Returns IDs, names, modified and source flags. External and unnamed buffers, including the source, are hidden by default; include_external=true explicitly lists all ordinary buffers subject to approval.',
       parameters = { type = 'object', properties = {
         include_external = { type = 'boolean', description = 'Include unrelated and unnamed buffers (default false)' },
       } },
