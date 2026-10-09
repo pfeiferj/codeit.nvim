@@ -2,6 +2,7 @@ local M = {}
 
 local copilot_token
 local copilot_expires = 0
+local limits, pending = {}, {}
 
 local function request(url, headers, body, callback)
   local args = { 'curl', '--silent', '--show-error', '--max-time', '120', '--request', 'POST', '--write-out', '\n%{http_code}' }
@@ -30,6 +31,29 @@ local function request(url, headers, body, callback)
       else
         callback(decoded)
       end
+    end)
+  end)
+end
+
+local function get_json(url, headers, callback)
+  local args = { 'curl', '--silent', '--show-error', '--max-time', '30', '--write-out', '\n%{http_code}' }
+  for _, header in ipairs(headers) do vim.list_extend(args, { '--header', header }) end
+  args[#args + 1] = url
+  vim.system(args, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code ~= 0 then
+        return callback(nil, (result.stderr or '') ~= '' and result.stderr or 'curl exited with code ' .. result.code)
+      end
+      local data, status = (result.stdout or ''):match('^(.*)\n(%d%d%d)$')
+      if not data then return callback(nil, 'Invalid HTTP response') end
+      local ok, decoded = pcall(vim.json.decode, data)
+      if not ok or type(decoded) ~= 'table' then return callback(nil, 'Invalid model metadata response') end
+      if tonumber(status) < 200 or tonumber(status) >= 300 then
+        local err = decoded.error
+        if type(err) == 'table' then err = err.message end
+        return callback(nil, 'HTTP ' .. status .. ': ' .. tostring(err or data:sub(1, 300)))
+      end
+      callback(decoded)
     end)
   end)
 end
@@ -71,6 +95,68 @@ local function copilot_auth(callback)
       callback(copilot_token)
     end)
   end)
+end
+
+--- Resolve a model's context window; failures are cached for this session.
+function M.context_limit(config, callback)
+  local key = config.provider .. '/' .. config.model
+  if limits[key] ~= nil then return callback(limits[key] or nil) end
+  if pending[key] then
+    pending[key][#pending[key] + 1] = callback
+    return
+  end
+  pending[key] = { callback }
+  local function finish(limit, err)
+    if type(limit) ~= 'number' or limit <= 0 or limit == math.huge or limit ~= limit then
+      limit = nil
+      err = err or ('no context limit reported for ' .. config.model)
+    end
+    limits[key] = limit or false
+    local callbacks = pending[key]
+    pending[key] = nil
+    for _, done in ipairs(callbacks) do done(limit, err) end
+  end
+  local function extract(response)
+    local models = response.data or response.models or response
+    if type(models) ~= 'table' then return finish(nil) end
+    for _, entry in ipairs(models) do
+      if type(entry) == 'table' and entry.id == config.model then
+        if config.provider == 'openrouter' then
+          return finish(tonumber(entry.context_length))
+        end
+        local limits_data = type(entry.capabilities) == 'table' and entry.capabilities.limits or nil
+        if type(limits_data) == 'table' then
+          return finish(tonumber(limits_data.max_context_window_tokens or limits_data.max_prompt_tokens))
+        end
+        return finish(nil)
+      end
+    end
+    finish(nil, 'model not found in provider metadata: ' .. config.model)
+  end
+  if config.provider == 'openrouter' then
+    local token = vim.env.OPENROUTER_API_KEY
+    if not token or token == '' then return finish(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
+    get_json('https://openrouter.ai/api/v1/models', { 'Authorization: Bearer ' .. token }, function(response, err)
+      if err then return finish(nil, err) end
+      extract(response)
+    end)
+  elseif config.provider == 'copilot' then
+    copilot_auth(function(token, err)
+      if err then return finish(nil, err) end
+      get_json('https://api.githubcopilot.com/models', {
+        'Authorization: Bearer ' .. token,
+        'Editor-Version: Neovim/0.12.0',
+        'Editor-Plugin-Version: codeit.nvim/0.1.0',
+        'Copilot-Integration-Id: vscode-chat',
+        'Openai-Intent: conversation-panel',
+      }, function(response, fetch_err)
+        if fetch_err then return finish(nil, fetch_err) end
+        extract(response)
+      end)
+    end)
+  else
+    finish(nil, 'Unknown provider: ' .. tostring(config.provider))
+  end
 end
 
 --- Send an OpenAI-compatible chat completion. callback(message, error).
