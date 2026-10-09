@@ -67,6 +67,14 @@ function M.show(prompt, options, callback, config)
   end
   vim.keymap.set('n', '<Esc>', function() finish(nil) end,
     { buffer = buf, nowait = true, silent = true, desc = config.dismiss or 'Reject tool call' })
+  return function(updated_prompt)
+    if finished or not vim.api.nvim_buf_is_valid(buf) then return end
+    local replacement = vim.split(updated_prompt, '\n', { plain = true })
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 2, 2 + #vim.split(prompt, '\n', { plain = true }), false, replacement)
+    vim.bo[buf].modifiable = false
+    prompt = updated_prompt
+  end
 end
 
 --- Keep the reviewer conversation and multiline question draft in one Markdown window.

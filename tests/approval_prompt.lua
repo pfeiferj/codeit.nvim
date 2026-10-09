@@ -52,6 +52,22 @@ open_and_press('1', 'once', nil, 2) -- numeric shortcuts work regardless of curs
 open_and_press('<Esc>', 'rejected')
 open_and_press('<CR>', 'tracked', { title = ' Tool-call reviewer ', dismiss = 'Back to approval' }, 2)
 open_and_press('<Esc>', 'rejected', { title = ' Tool-call reviewer ', dismiss = 'Back to approval' })
+local updated_choice
+local update = prompt.show('Run command?\n\nSummary: Waiting for provider…', options,
+  function(choice) updated_choice = choice end)
+local updated_win = vim.api.nvim_get_current_win()
+local updated_buf = vim.api.nvim_win_get_buf(updated_win)
+local choice_row = vim.api.nvim_win_get_cursor(updated_win)[1]
+update('Run command?\n\n**Summary: Potentially unsafe.**')
+assert(vim.api.nvim_get_current_win() == updated_win)
+assert(vim.api.nvim_win_get_cursor(updated_win)[1] == choice_row)
+assert(table.concat(vim.api.nvim_buf_get_lines(updated_buf, 0, -1, false), '\n')
+  :find('**Summary: Potentially unsafe.**', 1, true))
+for _, item in ipairs(vim.api.nvim_buf_get_keymap(updated_buf, 'n')) do
+  if item.lhs == '1' then item.callback(); break end
+end
+assert(updated_choice == 'once')
+update('Late response') -- closed prompts must ignore delayed updates
 local ignored_calls = 0
 prompt.show('Read file?', options, function() ignored_calls = ignored_calls + 1 end)
 local ignored_win = vim.api.nvim_get_current_win()

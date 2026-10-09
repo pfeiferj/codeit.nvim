@@ -4,6 +4,7 @@ local prompt_ui = require('codeit.approval_prompt')
 local original_show, original_ask, original_input = prompt_ui.show, prompt_ui.ask_reviewer, vim.ui.input
 local choices, inputs, questions = {}, {}, {}
 local prompts = {}
+local held_choice
 local reviewer_sessions = 0
 prompt_ui.ask_reviewer = function(name, args, ask, back)
   reviewer_sessions = reviewer_sessions + 1
@@ -20,6 +21,11 @@ prompt_ui.show = function(prompt, options, cb, config)
   for i, option in ipairs(options) do assert(option.key == tostring(i), 'options must use consecutive number keys') end
   if config then assert(config.title == ' Tool-call reviewer ' and config.dismiss == 'Back to approval') end
   local choice = table.remove(choices, 1)
+  if choice == 'hold' then
+    held_choice = cb
+    local index = #prompts
+    return function(updated) prompts[index] = updated end
+  end
   if choice ~= false then
     assert(vim.tbl_contains(vim.tbl_map(function(option) return option.id end, options), choice), tostring(choice))
     cb(choice)
@@ -114,7 +120,7 @@ approval.setup({ validators = { function() error('bad policy') end } })
 call('read_file', { path = 'x' })
 assert(result:find('Validator error:', 1, true))
 approval.setup({})
-assert(prompts[1]:find('Summary: Review unavailable (reviewer not configured)', 1, true))
+assert(not prompts[1]:find('Summary:', 1, true), 'read-only calls must not display a waiting summary')
 local assessments = 0
 local function assessed(answer, err)
   return { user_request = 'check command safety', review = function(history, cb)
@@ -124,24 +130,51 @@ local function assessed(answer, err)
     cb(answer, err)
   end }
 end
-choices = { 'once' }
-call('run_command', { argv = { 'echo', 'safe summary' } }, assessed('{"summary":"Prints a message.","safe":true}'))
-assert(prompts[#prompts]:find('Summary: Prints a message.', 1, true))
-assert(not prompts[#prompts]:find('**Summary:', 1, true))
-choices = { 'reject' }; inputs = { false }
-call('run_command', { argv = { 'rm', '-rf', '/' } }, assessed('{"summary":"Deletes all files.","safe":false}'))
-assert(prompts[#prompts]:find('**Summary: Deletes all files.**', 1, true))
+local function check_assessment(args, answer, expected, decision, err)
+  choices = { 'hold' }
+  inputs = { false }
+  local pending
+  call('run_command', args, { user_request = 'check command safety', review = function(history, cb)
+    assessments = assessments + 1
+    assert(history[1].content:find('JSON object', 1, true))
+    pending = cb
+  end })
+  assert(prompts[#prompts]:find('Summary: Waiting for provider…', 1, true))
+  assert(held_choice and pending and result == nil, 'approval must open before summary arrives')
+  pending(answer, err)
+  assert(prompts[#prompts]:find(expected, 1, true))
+  held_choice(decision)
+end
+check_assessment({ argv = { 'echo', 'safe summary' } }, '{"summary":"Prints a message.","safe":true}',
+  'Summary: Prints a message.', 'once')
+check_assessment({ argv = { 'rm', '-rf', '/' } }, '{"summary":"Deletes all files.","safe":false}',
+  '**Summary: Deletes all files.**', 'reject')
 assert(result == 'Rejected by user', 'unsafe calls still require an explicit decision')
-choices = { 'reject' }; inputs = { false }
-call('run_command', { argv = { 'echo', 'markdown' } }, assessed('{"summary":"# Inject **heading** [link](url)","safe":false}'))
-assert(prompts[#prompts]:find('**Summary: \\# Inject \\*\\*heading\\*\\* \\[link\\]\\(url\\)**', 1, true))
-choices = { 'reject' }; inputs = { false }
-call('run_command', { argv = { 'echo', 'malformed' } }, assessed('not json'))
-assert(prompts[#prompts]:find('Review unavailable (invalid response)', 1, true))
-choices = { 'reject' }; inputs = { false }
-call('run_command', { argv = { 'echo', 'failed' } }, assessed(nil, 'offline'))
-assert(prompts[#prompts]:find('Review unavailable (reviewer error)', 1, true))
+check_assessment({ argv = { 'echo', 'markdown' } }, '{"summary":"# Inject **heading** [link](url)","safe":false}',
+  '**Summary: \\# Inject \\*\\*heading\\*\\* \\[link\\]\\(url\\)**', 'reject')
+check_assessment({ argv = { 'echo', 'malformed' } }, 'not json',
+  'Review unavailable (invalid response)', 'reject')
+check_assessment({ argv = { 'echo', 'failed' } }, nil,
+  'Review unavailable (reviewer error)', 'reject', 'offline')
 assert(assessments == 5)
+local workspace_buffer = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_name(workspace_buffer, vim.fn.getcwd() .. '/unsaved-workspace-file.lua')
+local external_buffer = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_name(external_buffer, vim.fn.tempname())
+local read_reviews = 0
+local read_context = { review = function(_, cb)
+  read_reviews = read_reviews + 1
+  cb('{"summary":"Reads an external buffer.","safe":true}')
+end }
+read_context.source_buffer = workspace_buffer
+assert(approval.prefetch('read_buffer', {}, read_context) == nil)
+assert(approval.prefetch('search_workspace', { query = 'x' }, read_context) == nil)
+read_context.source_buffer = external_buffer
+local external_summary = approval.prefetch('read_buffer', {}, read_context)
+assert(external_summary and read_reviews == 1)
+external_summary(function(text) assert(text == 'Reads an external buffer.') end)
+vim.api.nvim_buf_delete(workspace_buffer, { force = true })
+vim.api.nvim_buf_delete(external_buffer, { force = true })
 -- Only explicitly remembered or policy-approved calls skip the reviewer.
 choices = { 'always' }
 call('run_command', { argv = { 'echo', 'remembered review' } }, assessed('{"summary":"Prints text.","safe":true}'))
@@ -149,14 +182,15 @@ local count = assessments
 call('run_command', { argv = { 'echo', 'remembered review' } }, assessed('unexpected'))
 assert(assessments == count)
 local pending, live = nil, true
+choices = { 'hold' }
 local before = #prompts
 approval.request('run_command', { argv = { 'echo', 'stale review' } }, 'Review stale', function() return live end,
   function() error('inactive task completed') end, function() error('inactive task executed') end,
   { review = function(_, cb) pending = cb end })
-assert(#prompts == before and pending, 'wait for the reviewer before prompting')
+assert(#prompts == before + 1 and pending, 'approval must open before the reviewer responds')
 live = false
 pending('{"summary":"Prints text.","safe":true}')
-assert(#prompts == before, 'stale reviewer response must not open approval')
+assert(prompts[#prompts]:find('Waiting for provider…', 1, true), 'stale reviewer response must not update approval')
 local write_ui = require('codeit.write_approval')
 local old_write_show = write_ui.show
 local write_calls = 0

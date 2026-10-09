@@ -42,14 +42,13 @@ local prompt_ui = require('codeit.approval_prompt')
 local read_choice
 prompt_ui.show = function(_, _, callback) read_choice = callback end
 tool_reply('read_buffer', { start_line = 1, end_line = 1 })
-assert(not read_choice and #requests[#requests].specs == 0)
-reply({ role = 'assistant', content = '{"summary":"Reads the first line.","safe":true}' })
-assert(read_choice, 'untrusted buffer reads must request approval')
+assert(read_choice, 'untrusted buffer reads must request approval immediately')
+assert(#requests == 1, 'workspace reads must not request a summary')
 read_choice('once')
-assert(#requests == 3)
+assert(#requests == 2)
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
-assert(requests[3].messages[4].role == 'tool')
-assert(requests[3].messages[4].content:find('before', 1, true))
+assert(requests[2].messages[4].role == 'tool')
+assert(requests[2].messages[4].content:find('before', 1, true))
 reply({ role = 'assistant', content = 'Here is your buffer.' },
   { cost = 0.000123, prompt_tokens = 120, completion_tokens = 30, total_tokens = 150 })
 contains(vim.fn.bufnr('codeit://chat'), 'Here is your buffer.')
@@ -128,6 +127,7 @@ assert(requests[#requests].messages[#requests[#requests].messages].content:find(
 plugin.send('Cancel this task')
 selections = { 'cancel' }
 tool_reply('run_command', { argv = { 'echo', 'cancel' } })
+assert(#responses == 1, 'cancelled review response may still be in flight')
 reply({ role = 'assistant', content = '{"summary":"Prints cancel.","safe":true}' })
 
 contains(vim.fn.bufnr('codeit://chat'), 'Task cancelled')
@@ -149,6 +149,30 @@ plugin.send('Check rounding')
 reply({ role = 'assistant', content = 'Rounded.' },
   { cost = 1.23456, prompt_tokens = 1234, completion_tokens = 5678, total_tokens = 123456 })
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $1.235 | In: 2.681m | Out: 1.226m | Context: 123.456k')
+plugin.new()
+local batch_prompts, batch_choices = {}, {}
+prompt_ui.show = function(prompt, _, callback)
+  local index = #batch_prompts + 1
+  batch_prompts[index] = prompt
+  batch_choices[index] = callback
+  return function(updated) batch_prompts[index] = updated end
+end
+plugin.send('Run two commands')
+reply({ role = 'assistant', tool_calls = {
+  { id = 'first', type = 'function', ['function'] = { name = 'run_command', arguments = '{"argv":["echo","first"]}' } },
+  { id = 'second', type = 'function', ['function'] = { name = 'run_command', arguments = '{"argv":["echo","second"]}' } },
+} })
+assert(#responses == 2 and #batch_prompts == 1, 'both summaries must start before the first approval is decided')
+assert(batch_prompts[1]:find('Waiting for provider…', 1, true))
+assert(requests[#requests].messages[2].content:find('second', 1, true), 'second call review must start immediately')
+reply({ role = 'assistant', content = '{"summary":"First command.","safe":true}' })
+assert(batch_prompts[1]:find('Summary: First command.', 1, true))
+reply({ role = 'assistant', content = '{"summary":"Second command.","safe":true}' })
+batch_choices[1]('reject')
+assert(#batch_prompts == 2 and batch_prompts[2]:find('Summary: Second command.', 1, true))
+batch_choices[2]('reject')
+assert(#responses == 1, 'batch should return to main provider only after both decisions')
+reply({ role = 'assistant', content = 'Commands rejected.' })
 plugin.set_provider('copilot')
 local function no_billing()
   local lines = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')

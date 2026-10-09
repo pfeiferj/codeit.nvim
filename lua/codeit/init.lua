@@ -127,6 +127,38 @@ local function request(round, id)
     render()
     if type(calls) ~= 'table' or #calls == 0 then return complete() end
     if round == config.max_tool_rounds then return fail('Tool call limit reached') end
+    local user_request
+    for i = batch_start - 1, 1, -1 do
+      if messages[i].role == 'user' then user_request = messages[i].content; break end
+    end
+    local function review(history, callback)
+      providers.chat({ provider = config.provider, model = model() }, history, {}, function(message, err, usage)
+        if id ~= generation then return end
+        if err then return callback(nil, err) end
+        record_usage(usage)
+        local content = message and message.content
+        if type(content) == 'table' then
+          local parts = {}
+          for _, part in ipairs(content) do
+            if part.type == 'text' then parts[#parts + 1] = part.text or '' end
+          end
+          content = table.concat(parts, '\n')
+        end
+        callback(type(content) == 'string' and content or 'No reviewer response')
+      end)
+    end
+    local assessments = {}
+    for index, call in ipairs(calls) do
+      local fn = type(call) == 'table' and call['function']
+      if type(fn) == 'table' then
+        local ok, args = pcall(vim.json.decode, fn.arguments or '{}')
+        if ok and type(args) == 'table' then
+          assessments[index] = approval.prefetch(fn.name, args,
+            { user_request = user_request, review = review, source_buffer = source },
+            function() return id == generation end)
+        end
+      end
+    end
     local function next_call(index)
       if id ~= generation then return end
       if index > #calls then return request(round + 1, id) end
@@ -138,10 +170,6 @@ local function request(round, id)
       set_status('Tool: ' .. tostring(fn.name))
       local ok, args = pcall(vim.json.decode, fn.arguments or '{}')
       if not ok then args = nil end
-      local user_request
-      for i = batch_start - 1, 1, -1 do
-        if messages[i].role == 'user' then user_request = messages[i].content; break end
-      end
       tools.execute(fn.name, args, source, function(result, signal)
         if id ~= generation then return end
         if signal == 'cancel' then
@@ -157,22 +185,8 @@ local function request(round, id)
         next_call(index + 1)
       end, function() return id == generation end, {
         user_request = user_request,
-        review = function(history, callback)
-          providers.chat({ provider = config.provider, model = model() }, history, {}, function(message, err, usage)
-            if id ~= generation then return end
-            if err then return callback(nil, err) end
-            record_usage(usage)
-            local content = message and message.content
-            if type(content) == 'table' then
-              local parts = {}
-              for _, part in ipairs(content) do
-                if part.type == 'text' then parts[#parts + 1] = part.text or '' end
-              end
-              content = table.concat(parts, '\n')
-            end
-            callback(type(content) == 'string' and content or 'No reviewer response')
-          end)
-        end,
+        review = review,
+        assessment = assessments[index],
       })
     end
     next_call(1)
