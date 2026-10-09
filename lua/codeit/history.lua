@@ -9,7 +9,8 @@ function M.workspace()
 end
 
 function M.new_id()
-  return tostring(os.time()) .. '-' .. tostring(vim.uv.hrtime())
+  -- tostring() uses scientific notation for large clocks, which path() rejects.
+  return tostring(os.time()) .. '-' .. string.format('%.0f', vim.uv.hrtime())
 end
 
 local function path(workspace, id)

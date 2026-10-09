@@ -6,6 +6,29 @@ vim.fn.mkdir(temp .. '/two', 'p')
 vim.fn.chdir(temp .. '/one')
 local workspace = vim.uv.fs_realpath(vim.fn.getcwd())
 local history = require('codeit.history')
+
+-- Large monotonic clock values must not turn IDs into scientific notation.
+do
+  local original_hrtime = vim.uv.hrtime
+  local id_workspace = temp .. '/ids'
+  local saved_chat = { provider = 'openrouter', model = 'test-model', messages = {} }
+  local clocks = { 1234567890123, 100000000000000, 123456789012345, 1000000000000000 }
+  for _, clock in ipairs(clocks) do
+    vim.uv.hrtime = function() return clock end
+    local id = history.new_id()
+    vim.uv.hrtime = original_hrtime
+    assert(id:match('^[0-9]+%-[0-9]+$'), 'generated chat ID must use decimal digits: ' .. id)
+    assert(id:match('%-(%d+)$') == string.format('%.0f', clock), 'ID must retain the clock value')
+    assert(history.save(id_workspace, id, saved_chat), 'generated chat ID must be saveable')
+    assert(history.load(id_workspace, id).id == id, 'generated chat ID must be loadable')
+  end
+  assert(#history.list(id_workspace) == #clocks, 'generated chat IDs must appear in history')
+  for _, id in ipairs({ '', '../escape', '1-1e+14', '1-1.234e14', 'nested/id' }) do
+    local ok, err = history.save(id_workspace, id, saved_chat)
+    assert(not ok and err == 'invalid chat id', 'unsafe chat IDs must still be rejected')
+  end
+end
+
 local responses, requests = {}, {}
 package.loaded['codeit.providers'] = {
   chat = function(config, messages, _, callback)
