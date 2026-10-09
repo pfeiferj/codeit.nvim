@@ -28,7 +28,15 @@ local function open(before, after, path)
   return win, buf, lines, maps, close
 end
 
+local function title(win)
+  local chunks = vim.api.nvim_win_get_config(win).title
+  local text = {}
+  for _, chunk in ipairs(chunks) do text[#text + 1] = chunk[1] end
+  return table.concat(text)
+end
+
 local win, buf, lines, maps, close = open('local x = 1\nprint(x)\n', 'local x = 2\nprint(x)\n')
+assert(title(win) == ' Review file edit: example.lua ', 'relative paths should appear in the title')
 assert(vim.bo[buf].filetype == 'lua', 'the preview should use the source filetype')
 local text = table.concat(lines, '\n')
 assert(not text:find('Approve once', 1, true), 'options must be virtual')
@@ -38,17 +46,36 @@ local namespaces = vim.api.nvim_get_namespaces()
 local function header_marks(buffer)
   return vim.api.nvim_buf_get_extmarks(buffer, namespaces['codeit-write-approval-header'], 0, -1, { details = true })
 end
+local function assert_hunk_counter(buffer, current, total)
+  local text = {}
+  for _, mark in ipairs(header_marks(buffer)) do
+    for _, chunk in ipairs(mark[4].virt_text) do text[#text + 1] = chunk[1] end
+  end
+  local label = '{ / } Hunks ' .. string.format('%' .. #tostring(total) .. 'd', current) .. '/' .. total
+  assert(table.concat(text):find(label, 1, true), 'missing hunk counter ' .. label)
+end
+local function assert_full_header(win, mark)
+  local details = mark[4]
+  local chunks = details.virt_text
+  local width = vim.api.nvim_win_get_width(win)
+  local length, label_length = 0, 0
+  for i, chunk in ipairs(chunks) do
+    local size = vim.fn.strdisplaywidth(chunk[1])
+    length = length + size
+    if i > 1 and i < #chunks then label_length = label_length + size end
+  end
+  assert(details.virt_text_win_col == 0 and length == width,
+    'virtual shortcuts must cover the entire window row')
+  assert(chunks[1][1] == string.rep(' ', math.floor((width - label_length) / 2)),
+    'labels must remain centered within the full-width header')
+  assert(details.hl_mode == 'replace', 'header must replace underlying source highlighting')
+end
 local marks = vim.api.nvim_buf_get_extmarks(buf, namespaces['codeit-write-approval'], 0, -1, { details = true })
 local header, colored = {}, {}
 for _, mark in ipairs(header_marks(buf)) do
   assert(lines[mark[2] + 1] == '', 'shortcuts need an actual row so Neovim can draw them')
-  local length = 0
-  for _, chunk in ipairs(mark[4].virt_text) do
-    header[#header + 1] = chunk[1]
-    length = length + vim.fn.strdisplaywidth(chunk[1])
-  end
-  assert(mark[4].virt_text_win_col == math.floor((vim.api.nvim_win_get_width(win) - length) / 2),
-    'center each row of shortcuts')
+  for _, chunk in ipairs(mark[4].virt_text) do header[#header + 1] = chunk[1] end
+  assert_full_header(win, mark)
 end
 for _, mark in ipairs(marks) do
   if mark[4].hl_group == 'DiffDelete' or mark[4].hl_group == 'DiffAdd' then
@@ -62,6 +89,11 @@ assert(header:find('1 Approve', 1, true) and header:find('5 Review', 1, true)
   and header:find('Esc Reject', 1, true) and header:find('{ / } Hunks', 1, true))
 assert(maps['{'] and maps['}'] and maps['5'] and maps['<Esc>'])
 close('1', 'once')
+
+win, buf, lines, maps, close = open('before\n', 'after\n', vim.fn.getcwd() .. '/lua/codeit/init.lua')
+assert(title(win) == ' Review file edit: lua/codeit/init.lua ',
+  'absolute paths should be displayed relative to the workspace, including directories')
+close('3', 'reject')
 
 local original, updated = {}, {}
 for i = 1, 40 do original[i] = 'line ' .. i; updated[i] = original[i] end
@@ -81,10 +113,7 @@ local function scroll(topline)
   assert(#pinned > 0 and pinned[1][2] == topline - 1, 'shortcuts must follow the top visible line')
   for i, mark in ipairs(pinned) do
     assert(mark[2] == topline + i - 2, 'shortcut rows must stay together')
-    local length = 0
-    for _, chunk in ipairs(mark[4].virt_text) do length = length + vim.fn.strdisplaywidth(chunk[1]) end
-    assert(mark[4].virt_text_win_col == math.floor((vim.api.nvim_win_get_width(win) - length) / 2),
-      'scrolled shortcuts must remain centered')
+    assert_full_header(win, mark)
   end
   return #pinned
 end
@@ -97,6 +126,46 @@ maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[2])
 maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[1])
 maps['{'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[2])
 close('5', 'review')
+
+-- Opening and navigation center distant hunks and immediately repin the header.
+original, updated = {}, {}
+for i = 1, 200 do original[i] = 'line ' .. i; updated[i] = original[i] end
+updated[60], updated[140] = 'first centered change', 'second centered change'
+win, buf, lines, maps, close = open(table.concat(original, '\n') .. '\n', table.concat(updated, '\n') .. '\n')
+hunks = {}
+for i, line in ipairs(lines) do
+  if line == 'line 60' or line == 'line 140' then hunks[#hunks + 1] = i end
+end
+local function assert_centered(line)
+  assert(vim.api.nvim_win_get_cursor(win)[1] == line)
+  local top = vim.fn.getwininfo(win)[1].topline
+  local screen_row = line - top + 1
+  local center = math.floor(vim.api.nvim_win_get_height(win) / 2) + 1
+  assert(math.abs(screen_row - center) <= 1, 'selected hunk should be centered in the pane')
+  local pinned = header_marks(buf)
+  assert(#pinned > 0 and pinned[1][2] == top - 1, 'centering must immediately repin the header')
+  for _, mark in ipairs(pinned) do assert_full_header(win, mark) end
+end
+assert_hunk_counter(buf, 1, 2)
+assert_centered(hunks[1])
+maps['}'](); assert_centered(hunks[2]); assert_hunk_counter(buf, 2, 2)
+maps['}'](); assert_centered(hunks[1]); assert_hunk_counter(buf, 1, 2)
+maps['{'](); assert_centered(hunks[2]); assert_hunk_counter(buf, 2, 2)
+maps['{'](); assert_centered(hunks[1]); assert_hunk_counter(buf, 1, 2)
+vim.api.nvim_win_set_cursor(win, { hunks[2] + 1, 0 })
+vim.api.nvim_exec_autocmds('CursorMoved', { buffer = buf })
+assert_hunk_counter(buf, 2, 2)
+close('3', 'reject')
+
+original, updated = {}, {}
+for i = 1, 200 do original[i] = 'line ' .. i; updated[i] = original[i] end
+for i = 1, 20 do updated[i * 10] = 'change ' .. i end
+win, buf, lines, maps, close = open(table.concat(original, '\n') .. '\n', table.concat(updated, '\n') .. '\n')
+assert_hunk_counter(buf, 1, 20)
+maps['}'](); maps['}']()
+assert_hunk_counter(buf, 3, 20)
+for _, mark in ipairs(header_marks(buf)) do assert_full_header(win, mark) end
+close('3', 'reject')
 
 win, buf, lines, maps, close = open('start\nkeep\nremove\nend\n', 'start\n+literal\nkeep\nend\n')
 local body = table.concat(lines, '\n')
@@ -121,6 +190,7 @@ close('3', 'reject')
 win, buf, lines, maps, close = open('same\n', 'same\n')
 assert(table.concat(lines, '\n'):find('same', 1, true))
 assert(vim.api.nvim_win_get_cursor(win)[1] == 1, 'unchanged previews should open at the top')
+assert_hunk_counter(buf, 0, 0)
 maps['}'](); assert(vim.api.nvim_win_get_cursor(win)[1] == 1)
 close('2', 'always')
 local dismissed = 0

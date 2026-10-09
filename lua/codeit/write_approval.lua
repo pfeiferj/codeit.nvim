@@ -2,14 +2,18 @@ local M = {}
 local ns = vim.api.nvim_create_namespace('codeit-write-approval')
 local header_ns = vim.api.nvim_create_namespace('codeit-write-approval-header')
 
-local function geometry()
+local function geometry(path)
+  local title = ' Review file edit '
+  if path and path ~= '' then
+    title = ' Review file edit: ' .. vim.fn.fnamemodify(path, ':.'):gsub('%c', '?') .. ' '
+  end
   local width = math.max(1, math.min(vim.o.columns - 4, math.floor(vim.o.columns * 0.85)))
   local height = math.max(1, math.min(vim.o.lines - 4, math.floor(vim.o.lines * 0.8)))
   return {
     relative = 'editor', width = width, height = height,
     row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
-    style = 'minimal', border = 'rounded', title = ' Review file edit ', title_pos = 'center',
+    style = 'minimal', border = 'rounded', title = title, title_pos = 'center',
   }
 end
 
@@ -53,7 +57,10 @@ function M.show(diff, options, callback)
     labels[#labels + 1] = option.key .. ' ' .. (short[option.id] or option.label)
   end
   labels[#labels + 1] = 'Esc Reject'
-  labels[#labels + 1] = '{ / } Hunks'
+  local body, highlights, hunks = preview_lines(diff)
+  local counter_width = #tostring(#hunks)
+  local hunk_label = '{ / } Hunks ' .. #hunks .. '/' .. #hunks
+  labels[#labels + 1] = hunk_label
   local headers = { {} }
   local length = 0
   local width = geometry().width
@@ -70,7 +77,6 @@ function M.show(diff, options, callback)
     headers[#headers][#headers[#headers] + 1] = { label, 'CodeitApprovalOption' }
     length = length + size
   end
-  local body, highlights, hunks = preview_lines(diff)
   local lines = {}
   for _ = 1, #headers do lines[#lines + 1] = '' end
   local offset = #lines
@@ -95,7 +101,7 @@ function M.show(diff, options, callback)
   for i, row in ipairs(hunks) do hunks[i] = offset + row end
   vim.bo[buf].modifiable = false
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
-  local win = vim.api.nvim_open_win(buf, true, geometry())
+  local win = vim.api.nvim_open_win(buf, true, geometry(diff.path))
   vim.wo[win].wrap = false
   vim.wo[win].cursorline = false
   vim.api.nvim_win_set_cursor(win, { hunks[1] or 1, 0 })
@@ -105,25 +111,52 @@ function M.show(diff, options, callback)
     local info = vim.fn.getwininfo(win)[1]
     if not info then return end
     local width = vim.api.nvim_win_get_width(win)
+    local current = #hunks > 0 and 1 or 0
+    local cursor = vim.api.nvim_win_get_cursor(win)[1]
+    for i, line in ipairs(hunks) do
+      if line > cursor then break end
+      current = i
+    end
+    for _, chunks in ipairs(headers) do
+      for _, chunk in ipairs(chunks) do
+        if chunk[1]:sub(1, 11) == '{ / } Hunks' then
+          chunk[1] = '{ / } Hunks ' .. string.format('%' .. counter_width .. 'd', current) .. '/' .. #hunks
+        end
+      end
+    end
     for i, chunks in ipairs(headers) do
       local row = info.topline + i - 2
       if row >= vim.api.nvim_buf_line_count(buf) then break end
       local length = 0
       for _, chunk in ipairs(chunks) do length = length + vim.fn.strdisplaywidth(chunk[1]) end
+      local left = math.max(0, math.floor((width - length) / 2))
+      local padded = { { string.rep(' ', left), 'CodeitApprovalOption' } }
+      vim.list_extend(padded, chunks)
+      padded[#padded + 1] = { string.rep(' ', math.max(0, width - length - left)), 'CodeitApprovalOption' }
       vim.api.nvim_buf_set_extmark(buf, header_ns, row, 0, {
-        virt_text = chunks, virt_text_win_col = math.max(0, math.floor((width - length) / 2)), priority = 200,
+        virt_text = padded, virt_text_win_col = 0, hl_mode = 'replace', priority = 200,
       })
     end
   end
-  update_header()
+  local function focus_hunk(line)
+    vim.api.nvim_win_set_cursor(win, { line, 0 })
+    vim.api.nvim_win_call(win, function() vim.cmd('normal! zz') end)
+    update_header()
+  end
+  if hunks[1] then focus_hunk(hunks[1]) else update_header() end
   local scroll_autocmd = vim.api.nvim_create_autocmd('WinScrolled', {
     pattern = tostring(win), callback = update_header,
+  })
+  local cursor_autocmd = vim.api.nvim_create_autocmd('CursorMoved', {
+    buffer = buf, callback = update_header,
   })
   local finished = false
   local function finish(choice)
     if finished then return end
     finished = true
     vim.api.nvim_del_autocmd(scroll_autocmd)
+    -- Buffer-local autocmds may already be gone after bufhidden=wipe.
+    pcall(vim.api.nvim_del_autocmd, cursor_autocmd)
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     callback(choice)
   end
@@ -148,7 +181,7 @@ function M.show(diff, options, callback)
         if hunks[i] < current then destination = hunks[i]; break end
       end
     end
-    vim.api.nvim_win_set_cursor(win, { destination, 0 })
+    focus_hunk(destination)
   end
   vim.keymap.set('n', '}', function() jump(true) end,
     { buffer = buf, nowait = true, silent = true, desc = 'Next change hunk' })
