@@ -32,6 +32,7 @@ local messages = {}
 local session_prompt
 local context_summary, compacted_until
 local context_paths, selected_skills, disabled_context_files = {}, {}, {}
+local read_versions = {}
 local cost, missing_cost = 0, 0
 local tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
 local context_tokens, context_estimated
@@ -87,6 +88,7 @@ local function sync_workspace()
   session_prompt = nil
   context_summary, compacted_until = nil, nil
   context_paths, selected_skills = {}, {}
+  read_versions = {}
   cost, missing_cost = 0, 0
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
   context_tokens, context_estimated = nil, nil
@@ -296,6 +298,7 @@ function M.context_full()
     session_prompt = edited[1].content
     context_summary, compacted_until = nil, nil
     context_paths, selected_skills, disabled_context_files = {}, {}, {}
+    read_versions = {}
     context_files.set_disabled(workspace, disabled_context_files)
     if not chat_id then chat_id = history.new_id() end
     estimate_context()
@@ -459,8 +462,11 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
     return fail('Tool call limit reached (' .. config.max_tool_rounds .. ' rounds)')
   end
   set_status('Waiting for ' .. config.provider .. '…')
+  local advertised = vim.json.encode(context_files.messages(workspace, approval.workspace_trust(workspace),
+    context_paths, selected_skills))
   providers.chat(request_config(), request_messages(), tools.specs, function(message, err, usage)
     if id ~= generation then return end
+    if workspace ~= history.workspace() then sync_workspace(); render(); return end
     if err then return fail(err) end
     record_usage(usage, true)
     local calls = message.tool_calls
@@ -468,6 +474,16 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
     -- a matching tool result for every assistant tool call.
     if type(calls) == 'table' and #calls > 0 and round == config.max_tool_rounds then
       return fail('Tool call limit reached')
+    end
+    if type(calls) == 'table' then
+      local seen = {}
+      for _, call in ipairs(calls) do
+        if type(call) ~= 'table' or type(call.id) ~= 'string' or call.id == '' or seen[call.id]
+          or type(call['function']) ~= 'table' or type(call['function'].name) ~= 'string' then
+          return fail('Malformed tool call from provider')
+        end
+        seen[call.id] = true
+      end
     end
     local batch_start = #messages + 1
     table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls })
@@ -494,15 +510,23 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
         callback(type(content) == 'string' and content or 'No reviewer response')
       end)
     end
+    local function prepare(path)
+      if type(path) == 'string' and path ~= '' and not vim.tbl_contains(context_paths, path) then
+        context_paths[#context_paths + 1] = path
+      end
+      return advertised == vim.json.encode(context_files.messages(workspace, approval.workspace_trust(workspace),
+        context_paths, selected_skills))
+    end
     local assessments = {}
     for index, call in ipairs(calls) do
       local fn = type(call) == 'table' and call['function']
       if type(fn) == 'table' then
         local ok, args = pcall(vim.json.decode, fn.arguments or '{}')
-        if ok and type(args) == 'table' then
-          assessments[index] = approval.prefetch(fn.name, args,
+        if ok and type(args) == 'table' and type(fn.name) == 'string' and not tools.validate(fn.name, args) then
+          local prefetched, assessment = pcall(approval.prefetch, fn.name, args,
             { user_request = user_request, review = review, source_buffer = source },
             function() return id == generation end)
+          if prefetched then assessments[index] = assessment end
         end
       end
     end
@@ -545,13 +569,26 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
             selected_skills[#selected_skills + 1] = args.name
           end
         end
+        if not prepare() then
+          -- Keep the provider protocol balanced without executing calls planned
+          -- before the newly activated instructions/skill were seen.
+          for remaining = index + 1, #calls do
+            table.insert(messages, { role = 'tool', tool_call_id = calls[remaining].id,
+              content = 'Deferred: project instructions or selected skills changed. Review the new context and reissue this call if still appropriate; it was not executed.' })
+          end
+          save()
+          render()
+          return request(round + 1, id)
+        end
         save()
         render()
         next_call(index + 1)
-      end, function() return id == generation end, {
+      end, function() return id == generation and workspace == history.workspace() end, {
         user_request = user_request,
         review = review,
         assessment = assessments[index],
+        prepare = prepare,
+        read_versions = read_versions,
       })
     end
     next_call(1)
@@ -667,6 +704,7 @@ function M.new()
   session_prompt = nil
   context_summary, compacted_until = nil, nil
   context_paths, selected_skills, disabled_context_files = {}, {}, {}
+  read_versions = {}
   context_files.set_disabled(workspace, disabled_context_files)
   cost, missing_cost = 0, 0
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
@@ -745,6 +783,7 @@ function M.resume(id)
     if settings.validate(values) then config.request_options = vim.deepcopy(chat.request_options) end
   end
   messages = chat.messages
+  read_versions = {}
   session_prompt = nil
   context_summary, compacted_until = chat.context_summary, chat.compacted_until
   context_paths = type(chat.context_paths) == 'table' and vim.islist(chat.context_paths) and chat.context_paths or {}

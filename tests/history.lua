@@ -42,7 +42,7 @@ assert(chat.cost == 0.12 and chat.context_tokens == nil)
 plugin.resume(second_id)
 plugin.send('use a tool')
 responses[#responses]({ role = 'assistant', content = vim.NIL, tool_calls = { {
-  id = 'pending', type = 'function', ['function'] = { name = 'read_file', arguments = '{}' },
+  id = 'pending', type = 'function', ['function'] = { name = 'read_file', arguments = '{"path":"pending.txt"}' },
 } } })
 local pending = history.load(workspace, second_id)
 assert(pending.messages[#pending.messages].content == 'use a tool')

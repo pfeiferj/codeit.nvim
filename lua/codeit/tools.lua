@@ -1,6 +1,7 @@
 local M = {}
 local agent_tools = require('codeit.agent_tools')
 local approval = require('codeit.approval')
+local file_buffer = require('codeit.file_buffer')
 
 local gated = { replace_buffer_lines = true, edit_file = true, create_file = true,
   run_command = true, fetch_url = true }
@@ -22,7 +23,7 @@ M.specs = {
     type = 'function',
     ['function'] = {
       name = 'read_buffer',
-      description = 'Read lines from a loaded Neovim buffer. Omit buffer_id to read the buffer active before the chat opened. Lines are 1-based and inclusive.',
+      description = 'Read a loaded ordinary buffer; clean files refresh from disk, unsaved changes are preserved. Defaults to the buffer active before chat opened. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns total_lines, truncated, next_start_line, modified.',
       parameters = {
         type = 'object',
         properties = {
@@ -37,7 +38,7 @@ M.specs = {
     type = 'function',
     ['function'] = {
       name = 'replace_buffer_lines',
-      description = 'Replace a range of lines in a loaded buffer after user confirmation. Saves named file buffers unless they already have unwritten changes. Lines are 1-based and inclusive; expected_text must match the existing lines exactly.',
+      description = 'Replace at most 200 lines in a loaded ordinary buffer after confirmation. Saves named files unless already modified. Lines are 1-based/inclusive; read first and expected_text must match exactly. Replacement at most 200KB; empty new_text deletes lines.',
       parameters = {
         type = 'object',
         properties = {
@@ -62,8 +63,13 @@ M.specs[#M.specs + 1] = {
   },
 }
 
+for _, definition in ipairs(M.specs) do
+  definition['function'].parameters.additionalProperties = false
+end
+
 local function valid_buffer(id)
-  return type(id) == 'number' and vim.api.nvim_buf_is_valid(id) and vim.api.nvim_buf_is_loaded(id)
+  return type(id) == 'number' and id >= 0 and id < math.huge and id % 1 == 0
+    and vim.api.nvim_buf_is_valid(id) and vim.api.nvim_buf_is_loaded(id)
 end
 
 local function target(args, source)
@@ -75,6 +81,9 @@ end
 
 local function range(args, id)
   local start = args.start_line or 1
+  if type(start) ~= 'number' or start < 1 or start == math.huge or start % 1 ~= 0 then
+    return nil, nil, 'Invalid line range'
+  end
   local last = args.end_line or math.min(start + 199, vim.api.nvim_buf_line_count(id))
   if type(start) ~= 'number' or type(last) ~= 'number' or start % 1 ~= 0 or last % 1 ~= 0
     or start < 1 or last < start or last > vim.api.nvim_buf_line_count(id) then
@@ -86,23 +95,75 @@ end
 
 local execute_approved
 
---- Execute a tool and call done(result_string, optional_cancel_signal).
-function M.execute(name, args, source, done, active, context)
-  if type(args) ~= 'table' or vim.islist(args) and #args > 0 then return done('Error: arguments must be an object') end
-  local function gate(prompt, action, diff)
-    local request_context = vim.tbl_extend('force', context or {}, { source_buffer = source })
-    request_context.diff = diff
-    return approval.request(name, args, prompt, active, done, action, request_context)
+function M.validate(name, args)
+  if type(name) ~= 'string' or type(args) ~= 'table' or vim.islist(args) and #args > 0 then
+    return 'tool name must be a string and arguments must be an object'
   end
-  if not gated[name] then
-    return gate('Allow ' .. tostring(name) .. ' ' .. vim.json.encode(args) .. '?', function()
-      execute_approved(name, args, source, done, active, gate)
-    end)
+  for _, definition in ipairs(M.specs) do
+    local fn = definition['function']
+    if fn.name == name then
+      for _, key in ipairs(fn.parameters.required or {}) do
+        if args[key] == nil then return 'missing argument ' .. key end
+      end
+      for key, value in pairs(args) do
+        local property = fn.parameters.properties[key]
+        if not property then return 'unknown argument ' .. tostring(key) end
+        local kind = property.type
+        if kind == 'integer' then
+          if type(value) ~= 'number' or value == math.huge or value % 1 ~= 0
+            or value < (property.minimum or 0) then return key .. ' must be a valid integer' end
+        elseif kind == 'array' then
+          if type(value) ~= 'table' or not vim.islist(value) then return key .. ' must be an array' end
+        elseif type(value) ~= kind then return key .. ' must be a ' .. kind end
+      end
+      return
+    end
   end
-  return execute_approved(name, args, source, done, active, gate)
 end
 
-execute_approved = function(name, args, source, done, active, gate)
+--- Execute a tool and call done(result_string, optional_cancel_signal).
+function M.execute(name, args, source, done, active, context)
+  local completed, callback = false, done
+  done = function(...)
+    if completed or active and not active() then return end
+    completed = true
+    callback(...)
+  end
+  local function safe(action)
+    return function(...)
+      if completed or active and not active() then return end
+      local ok, err = pcall(action, ...)
+      if not ok then done('Error: tool execution failed: ' .. tostring(err)) end
+    end
+  end
+  return safe(function()
+    -- Validate before approval and editor API calls.
+    local invalid = M.validate(name, args)
+    if invalid then return done('Error: ' .. invalid) end
+    local reads = context and context.read_versions
+    local function prepare(path)
+      return not context or not context.prepare or context.prepare(path)
+    end
+    local function gate(prompt, action, diff)
+      local request_context = vim.tbl_extend('force', context or {}, { source_buffer = source })
+      request_context.diff = diff
+      return approval.request(name, args, prompt, active, done, safe(function()
+        if diff and not prepare(diff.path) then
+          return done('Error: project instructions changed while awaiting approval; review them before reissuing this write')
+        end
+        action()
+      end), request_context)
+    end
+    if not gated[name] then
+      return gate('Allow ' .. tostring(name) .. ' ' .. vim.json.encode(args) .. '?', function()
+        execute_approved(name, args, source, done, active, gate, reads, prepare)
+      end)
+    end
+    return execute_approved(name, args, source, done, active, gate, reads, prepare)
+  end)()
+end
+
+execute_approved = function(name, args, source, done, active, gate, reads, prepare)
   if name == 'list_buffers' then
     local buffers = {}
     for _, id in ipairs(vim.api.nvim_list_bufs()) do
@@ -120,18 +181,29 @@ execute_approved = function(name, args, source, done, active, gate)
       or 'Error: skill is not available or workspace is not trusted')
   end
   if name ~= 'read_buffer' and name ~= 'replace_buffer_lines' then
-    return agent_tools.execute(name, args, done, active, gate)
+    return agent_tools.execute(name, args, done, active, gate, reads, prepare)
   end
   local id, err = target(args, source)
   if not id then return done('Error: ' .. err) end
+  file_buffer.refresh(id)
+  if name == 'read_buffer' then
+    local start, last = args.start_line or 1, args.end_line
+    if start < 1 or last ~= nil and last < start then return done('Error: Invalid line range') end
+    local result, read_err = file_buffer.read(id, start, last)
+    if not result then return done('Error: ' .. read_err) end
+    result.buffer_id = id
+    file_buffer.remember(id, reads)
+    return done(vim.json.encode(result))
+  end
+  if not prepare(vim.api.nvim_buf_get_name(id)) then
+    return done('Error: new project instructions discovered; review them before reissuing this edit')
+  end
+  if not file_buffer.was_read(id, reads) then return done('Error: read the current buffer before editing') end
   local start, last, range_err = range(args, id)
   if range_err then return done('Error: ' .. range_err) end
   local lines = vim.api.nvim_buf_get_lines(id, start - 1, last, false)
-  if name == 'read_buffer' then
-    return done(vim.json.encode({ buffer_id = id, start_line = start, end_line = last, lines = lines }))
-  end
-  if type(args.expected_text) ~= 'string' or type(args.new_text) ~= 'string' then
-    return done('Error: expected_text and new_text must be strings')
+  if #args.expected_text > 200000 or #args.new_text > 200000 then
+    return done('Error: replacement text must be at most 200KB')
   end
   if not vim.bo[id].modifiable then return done('Error: buffer is not modifiable') end
   if table.concat(lines, '\n') ~= args.expected_text then
@@ -139,6 +211,7 @@ execute_approved = function(name, args, source, done, active, gate)
   end
   local changedtick = vim.api.nvim_buf_get_changedtick(id)
   local was_modified = vim.bo[id].modified
+  local disk_version = file_buffer.disk_version(id)
   local replacement = args.new_text == '' and {} or vim.split(args.new_text, '\n', { plain = true })
   local before = vim.api.nvim_buf_get_lines(id, 0, -1, false)
   local after = vim.deepcopy(before)
@@ -150,13 +223,15 @@ execute_approved = function(name, args, source, done, active, gate)
   return gate(string.format('Replace lines %d-%d in %s?', start, last, preview.path), function()
     if active and not active() then return end
     if not valid_buffer(id) or vim.api.nvim_buf_get_changedtick(id) ~= changedtick
-      or vim.bo[id].modified ~= was_modified then
+      or vim.bo[id].modified ~= was_modified or file_buffer.disk_version(id) ~= disk_version then
       return done('Error: buffer changed while awaiting confirmation')
     end
     if not vim.bo[id].modifiable then return done('Error: buffer is not modifiable') end
     local ok, edit_err = pcall(vim.api.nvim_buf_set_lines, id, start - 1, last, false, replacement)
     if not ok then return done('Error: ' .. tostring(edit_err)) end
-    done(require('codeit.write_buffer').finish(id, was_modified))
+    local result = require('codeit.write_buffer').finish(id, was_modified)
+    file_buffer.remember(id, reads)
+    done(result)
   end, preview)
 end
 

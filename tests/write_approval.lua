@@ -85,10 +85,14 @@ for _, mark in ipairs(marks) do
 end
 assert(vim.deep_equal(colored, { { 'local x = 1', 'DiffDelete' }, { 'local x = 2', 'DiffAdd' } }))
 header = table.concat(header)
-assert(header:find('1 Approve', 1, true) and header:find('5 Review', 1, true)
+assert(header:find('1 Approve (Enter)', 1, true) and header:find('5 Review', 1, true)
   and header:find('Esc Reject', 1, true) and header:find('{ / } Hunks', 1, true))
 assert(maps['{'] and maps['}'] and maps['5'] and maps['<Esc>'])
 close('1', 'once')
+
+win, buf, lines, maps, close = open('before\n', 'after\n')
+assert(maps['<CR>'], 'Enter must be mapped in the write approval buffer')
+close('<CR>', 'once')
 
 win, buf, lines, maps, close = open('before\n', 'after\n', vim.fn.getcwd() .. '/lua/codeit/init.lua')
 assert(title(win) == ' Review file edit: lua/codeit/init.lua ',

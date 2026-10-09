@@ -231,7 +231,12 @@ function M.render(messages, status, provider, model, billing)
         content = table.concat(parts, '\n')
       end
       if type(content) == 'string' and content ~= '' then
-        vim.list_extend(lines, vim.split(content, '\n', { plain = true }))
+        if message.role == 'tool' then
+          table.insert(lines, '')
+          vim.list_extend(lines, markdown.fence(content, 'text'))
+        else
+          vim.list_extend(lines, vim.split(content, '\n', { plain = true }))
+        end
       end
       for _, call in ipairs(message.tool_calls or {}) do
         local name = call['function'] and call['function'].name or 'unknown tool'

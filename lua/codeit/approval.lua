@@ -28,14 +28,15 @@ end
 local function tracked(path, workspace)
   local relative = path:sub(#workspace + 2)
   local ok, result = pcall(function()
-    return vim.system({ 'git', '-C', workspace, 'ls-files', '--error-unmatch', '--', relative },
+    return vim.system({ 'git', '--literal-pathspecs', '-c', 'core.fsmonitor=false', '-C', workspace, 'ls-files', '--error-unmatch', '--', relative },
       { text = true }):wait()
   end)
   return ok and result.code == 0
 end
 
 local function buffer_path(id)
-  if type(id) ~= 'number' or not vim.api.nvim_buf_is_valid(id) or not vim.api.nvim_buf_is_loaded(id)
+  if type(id) ~= 'number' or id < 0 or id == math.huge or id % 1 ~= 0
+    or not vim.api.nvim_buf_is_valid(id) or not vim.api.nvim_buf_is_loaded(id)
     or vim.bo[id].buftype ~= '' then return nil end
   return vim.api.nvim_buf_get_name(id)
 end
@@ -61,7 +62,19 @@ local function auto_read(name, args, workspace, source)
     end
     return true
   end
-  if name == 'git_diff' then return args.path == nil or allowed(args.path) end
+  if name == 'git_diff' then
+    if args.path == nil or args.path == '' then return true end
+    if allowed(args.path) then return true end
+    -- A deleted tracked path is still eligible. Resolve the nearest ancestor so
+    -- symlinks cannot grant trust to an external path.
+    if type(args.path) ~= 'string' or args.path:find('\0', 1, true) then return false end
+    local absolute = vim.fs.normalize(args.path:sub(1, 1) == '/' and args.path or workspace .. '/' .. args.path)
+    if not within(absolute, workspace) or absolute == workspace then return false end
+    local parent = absolute
+    while not vim.uv.fs_lstat(parent) do parent = vim.fn.fnamemodify(parent, ':h') end
+    local real = vim.uv.fs_realpath(parent)
+    return real and within(real, workspace) and (mode == 'all' or tracked(absolute, workspace)) or false
+  end
   if name == 'get_diagnostics' then
     if args.path == nil or args.path == '' then return mode == 'all' end
     return allowed(args.path)

@@ -55,6 +55,7 @@ function M.show(diff, options, callback)
   local labels = {}
   for _, option in ipairs(options) do
     labels[#labels + 1] = option.key .. ' ' .. (short[option.id] or option.label)
+      .. (option.id == 'once' and ' (Enter)' or '')
   end
   labels[#labels + 1] = 'Esc Reject'
   local body, highlights, hunks = preview_lines(diff)
@@ -167,6 +168,10 @@ function M.show(diff, options, callback)
   for _, option in ipairs(options) do
     vim.keymap.set('n', option.key, function() finish(option.id) end,
       { buffer = buf, nowait = true, silent = true, desc = option.label })
+    if option.id == 'once' then
+      vim.keymap.set('n', '<CR>', function() finish('once') end,
+        { buffer = buf, nowait = true, silent = true, desc = 'Approve file edit once' })
+    end
   end
   local function jump(forward)
     if #hunks == 0 then return end

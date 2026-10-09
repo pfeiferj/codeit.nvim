@@ -15,7 +15,7 @@ end
 
 local function tracked(path, workspace)
   if vim.fn.executable('git') ~= 1 then return false end
-  local result = vim.system({ 'git', '-C', workspace, 'ls-files', '--error-unmatch', '--',
+  local result = vim.system({ 'git', '--literal-pathspecs', '-c', 'core.fsmonitor=false', '-C', workspace, 'ls-files', '--error-unmatch', '--',
     path:sub(#workspace + 2) }, { text = true }):wait()
   return result.code == 0
 end

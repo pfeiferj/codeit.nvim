@@ -40,8 +40,10 @@ local many = {}
 for i = 1, 260 do many[i] = string.format('%03d %s', i, string.rep('x', 90)) end
 vim.fn.writefile(many, 'sub/large.txt')
 local full = vim.json.decode(run('read_file', { path = 'sub/large.txt' }))
-assert(#full.lines == 260 and full.lines[260] == many[260] and full.end_line == 260 and not full.truncated,
-  'default read must include the whole file even past 200 lines and 20KB')
+assert(#full.lines == 200 and full.end_line == 200 and full.truncated and full.total_lines == 260
+  and full.next_start_line == 201, 'default reads must be bounded and advertise continuation')
+local rest = vim.json.decode(run('read_file', { path = 'sub/large.txt', start_line = full.next_start_line }))
+assert(#rest.lines == 60 and rest.lines[60] == many[260] and not rest.truncated)
 local extended = vim.json.decode(run('read_file', { path = 'sub/large.txt', start_line = 250, end_line = 500 }))
 assert(#extended.lines == 11 and extended.lines[1] == many[250] and extended.end_line == 260
   and not extended.truncated, 'end_line past EOF should return available lines')
@@ -89,7 +91,7 @@ assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and vim.bo[clean].modified,
   'failed saves must report an error and leave the edit available in the buffer')
 vim.bo[clean].readonly = false
 local list = vim.json.decode(run('list_workspace_files', { query = 'demo' }))
-assert(vim.tbl_contains(list, 'sub/demo.txt'))
+assert(vim.tbl_contains(list.files, 'sub/demo.txt') and not list.truncated)
 has(run('search_workspace', { query = 'alpha' }), 'sub/demo.txt:1:alpha')
 local id = vim.fn.bufnr(dir .. '/sub/demo.txt')
 local namespace = vim.api.nvim_create_namespace('codeit-test')

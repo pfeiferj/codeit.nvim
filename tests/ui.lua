@@ -80,10 +80,48 @@ ui.render({
   { role = 'tool', tool_call_id = 'unmatched', content = 'other' },
 }, 'Ready', 'copilot', 'model-b', nil)
 local transcript = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
-assert(transcript:find('## Tool: git_diff\ndiff', 1, true))
-assert(transcript:find('## Tool: read_file\nfile', 1, true))
-assert(transcript:find('## Tool: unmatched\nother', 1, true), 'unmatched results retain their ID')
+assert(transcript:find('## Tool: git_diff\n\n```text\ndiff\n```', 1, true))
+assert(transcript:find('## Tool: read_file\n\n```text\nfile\n```', 1, true))
+assert(transcript:find('## Tool: unmatched\n\n```text\nother\n```', 1, true), 'unmatched results retain their ID')
 assert(not transcript:find('## Tool: call_hash_', 1, true), 'matched results should not show call hashes')
+
+-- Tool output is literal display data, even when it contains unclosed Markdown.
+local output = table.concat({
+  '# Heading inside output', '```lua', 'local value = 1', '```',
+  '````', '   `````', '~~~', '<script>', '**unfinished emphasis', '[unfinished link',
+}, '\n')
+local tool_message = { role = 'tool', name = 'read_file', content = output }
+ui.render({
+  { role = 'user', content = '**User formatting**' }, tool_message,
+  { role = 'tool', name = 'parts', content = { { type = 'text', text = 'part one' },
+    { type = 'text', text = 'part two' } } },
+  { role = 'assistant', content = '# After tool output\n**Assistant formatting**' },
+}, 'Ready', 'openrouter', 'model-a', nil)
+local safe_lines = vim.api.nvim_buf_get_lines(chat, 0, -1, false)
+local safe_text = table.concat(safe_lines, '\n')
+assert(safe_text:find('## Tool: read_file\n\n``````text\n' .. output .. '\n``````\n', 1, true),
+  'outer fence must be longer than every backtick run in the tool output')
+assert(safe_text:find('## Tool: parts\n\n```text\npart one\npart two\n```', 1, true),
+  'text-part tool results should also be fenced')
+assert(safe_text:find('## You\n**User formatting**', 1, true))
+assert(safe_text:find('## Assistant\n# After tool output\n**Assistant formatting**', 1, true),
+  'assistant Markdown should remain unfenced')
+assert(tool_message.content == output, 'display fencing must not mutate the tool result')
+vim.api.nvim_win_call(win, function()
+  vim.cmd('syntax sync fromstart')
+  local function syntax_at(text)
+    for row, line in ipairs(safe_lines) do
+      if line == text then return vim.fn.synIDattr(vim.fn.synID(row, 1, true), 'name') end
+    end
+    error('missing line ' .. text)
+  end
+  assert(syntax_at('# Heading inside output') == 'markdownCodeBlock', 'tool Markdown must stay literal')
+  assert(syntax_at('   `````') == 'markdownCodeBlock', 'embedded fences must not close the wrapper')
+  assert(syntax_at('**unfinished emphasis') == 'markdownCodeBlock')
+  assert(syntax_at('# After tool output') == syntax_at('# Codeit (openrouter: model-a)'),
+    'Markdown heading highlighting must recover after the tool block')
+  assert(syntax_at('## Message') == syntax_at('## Assistant'), 'draft heading must remain outside code blocks')
+end)
 ui.close()
 assert(#marks() == 0)
 ui.open(function() sent = ui.take_input() end, ui.close)
