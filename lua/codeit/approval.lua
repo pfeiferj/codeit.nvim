@@ -63,7 +63,8 @@ local function auto_read(name, args, workspace, source)
   end
   if name == 'git_diff' then return args.path == nil or allowed(args.path) end
   if name == 'get_diagnostics' then
-    return args.path ~= nil and allowed(args.path) or args.path == nil and mode == 'all'
+    if args.path == nil or args.path == '' then return mode == 'all' end
+    return allowed(args.path)
   end
   -- Workspace-wide listing and searching can expose untracked files. Git status
   -- also reports untracked names; only auto-approve these in all-files mode.

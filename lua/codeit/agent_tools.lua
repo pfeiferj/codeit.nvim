@@ -24,8 +24,8 @@ M.specs = {
   spec('run_command', 'Run a command in the workspace after user confirmation. Use for builds, tests, linters, etc. No shell interpolation; argv is an array.', {
     argv = { type = 'array', items = { type = 'string' }, description = 'Executable and arguments' },
   }, { 'argv' }),
-  spec('get_diagnostics', 'Get Neovim LSP/linter diagnostics for loaded workspace file buffers.', {
-    path = { type = 'string', description = 'Optional workspace file path to filter by' },
+  spec('get_diagnostics', 'Get Neovim LSP/linter diagnostics for loaded workspace file buffers. Omit path or pass an empty string for all loaded workspace files.', {
+    path = { type = 'string', description = 'Optional workspace file path to filter by; empty string returns workspace diagnostics' },
   }),
   spec('git_status', 'Read workspace Git status (short format).'),
   spec('git_diff', 'Read unstaged Git diff for workspace files. Does not include untracked files.', {
@@ -181,7 +181,7 @@ function M.execute(name, args, done, active, approve)
       function() process(args.argv, base, done, active) end)
   elseif name == 'get_diagnostics' then
     local filter
-    if args.path ~= nil then
+    if args.path ~= nil and args.path ~= '' then
       local err
       filter, err = resolve(args.path, true)
       if not filter then return done('Error: ' .. err) end
