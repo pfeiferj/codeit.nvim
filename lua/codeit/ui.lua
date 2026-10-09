@@ -7,7 +7,7 @@ local draft_start = 2 -- zero-based first line of the draft
 local billing_line
 local header_ns = vim.api.nvim_create_namespace('codeit_sticky_header')
 local slash_group = vim.api.nvim_create_augroup('codeit_slash_completion', { clear = true })
-local completion, command_results = nil, {}
+local completion
 
 -- Keep the first Tab's matches even after replacing the typed prefix.
 local function tab_complete()
@@ -200,22 +200,29 @@ function M.take_input()
   return text
 end
 
-function M.clear_command_results()
-  command_results = {}
-end
-
-function M.add_command_result(command, output)
-  command_results[#command_results + 1] = { command = command, output = output }
-end
-
-function M.render(messages, status, provider, model, billing)
+function M.render(messages, status, provider, model, billing, command_results)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
   if billing then table.insert(lines, '> ' .. billing) end
   billing_line = billing
   table.insert(lines, '')
+  -- Results belong to a message boundary, not to the moving draft heading.
+  local results_by_message = {}
+  for _, result in ipairs(command_results or {}) do
+    local index = result.after_message
+    results_by_message[index] = results_by_message[index] or {}
+    table.insert(results_by_message[index], result)
+  end
+  local function render_results(index)
+    for _, result in ipairs(results_by_message[index] or {}) do
+      table.insert(lines, '## Command: `' .. result.command .. '`')
+      vim.list_extend(lines, vim.split(result.output, '\n', { plain = true }))
+      table.insert(lines, '')
+    end
+  end
+  render_results(0)
   local tool_names = {}
-  for _, message in ipairs(messages) do
+  for index, message in ipairs(messages) do
     if message.role ~= 'system' then
       local label = ({ user = 'You', assistant = 'Assistant', tool = 'Tool' })[message.role] or message.role
       if message.role == 'tool' then
@@ -245,11 +252,7 @@ function M.render(messages, status, provider, model, billing)
       end
       table.insert(lines, '')
     end
-  end
-  for _, result in ipairs(command_results) do
-    table.insert(lines, '## Command: `' .. result.command .. '`')
-    vim.list_extend(lines, vim.split(result.output, '\n', { plain = true }))
-    table.insert(lines, '')
+    render_results(index)
   end
   if status and status ~= '' then table.insert(lines, '* ' .. status) end
   table.insert(lines, '')

@@ -1,5 +1,12 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local slash = require('codeit.slash_commands')
+local requests, responses = {}, {}
+package.loaded['codeit.providers'] = {
+  chat = function(_, messages, _, callback)
+    requests[#requests + 1] = vim.deepcopy(messages)
+    responses[#responses + 1] = callback
+  end,
+}
 local codeit = require('codeit')
 local ui = require('codeit.ui')
 
@@ -49,6 +56,55 @@ vim.api.nvim_feedkeys(vim.keycode('<CR>'), 'x', false)
 local transcript = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
 assert(transcript:find('## Command: `/trustStatus`', 1, true), 'slash command should appear in chat')
 assert(transcript:find('codeit: ', 1, true), 'command notification should appear in chat')
+
+local function submit(text)
+  set_draft(text)
+  vim.api.nvim_feedkeys(vim.keycode('<CR>'), 'x', false)
+end
+local function assert_order(...)
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  local previous = 0
+  for _, value in ipairs({ ... }) do
+    local position = text:find(value, previous + 1, true)
+    assert(position, 'missing or out-of-order transcript entry: ' .. value)
+    previous = position
+  end
+end
+
+-- Commands before, between, and during turns stay where they ran, even when
+-- later messages arrive or the conversation is saved and resumed.
+submit('first question')
+responses[#responses]({ role = 'assistant', content = 'first answer' })
+submit('/trustStatus')
+submit('/contextFull')
+vim.cmd('close')
+submit('second question')
+submit('/trustStatus') -- Also works while a response is pending.
+responses[#responses]({ role = 'assistant', content = 'second answer' })
+assert_order('## Command: `/trustStatus`', 'first question', 'first answer',
+  '## Command: `/trustStatus`', '## Command: `/contextFull`', 'second question',
+  '## Command: `/trustStatus`', 'second answer', '## Message')
+assert(#requests == 2, 'display-only commands must not request an LLM response')
+assert(#requests[2] == 4 and requests[2][4].content == 'second question',
+  'command output must not be sent to the assistant')
+local history = require('codeit.history')
+local saved = history.list(history.workspace())[1]
+assert(#saved.command_results == 6, 'command results should be saved separately from messages')
+local expected_anchors = { 0, 0, 0, 3, 3, 4 }
+for i, result in ipairs(saved.command_results) do
+  assert(result.after_message == expected_anchors[i], 'command should retain its message boundary')
+end
+ui.close()
+codeit.open()
+assert_order('first answer', '## Command: `/trustStatus`', 'second question',
+  '## Command: `/trustStatus`', 'second answer')
+codeit.new()
+assert(not table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'):find('## Command:', 1, true),
+  'new conversations should clear command results')
+assert(codeit.resume(saved.id))
+assert_order('## Command: `/trustStatus`', 'first question', 'first answer',
+  '## Command: `/trustStatus`', '## Command: `/contextFull`', 'second question',
+  '## Command: `/trustStatus`', 'second answer', '## Message')
 
 -- The first Tab snapshots prefix matches; later Tabs cycle those matches even
 -- though the inserted command no longer shares the original prefix.

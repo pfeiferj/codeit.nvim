@@ -28,7 +28,7 @@ Concisely report what changed, what you verified, and any remaining caveats.]],
 }
 local config = vim.deepcopy(defaults)
 local base_settings = { provider = config.provider, models = vim.deepcopy(config.models), request_options = {} }
-local messages = {}
+local messages, command_results = {}, {}
 local session_prompt
 local context_summary, compacted_until
 local context_paths, selected_skills, disabled_context_files = {}, {}, {}
@@ -64,6 +64,7 @@ local function save(clear_summary)
   local seconds, microseconds = vim.uv.gettimeofday()
   local ok, err = history.save(workspace, chat_id, {
     provider = config.provider, model = model(), messages = messages,
+    command_results = command_results,
     request_options = config.request_options,
     updated_at = seconds + microseconds / 1000000, cost = cost, missing_cost = missing_cost,
     tokens_in = tokens_in, tokens_out = tokens_out, missing_in = missing_in,
@@ -93,7 +94,7 @@ local function sync_workspace()
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
   context_tokens, context_estimated = nil, nil
   source = nil
-  ui.clear_command_results()
+  command_results = {}
   status = 'Ready (new workspace)'
 end
 
@@ -110,7 +111,7 @@ local function render()
       format_tokens(tokens_out, 1000000, 'm'), missing_out and '+' or '',
       context_tokens and (context_estimated and '~' or '') .. format_tokens(context_tokens, 1000, 'k') or '—')
   end
-  ui.render(messages, status, config.provider, model(), billing)
+  ui.render(messages, status, config.provider, model(), billing, command_results)
 end
 
 local function usage_number(value)
@@ -295,6 +296,7 @@ function M.context_full()
     ok, err = valid_context(edited)
     if not ok then return false, err end
     messages = edited
+    command_results = {}
     session_prompt = edited[1].content
     context_summary, compacted_until = nil, nil
     context_paths, selected_skills, disabled_context_files = {}, {}, {}
@@ -548,6 +550,9 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
           generation = generation + 1
           busy = false
           for i = #messages, batch_start, -1 do table.remove(messages, i) end
+          for _, command_result in ipairs(command_results) do
+            command_result.after_message = math.min(command_result.after_message, #messages)
+          end
           save()
           return set_status('Task cancelled')
         end
@@ -661,7 +666,10 @@ function M.send(text)
       if output == '' then
         output = status ~= previous_status and status or 'Ran :' .. command.command
       end
-      ui.add_command_result(text, output)
+      command_results[#command_results + 1] = {
+        command = text, output = output, after_message = #messages,
+      }
+      save()
       render()
       return
     end
@@ -714,7 +722,7 @@ function M.new()
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
   context_tokens, context_estimated = nil, nil
   status = 'New conversation'
-  ui.clear_command_results()
+  command_results = {}
   render()
 end
 
@@ -800,7 +808,7 @@ function M.resume(id)
   context_tokens = tonumber(chat.context_tokens)
   context_estimated = chat.context_estimated == true
   status = 'Resumed conversation'
-  ui.clear_command_results()
+  command_results = chat.command_results
   M.open()
   render()
   return true

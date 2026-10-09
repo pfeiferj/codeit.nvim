@@ -188,5 +188,28 @@ assert(requests[#requests].config.provider == 'openrouter')
 assert(requests[#requests].config.model == 'saved-openrouter-model')
 responses[#responses]({ role = 'assistant', content = 'Completed the old Copilot task.' })
 
+-- Older histories still resume, and malformed display data cannot break rendering.
+assert(vim.deep_equal(history.load(workspace, 'old-copilot').command_results, {}))
+local with_commands = vim.deepcopy(old_copilot)
+with_commands.messages[#with_commands.messages + 1] = {
+  role = 'assistant', tool_calls = { { id = 'unfinished' } },
+}
+with_commands.command_results = {
+  { command = '/trustStatus', output = 'before the turn', after_message = 0 },
+  { command = '/context', output = 'during the unfinished batch', after_message = 3 },
+  { command = '/bad', output = 'negative index', after_message = -1 },
+  { command = '/bad', output = 'fractional index', after_message = 0.5 },
+  { command = '/bad', output = {}, after_message = 1 },
+  { command = '/bad', output = 'missing index' },
+  'not a result',
+}
+assert(history.save(workspace, 'with-commands', with_commands))
+local restored = history.load(workspace, 'with-commands')
+assert(#restored.messages == 2 and #restored.command_results == 2)
+assert(restored.command_results[1].after_message == 0)
+assert(restored.command_results[2].after_message == 2,
+  'results from a removed tool batch should remain at the end of the surviving transcript')
+assert(plugin.resume('with-commands'), 'valid command results should resume alongside older chat formats')
+
 vim.fn.delete(temp, 'rf')
 print('codeit history tests passed')

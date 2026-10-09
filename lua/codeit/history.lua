@@ -86,6 +86,21 @@ function M.load(workspace, id)
       break
     end
   end
+  -- Older chats have no command results. Ignore malformed display-only data,
+  -- and re-anchor results if an interrupted tool batch was removed above.
+  local command_results = {}
+  if type(chat.command_results) == 'table' and vim.islist(chat.command_results) then
+    for _, result in ipairs(chat.command_results) do
+      local index = type(result) == 'table' and result.after_message
+      if type(result) == 'table' and type(result.command) == 'string' and type(result.output) == 'string'
+        and type(index) == 'number' and index >= 0 and index < math.huge and index == math.floor(index) then
+        command_results[#command_results + 1] = {
+          command = result.command, output = result.output, after_message = math.min(index, #chat.messages),
+        }
+      end
+    end
+  end
+  chat.command_results = command_results
   -- Never skip messages unless the saved checkpoint still covers a complete turn.
   local cutoff = chat.compacted_until
   local checkpoint = type(cutoff) == 'number' and cutoff == math.floor(cutoff)
