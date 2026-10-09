@@ -101,3 +101,7 @@ Always-approved signatures include the workspace's resolved path, tool name, and
 Buffer edits check for changes while confirmation is pending; file paths are restricted to the current workspace, including symlink targets. Commands run in that workspace but, once approved, can access the wider system. Command/search/Git outputs are limited to 20 KB with explicit truncation markers. Commands time out after 60 seconds; cancellation and timeout send SIGTERM, then SIGKILL after a grace period. On Unix, signals reach the process group and ordinary descendants; processes that deliberately detach can escape, and other platforms only terminate the direct process. Cancellation cannot undo side effects already completed. File reads and listings are bounded and advertise continuation rather than silently appearing complete. Invalid tool arguments and execution exceptions return tool errors so the assistant can recover. This is a local approximation of common VS Code Copilot Agent capabilities, not VS Code's exact or extension-provided tool set.
 
 Run all headless tests from the repository root with `sh tests/run.sh`. The runner isolates saved approvals in a temporary data directory and exits with an error if a suite fails.
+
+## License
+
+Licensed under the [MIT License](LICENSE).
