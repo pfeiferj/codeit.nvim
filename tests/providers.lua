@@ -42,6 +42,33 @@ assert(calls[1].options.stdin:find('"properties":{}', 1, true), 'empty tool prop
 wait_for_response({ provider = 'copilot', model = 'gpt-4o' })
 assert(vim.tbl_contains(calls[3].args, 'https://api.githubcopilot.com/chat/completions'))
 assert(vim.json.decode(calls[3].options.stdin).usage == nil)
+wait_for_response({ provider = 'openrouter', model = 'test-model', options = {
+  preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high',
+} })
+payload = vim.json.decode(calls[#calls].options.stdin)
+assert(vim.deep_equal(payload.provider.order, { 'anthropic' }))
+assert(payload.service_tier == 'priority' and payload.reasoning.effort == 'high')
+wait_for_response({ provider = 'openrouter', model = 'test-model', options = {
+  preferred_provider = '', service_tier = '', effort = '',
+} })
+payload = vim.json.decode(calls[#calls].options.stdin)
+assert(payload.provider == nil and payload.service_tier == nil and payload.reasoning == nil)
+wait_for_response({ provider = 'copilot', model = 'test-model', options = {
+  preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high',
+} })
+payload = vim.json.decode(calls[#calls].options.stdin)
+assert(payload.provider == nil and payload.service_tier == nil and payload.reasoning == nil,
+  'OpenRouter options must not leak to Copilot')
+
+http_response = vim.json.encode({ data = { { id = 'z-model', name = 'Last' }, { id = 'a-model', name = 'First' } } }) .. '\n200'
+for _, backend in ipairs({ 'openrouter', 'copilot' }) do
+  local models, catalog_error
+  providers.models(backend, function(result, err) models, catalog_error = result, err end)
+  assert(vim.wait(2000, function() return models ~= nil or catalog_error ~= nil end))
+  assert(not catalog_error and models[1].id == 'a-model' and models[2].id == 'z-model')
+  local url = backend == 'openrouter' and 'https://openrouter.ai/api/v1/models' or 'https://api.githubcopilot.com/models'
+  assert(vim.tbl_contains(calls[#calls].args, url))
+end
 local log_path = vim.fn.stdpath('state') .. '/codeit/provider-errors.log'
 local before = vim.fn.filereadable(log_path) == 1 and table.concat(vim.fn.readfile(log_path), '\n') or ''
 http_response = '{"error":{"message":"Invalid tool schema","debug":"schema details"}}\n400'

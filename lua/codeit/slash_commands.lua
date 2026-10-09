@@ -16,6 +16,7 @@ local commands = {
   { name = 'untrust', command = 'CodeitUntrust' },
   { name = 'trustStatus', command = 'CodeitTrustStatus' },
   { name = 'provider', command = 'CodeitProvider', args = true },
+  { name = 'settings', command = 'CodeitSettings' },
 }
 
 function M.complete_items()

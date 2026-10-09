@@ -111,6 +111,41 @@ local function copilot_auth(callback)
   end)
 end
 
+--- Fetch available models from the selected backend (no completion request).
+function M.models(provider, callback)
+  local function finish(response, err, detail)
+    if err then return callback(nil, err, detail) end
+    local entries = response.data or response.models or response
+    if type(entries) ~= 'table' or not vim.islist(entries) then
+      return callback(nil, 'Invalid model catalog')
+    end
+    local models = {}
+    for _, entry in ipairs(entries) do
+      if type(entry) == 'table' and type(entry.id) == 'string' then models[#models + 1] = entry end
+    end
+    table.sort(models, function(a, b) return a.id < b.id end)
+    callback(models)
+  end
+  if provider == 'openrouter' then
+    local token = vim.env.OPENROUTER_API_KEY
+    if not token or token == '' then return callback(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
+    get_json('https://openrouter.ai/api/v1/models', { 'Authorization: Bearer ' .. token }, finish)
+  elseif provider == 'copilot' then
+    copilot_auth(function(token, err)
+      if err then return callback(nil, err) end
+      get_json('https://api.githubcopilot.com/models', {
+        'Authorization: Bearer ' .. token,
+        'Editor-Version: Neovim/0.12.0',
+        'Editor-Plugin-Version: codeit.nvim/0.1.0',
+        'Copilot-Integration-Id: vscode-chat',
+        'Openai-Intent: conversation-panel',
+      }, finish)
+    end)
+  else
+    callback(nil, 'Unknown provider: ' .. tostring(provider))
+  end
+end
+
 --- Resolve a model's context window; failures are cached for this session.
 function M.context_limit(config, callback)
   local key = config.provider .. '/' .. config.model
@@ -148,30 +183,10 @@ function M.context_limit(config, callback)
     end
     finish(nil, 'model not found in provider metadata: ' .. config.model)
   end
-  if config.provider == 'openrouter' then
-    local token = vim.env.OPENROUTER_API_KEY
-    if not token or token == '' then return finish(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
-    get_json('https://openrouter.ai/api/v1/models', { 'Authorization: Bearer ' .. token }, function(response, err, detail)
-      if err then return finish(nil, err, detail) end
-      extract(response)
-    end)
-  elseif config.provider == 'copilot' then
-    copilot_auth(function(token, err)
-      if err then return finish(nil, err) end
-      get_json('https://api.githubcopilot.com/models', {
-        'Authorization: Bearer ' .. token,
-        'Editor-Version: Neovim/0.12.0',
-        'Editor-Plugin-Version: codeit.nvim/0.1.0',
-        'Copilot-Integration-Id: vscode-chat',
-        'Openai-Intent: conversation-panel',
-      }, function(response, fetch_err, detail)
-        if fetch_err then return finish(nil, fetch_err, detail) end
-        extract(response)
-      end)
-    end)
-  else
-    finish(nil, 'Unknown provider: ' .. tostring(config.provider))
-  end
+  M.models(config.provider, function(models, err, detail)
+    if err then return finish(nil, err, detail) end
+    extract(models)
+  end)
 end
 
 --- Send an OpenAI-compatible chat completion. callback(message, error).
@@ -185,7 +200,15 @@ function M.chat(config, messages, tools, callback)
     local headers = { 'Content-Type: application/json', 'Authorization: Bearer ' .. token }
     vim.list_extend(headers, extra_headers or {})
     local body = { model = config.model, messages = messages }
-    if config.provider == 'openrouter' then body.usage = { include = true } end
+    if config.provider == 'openrouter' then
+      body.usage = { include = true }
+      local options = config.options or {}
+      if options.preferred_provider and options.preferred_provider ~= '' then
+        body.provider = { order = { options.preferred_provider } }
+      end
+      if options.service_tier and options.service_tier ~= '' then body.service_tier = options.service_tier end
+      if options.effort and options.effort ~= '' then body.reasoning = { effort = options.effort } end
+    end
     if tools and #tools > 0 then
       body.tools = tools
       body.tool_choice = 'auto'
