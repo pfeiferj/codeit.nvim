@@ -447,12 +447,16 @@ local function request(round, id, skip_auto, detected_limit, limit_checked)
     if err then return fail(err) end
     record_usage(usage, true)
     local calls = message.tool_calls
+    -- Do not retain calls we will never execute: subsequent requests require
+    -- a matching tool result for every assistant tool call.
+    if type(calls) == 'table' and #calls > 0 and round == config.max_tool_rounds then
+      return fail('Tool call limit reached')
+    end
     local batch_start = #messages + 1
     table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls })
     save()
     render()
     if type(calls) ~= 'table' or #calls == 0 then return complete() end
-    if round == config.max_tool_rounds then return fail('Tool call limit reached') end
     local user_request
     for i = batch_start - 1, 1, -1 do
       if messages[i].role == 'user' then user_request = messages[i].content; break end
