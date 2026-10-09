@@ -228,22 +228,17 @@ function M.request(name, args, prompt, active, done, action, context)
   local choose
   local function review(history)
     if not context.review then return choose() end
-    approval_prompt.ask_reviewer(name, canonical(args), function(question)
+    approval_prompt.ask_reviewer(name, canonical(args), function(question, respond)
       if not live() then return end
-      if not question or vim.trim(question) == '' then return choose() end
       history[#history + 1] = { role = 'user', content = question }
       context.review(history, function(answer, err)
         if not live() then return end
         if err then answer = 'Reviewer error: ' .. tostring(err) end
         history[#history + 1] = { role = 'assistant', content = answer or '' }
-        approval_prompt.show('## Question\n\n' .. question .. '\n\n## Reviewer\n\n' .. (answer or ''), {
-          { key = '1', id = 'again', label = 'Ask another question' },
-          { key = '2', id = 'back', label = 'Back to approval' },
-        }, function(choice)
-          if not live() then return end
-          if choice == 'again' then review(history) else choose() end
-        end, { title = ' Tool-call reviewer ', dismiss = 'Back to approval' })
+        respond(answer)
       end)
+    end, function()
+      if live() then choose() end
     end)
   end
   choose = function()

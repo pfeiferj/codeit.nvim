@@ -69,40 +69,80 @@ function M.show(prompt, options, callback, config)
     { buffer = buf, nowait = true, silent = true, desc = config.dismiss or 'Reject tool call' })
 end
 
---- Collect a multiline reviewer question alongside the tool call being reviewed.
---- Only text below the Question heading is submitted; closing the window returns to approval.
-function M.ask_reviewer(name, args, callback)
+--- Keep the reviewer conversation open while questions are answered. The transcript is
+--- read-only; the lower pane accepts follow-up questions without an extra choice.
+function M.ask_reviewer(name, args, on_question, on_back)
   local lines = { '# Review tool call', '', '**Tool:** `' .. tostring(name) .. '`', '', '## Arguments', '' }
   vim.list_extend(lines, markdown.fence(args, 'json'))
-  vim.list_extend(lines, { '', '## Question', '', 'Type below; <C-s> or normal-mode <Enter> to send; <Esc> to go back.', '' })
-  local question_start = #lines - 1 -- zero-based first editable question line
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].bufhidden = 'wipe'
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  markdown.enable(buf)
+  vim.list_extend(lines, { '', '## Conversation', '', 'Type in the lower pane; <C-s> or normal-mode <Enter> to send. <Esc> to go back.', '' })
+  local transcript = vim.api.nvim_create_buf(false, true)
+  local input = vim.api.nvim_create_buf(false, true)
+  for _, buf in ipairs({ transcript, input }) do
+    vim.bo[buf].bufhidden = 'wipe'
+    markdown.enable(buf)
+  end
+  vim.api.nvim_buf_set_lines(transcript, 0, -1, false, lines)
+  vim.bo[transcript].modifiable = false
+  vim.api.nvim_buf_set_lines(input, 0, -1, false, { '' })
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
-  local win_config = geometry()
-  win_config.title = ' Ask tool-call reviewer '
-  local win = vim.api.nvim_open_win(buf, true, win_config)
-  vim.wo[win].wrap = true
-  vim.wo[win].linebreak = true
-  vim.api.nvim_win_set_cursor(win, { #lines, 0 })
-  local finished = false
-  local function finish(question)
+  local frame = geometry()
+  local input_height = math.min(4, math.max(1, frame.height - 1))
+  local transcript_height = frame.height - input_height - 1
+  if transcript_height < 1 then transcript_height = 1 end
+  local transcript_config = vim.tbl_extend('force', frame, { height = transcript_height, title = ' Tool-call reviewer ' })
+  local transcript_win = vim.api.nvim_open_win(transcript, true, transcript_config)
+  local input_config = vim.tbl_extend('force', frame, {
+    row = frame.row + transcript_height + 1, height = input_height, title = ' Ask reviewer ',
+  })
+  local input_win = vim.api.nvim_open_win(input, true, input_config)
+  for _, win in ipairs({ transcript_win, input_win }) do
+    vim.wo[win].wrap = true
+    vim.wo[win].linebreak = true
+  end
+  local finished, waiting = false, false
+  local function finish()
     if finished then return end
     finished = true
-    if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
-    callback(question)
+    if vim.api.nvim_win_is_valid(input_win) then vim.api.nvim_win_close(input_win, true) end
+    if vim.api.nvim_win_is_valid(transcript_win) then vim.api.nvim_win_close(transcript_win, true) end
+    on_back()
   end
-  on_close(win, finish)
+  on_close(transcript_win, finish)
+  on_close(input_win, finish)
+  local function append(text)
+    if finished or not vim.api.nvim_buf_is_valid(transcript) then return end
+    local additions = vim.split(text, '\n', { plain = true })
+    vim.bo[transcript].modifiable = true
+    vim.api.nvim_buf_set_lines(transcript, -1, -1, false, additions)
+    vim.bo[transcript].modifiable = false
+    if vim.api.nvim_win_is_valid(transcript_win) then
+      vim.api.nvim_win_set_cursor(transcript_win, { vim.api.nvim_buf_line_count(transcript), 0 })
+    end
+  end
   local function submit()
-    local question = table.concat(vim.api.nvim_buf_get_lines(buf, question_start, -1, false), '\n')
-    finish(vim.trim(question))
+    if finished or waiting then return end
+    local question = vim.trim(table.concat(vim.api.nvim_buf_get_lines(input, 0, -1, false), '\n'))
+    if question == '' then return end
+    vim.api.nvim_buf_set_lines(input, 0, -1, false, { '' })
+    append('## You\n' .. question .. '\n\n*Waiting for reviewer…*')
+    waiting = true
+    on_question(question, function(answer)
+      if finished or not vim.api.nvim_buf_is_valid(transcript) then return end
+      vim.bo[transcript].modifiable = true
+      vim.api.nvim_buf_set_lines(transcript, -2, -1, false, { '## Reviewer' })
+      vim.bo[transcript].modifiable = false
+      append((answer or 'No reviewer response') .. '\n')
+      waiting = false
+    end)
   end
-  vim.keymap.set({ 'n', 'i' }, '<C-s>', submit, { buffer = buf, silent = true, desc = 'Ask reviewer' })
-  vim.keymap.set('n', '<CR>', submit, { buffer = buf, silent = true, desc = 'Ask reviewer' })
-  vim.keymap.set('n', '<Esc>', function() finish(nil) end,
-    { buffer = buf, silent = true, desc = 'Back to approval' })
+  vim.keymap.set({ 'n', 'i' }, '<C-s>', function()
+    if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
+    submit()
+  end, { buffer = input, silent = true, desc = 'Ask reviewer' })
+  vim.keymap.set('n', '<CR>', submit, { buffer = input, silent = true, desc = 'Ask reviewer' })
+  for _, buf in ipairs({ transcript, input }) do
+    vim.keymap.set('n', '<Esc>', finish, { buffer = buf, silent = true, desc = 'Back to approval' })
+  end
   vim.cmd.startinsert()
 end
 

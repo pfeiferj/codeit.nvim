@@ -87,13 +87,15 @@ prompt_ui.show = function(_, options, callback)
   assert(vim.tbl_contains(vim.tbl_map(function(option) return option.id end, options), choice), 'missing choice ' .. tostring(choice))
   callback(choice)
 end
-prompt_ui.ask_reviewer = function(name, args, callback)
+local reviewer_back
+prompt_ui.ask_reviewer = function(name, args, ask, back)
   assert(name == 'run_command' and args:find('echo', 1, true))
-  callback(table.remove(questions, 1))
+  reviewer_back = back
+  ask(table.remove(questions, 1), function(answer) assert(answer == 'It prints test.') end)
 end
 vim.ui.input = function(_, callback) callback(table.remove(questions, 1)) end
 plugin.send('Check command')
-selections = { 'review', 'back', 'reject' }
+selections = { 'review', 'reject' }
 questions = { 'What will happen?', 'Do not run it' }
 tool_reply('run_command', { argv = { 'echo', 'test' } })
 assert(#requests[#requests].specs == 0, 'reviewer must not receive tools')
@@ -101,6 +103,7 @@ reply({ role = 'assistant', content = '{"summary":"Prints test.","safe":true}' }
 assert(#requests[#requests].specs == 0, 'follow-up reviewer must not receive tools')
 reply({ role = 'assistant', content = 'It prints test.' },
   { cost = 0.000321, prompt_tokens = 40, completion_tokens = 10 })
+reviewer_back()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
 assert(requests[#requests].specs == requests[1].specs, 'main chat must retain tools')
 -- Rejection goes into the main tool result, not into the reviewer history.

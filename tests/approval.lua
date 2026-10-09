@@ -4,9 +4,16 @@ local prompt_ui = require('codeit.approval_prompt')
 local original_show, original_ask, original_input = prompt_ui.show, prompt_ui.ask_reviewer, vim.ui.input
 local choices, inputs, questions = {}, {}, {}
 local prompts = {}
-prompt_ui.ask_reviewer = function(name, args, cb)
+local reviewer_sessions = 0
+prompt_ui.ask_reviewer = function(name, args, ask, back)
+  reviewer_sessions = reviewer_sessions + 1
   assert(name == 'run_command' and args:find('echo', 1, true), 'review question must show the tool call')
-  cb(table.remove(questions, 1))
+  while #questions > 0 do
+    local question = table.remove(questions, 1)
+    if not question then break end
+    ask(question, function(answer) assert(type(answer) == 'string') end)
+  end
+  back()
 end
 prompt_ui.show = function(prompt, options, cb, config)
   prompts[#prompts + 1] = prompt
@@ -42,7 +49,7 @@ choices = { 'cancel' }
 call('run_command', { argv = { 'echo', 'b' } })
 assert(signal == 'cancel' and actions == 3)
 local reviews = 0
-choices = { 'review', 'again', 'back', 'once' }
+choices = { 'review', 'once' }
 questions = { 'Is this safe?', 'What does it do?' }
 call('run_command', { argv = { 'echo', 'c' } }, { user_request = 'test', review = function(history, cb)
   if history[1].content:find('JSON object', 1, true) then
@@ -50,17 +57,20 @@ call('run_command', { argv = { 'echo', 'c' } }, { user_request = 'test', review 
   end
   reviews = reviews + 1
   assert(history[1].role == 'system' and history[2].content:find('echo', 1, true))
+  if reviews == 2 then
+    assert(history[3].role == 'user' and history[3].content == 'Is this safe?')
+    assert(history[4].role == 'assistant' and history[4].content == 'This only prints text')
+    assert(history[5].role == 'user' and history[5].content == 'What does it do?')
+  end
   cb('This only prints text')
 end })
-assert(reviews == 2 and result == 'executed')
-assert(prompts[#prompts - 1]:find('## Question\n\nWhat does it do?', 1, true))
-assert(prompts[#prompts - 1]:find('## Reviewer\n\nThis only prints text', 1, true))
-choices = { 'review', false, 'reject' }; questions = { 'Another question?', false }
+assert(reviews == 2 and result == 'executed' and reviewer_sessions == 1)
+choices = { 'review', 'reject' }; questions = { 'Another question?' }
 call('run_command', { argv = { 'echo', 'review escape' } }, { review = function(history, cb)
   cb(history[1].content:find('JSON object', 1, true) and '{"summary":"Prints text.","safe":true}' or 'No issue')
 end })
 assert(result == 'Rejected by user', 'dismissing reviewer returns to approval')
-choices = { 'review', 'back', 'once' }; questions = { 'Is this safe?' }
+choices = { 'review', 'once' }; questions = { 'Is this safe?' }
 call('run_command', { argv = { 'echo', 'review back' } }, { review = function(history, cb)
   cb(history[1].content:find('JSON object', 1, true) and '{"summary":"Prints text.","safe":true}' or 'Yes')
 end })
@@ -156,9 +166,12 @@ write_ui.show = function(diff, options, cb)
   assert(options[5].id == 'review')
   cb(write_calls == 1 and 'review' or 'once')
 end
-prompt_ui.ask_reviewer = function(_, _, cb) cb('Is the change safe?') end
+prompt_ui.ask_reviewer = function(_, _, ask, back)
+  ask('Is the change safe?', function(answer) assert(answer == 'The change is small.') end)
+  back()
+end
 local review_calls = 0
-choices = { 'back' }
+choices = {}
 call('edit_file', { path = 'example.lua', old_text = 'before', new_text = 'after' }, {
   diff = { path = 'example.lua', before = 'before\n', after = 'after\n' },
   review = function(history, cb)
