@@ -146,6 +146,37 @@ function M.models(provider, callback)
   end
 end
 
+--- Fetch model-specific OpenRouter upstream endpoints, including their pricing.
+function M.endpoints(model, callback)
+  local token = vim.env.OPENROUTER_API_KEY
+  if not token or token == '' then return callback(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
+  if type(model) ~= 'string' then return callback(nil, 'Invalid OpenRouter model ID') end
+  -- Routing variants share the base model's endpoint catalog.
+  model = model:gsub(':nitro$', ''):gsub(':floor$', '')
+  local author, slug = model:match('^([^/]+)/([^/]+)$')
+  if not author then return callback(nil, 'OpenRouter model IDs must include author/model') end
+  local function encode(value)
+    return (value:gsub('[^%w%-%._~]', function(char) return string.format('%%%02X', char:byte()) end))
+  end
+  local url = 'https://openrouter.ai/api/v1/models/' .. encode(author) .. '/' .. encode(slug) .. '/endpoints'
+  get_json(url, { 'Authorization: Bearer ' .. token }, function(response, err, detail)
+    if err then return callback(nil, err, detail) end
+    local entries = type(response.data) == 'table' and response.data.endpoints
+    if type(entries) ~= 'table' or not vim.islist(entries) then
+      return callback(nil, 'Invalid model endpoint catalog')
+    end
+    local endpoints = {}
+    for _, entry in ipairs(entries) do
+      if type(entry) == 'table' and type(entry.tag) == 'string' and entry.tag ~= ''
+        and (entry.status == nil or entry.status == vim.NIL or tonumber(entry.status) == 0) then
+        endpoints[#endpoints + 1] = entry
+      end
+    end
+    table.sort(endpoints, function(a, b) return a.tag < b.tag end)
+    callback(endpoints)
+  end)
+end
+
 --- Resolve a model's context window; failures are cached for this session.
 function M.context_limit(config, callback)
   local key = config.provider .. '/' .. config.model

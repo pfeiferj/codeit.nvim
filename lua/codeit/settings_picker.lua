@@ -17,6 +17,25 @@ function M.search(models, query)
   return matches
 end
 
+local function price(value, multiplier)
+  local number = (type(value) == 'string' or type(value) == 'number') and tonumber(value)
+  if not number or number < 0 or number == math.huge or number ~= number then return 'unknown' end
+  return '$' .. string.format('%.6f', number * multiplier):gsub('0+$', ''):gsub('%.$', '')
+end
+
+function M.endpoint_label(endpoint)
+  local pricing = type(endpoint.pricing) == 'table' and endpoint.pricing or {}
+  local name = type(endpoint.provider_name) == 'string' and endpoint.provider_name or endpoint.tag
+  local label = name .. ' [' .. endpoint.tag .. ']'
+    .. ' — input ' .. price(pricing.prompt, 1000000) .. ', output ' .. price(pricing.completion, 1000000)
+    .. ' / 1M tokens'
+  if pricing.request ~= nil and pricing.request ~= vim.NIL and tonumber(pricing.request) ~= 0 then
+    label = label .. '; ' .. price(pricing.request, 1) .. ' / request'
+  end
+  if type(endpoint.quantization) == 'string' then label = label .. ' (' .. endpoint.quantization .. ')' end
+  return label
+end
+
 function M.show(current, apply, live)
   local draft = vim.deepcopy(current)
   local function valid() return not live or live() end
@@ -51,6 +70,42 @@ function M.show(current, apply, live)
       search()
     end)
   end
+  local function choose_upstream(options)
+    local model = draft.models.openrouter
+    vim.notify('codeit: loading upstream providers for ' .. model .. '…')
+    providers.endpoints(model, function(endpoints, err)
+      if not valid() then return end
+      if err then vim.notify('codeit: could not load upstream providers: ' .. err, vim.log.levels.WARN) end
+      local items = {
+        { id = 'automatic', label = 'Automatic routing (clear preference)' },
+        { id = 'manual', label = 'Enter provider slug manually' },
+      }
+      for _, endpoint in ipairs(endpoints or {}) do
+        items[#items + 1] = { id = 'endpoint', slug = endpoint.tag, label = M.endpoint_label(endpoint) }
+      end
+      if endpoints and #endpoints == 0 then vim.notify('codeit: no upstream endpoints listed for ' .. model) end
+      vim.ui.select(items, { prompt = model .. ' upstream providers (USD; fallbacks remain enabled)',
+        format_item = function(item) return item.label end }, function(item)
+        if not valid() then return end
+        if not item then return menu() end
+        if item.id == 'manual' then
+          vim.ui.input({ prompt = 'Upstream provider slug (blank = automatic): ',
+            default = options.preferred_provider or '' }, function(value)
+            if not valid() then return end
+            if value ~= nil then
+              options.preferred_provider = vim.trim(value)
+              draft.request_options.openrouter = options
+            end
+            menu()
+          end)
+        else
+          options.preferred_provider = item.id == 'automatic' and '' or item.slug
+          draft.request_options.openrouter = options
+          menu()
+        end
+      end)
+    end)
+  end
   menu = function()
     if not valid() then return end
     local options = draft.request_options.openrouter or {}
@@ -83,19 +138,12 @@ function M.show(current, apply, live)
         end)
       elseif id == 'model' then
         choose_model()
-      elseif id == 'manual' or id == 'preferred_provider' then
-        vim.ui.input({ prompt = id == 'manual' and 'Model ID: ' or 'Upstream provider slug (blank = automatic): ',
-          default = id == 'manual' and draft.models[draft.provider] or options.preferred_provider or '' }, function(value)
+      elseif id == 'preferred_provider' then
+        choose_upstream(options)
+      elseif id == 'manual' then
+        vim.ui.input({ prompt = 'Model ID: ', default = draft.models[draft.provider] }, function(value)
           if not valid() then return end
-          if value ~= nil then
-            value = vim.trim(value)
-            if id == 'manual' then
-              if value ~= '' then draft.models[draft.provider] = value end
-            else
-              options.preferred_provider = value
-              draft.request_options.openrouter = options
-            end
-          end
+          if value ~= nil and vim.trim(value) ~= '' then draft.models[draft.provider] = vim.trim(value) end
           menu()
         end)
       elseif id == 'service_tier' or id == 'effort' then

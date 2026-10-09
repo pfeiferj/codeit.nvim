@@ -69,6 +69,31 @@ for _, backend in ipairs({ 'openrouter', 'copilot' }) do
   local url = backend == 'openrouter' and 'https://openrouter.ai/api/v1/models' or 'https://api.githubcopilot.com/models'
   assert(vim.tbl_contains(calls[#calls].args, url))
 end
+local function endpoints_for(model, response)
+  http_response = response
+  local endpoints, endpoint_error
+  providers.endpoints(model, function(result, err) endpoints, endpoint_error = result, err end)
+  assert(vim.wait(2000, function() return endpoints ~= nil or endpoint_error ~= nil end))
+  return endpoints, endpoint_error
+end
+local endpoints = endpoints_for('openai/test:nitro', vim.json.encode({ data = { endpoints = {
+  { tag = 'z-provider', pricing = { prompt = '0.000003', completion = '0.000015' }, status = 0 },
+  { tag = 'offline', status = -1 },
+  { provider_name = 'No routing tag' },
+  { tag = 'a-provider/fast', pricing = { prompt = '0', completion = '0' } },
+} } }) .. '\n200')
+assert(#endpoints == 2 and endpoints[1].tag == 'a-provider/fast' and endpoints[2].tag == 'z-provider')
+assert(endpoints[2].pricing.prompt == '0.000003')
+assert(vim.tbl_contains(calls[#calls].args, 'https://openrouter.ai/api/v1/models/openai/test/endpoints'))
+endpoints_for('openai/test:free', '{"data":{"endpoints":[]}}\n200')
+assert(vim.tbl_contains(calls[#calls].args, 'https://openrouter.ai/api/v1/models/openai/test%3Afree/endpoints'))
+local _, endpoint_error = endpoints_for('openai/test', '{"data":{}}\n200')
+assert(endpoint_error == 'Invalid model endpoint catalog')
+_, endpoint_error = endpoints_for('openai/test', '{"error":{"message":"No endpoints"}}\n404')
+assert(endpoint_error == 'HTTP 404: No endpoints')
+_, endpoint_error = endpoints_for('invalid', '{"data":{"endpoints":[]}}\n200')
+assert(endpoint_error:find('author/model', 1, true))
+
 local log_path = vim.fn.stdpath('state') .. '/codeit/provider-errors.log'
 local before = vim.fn.filereadable(log_path) == 1 and table.concat(vim.fn.readfile(log_path), '\n') or ''
 http_response = '{"error":{"message":"Invalid tool schema","debug":"schema details"}}\n400'

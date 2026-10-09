@@ -6,10 +6,20 @@ vim.fn.chdir(temp .. '/one')
 local history = require('codeit.history')
 local workspace = history.workspace()
 local requests, callbacks = {}, {}
+local endpoint_error
+local endpoint_catalog = {
+  { tag = 'anthropic', provider_name = 'Anthropic', pricing = { prompt = '0.000003', completion = '0.000015' } },
+  { tag = 'openai/fast', provider_name = 'OpenAI', pricing = { prompt = '0.000005', completion = '0.00002' } },
+}
 package.loaded['codeit.providers'] = {
   chat = function(config, messages, specs, callback)
     requests[#requests + 1] = { config = vim.deepcopy(config), messages = messages, specs = specs }
     callbacks[#callbacks + 1] = callback
+  end,
+  endpoints = function(model, callback)
+    assert(model == 'vendor/beta')
+    if endpoint_error then return callback(nil, endpoint_error) end
+    callback(endpoint_catalog)
   end,
   models = function(provider, callback)
     assert(provider == 'openrouter')
@@ -72,14 +82,14 @@ assert(picker.search(models, 'reasoning')[1].id == 'vendor/beta')
 assert(#picker.search(models, 'missing') == 0)
 
 -- Drive the actual settings menu, including search and scoped apply.
-local steps = { 'model', 'vendor/beta', 'preferred_provider', 'effort', 'high', 'service_tier', 'flex', 'workspace' }
-local inputs = { 'beta', 'anthropic' }
+local steps = { 'model', 'vendor/beta', 'preferred_provider', 'anthropic', 'effort', 'high', 'service_tier', 'flex', 'workspace' }
+local inputs = { 'beta' }
 local applied, scope
 vim.ui.input = function(_, callback) callback(table.remove(inputs, 1)) end
 vim.ui.select = function(items, _, callback)
   local wanted = table.remove(steps, 1)
   for _, item in ipairs(items) do
-    if (type(item) == 'table' and item.id or item) == wanted then return callback(item) end
+    if (type(item) == 'table' and (item.slug or item.id) or item) == wanted then return callback(item) end
   end
   error('missing menu choice: ' .. tostring(wanted))
 end
@@ -90,6 +100,28 @@ assert(applied.request_options.openrouter.effort == 'high' and applied.request_o
 assert(baseline.models.openrouter ~= 'vendor/beta', 'draft edits must not mutate active settings')
 assert(vim.api.nvim_get_commands({}).CodeitSettings)
 assert(select(1, require('codeit.slash_commands').parse('/settings')).command == 'CodeitSettings')
+
+assert(picker.endpoint_label(endpoint_catalog[1]) == 'Anthropic [anthropic] — input $3, output $15 / 1M tokens')
+assert(picker.endpoint_label({ tag = 'free', pricing = { prompt = '0', completion = 0, request = '0.01' } })
+  == 'free [free] — input $0, output $0 / 1M tokens; $0.01 / request')
+assert(picker.endpoint_label({ tag = 'unknown', pricing = { prompt = vim.NIL, completion = 'invalid' } })
+  == 'unknown [unknown] — input unknown, output unknown / 1M tokens')
+local function upstream_choice(choice)
+  steps = { 'preferred_provider', choice, 'session' }
+  applied = nil
+  picker.show({ provider = 'openrouter', models = { openrouter = 'vendor/beta', copilot = 'test' },
+    request_options = { openrouter = { preferred_provider = 'old' } } }, function(values) applied = values end)
+  return applied.request_options.openrouter.preferred_provider
+end
+assert(upstream_choice('openai/fast') == 'openai/fast', 'use exact endpoint tags, including tier suffixes')
+assert(upstream_choice('automatic') == '', 'automatic routing clears the preference')
+inputs = { 'custom-provider' }
+assert(upstream_choice('manual') == 'custom-provider')
+endpoint_error = 'temporary failure'
+assert(upstream_choice('automatic') == '', 'lookup failure still allows clearing the preference')
+endpoint_error, endpoint_catalog = nil, {}
+inputs = { 'unlisted-provider' }
+assert(upstream_choice('manual') == 'unlisted-provider', 'empty catalogs still allow manual input')
 
 -- Option-only updates preserve the current conversation and restore on resume.
 plugin.send('Keep this chat')
