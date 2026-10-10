@@ -174,25 +174,36 @@ local function current_prompt()
 end
 
 local function redact_disabled_skill_results(items)
-  if not next(disabled_context_files) then return items end
-  local disabled_calls = {}
-  local result = {}
+  local states = {}
+  for _, entry in ipairs(context_files.entries(workspace, approval.workspace_trust(workspace),
+    context_paths, selected_skills)) do
+    if entry.kind == 'skill' then states[entry.name] = entry.state end
+  end
+  local skill_calls, result = {}, {}
   for _, message in ipairs(items) do
+    local projected = message
     if message.role == 'assistant' and type(message.tool_calls) == 'table' then
-      for _, call in ipairs(message.tool_calls) do
+      for index, call in ipairs(message.tool_calls) do
         local fn = type(call) == 'table' and call['function']
         if type(fn) == 'table' and fn.name == 'load_skill' then
-          disabled_calls[call.id] = true
+          local ok, args = pcall(vim.json.decode, fn.arguments or '')
+          local state = (ok and type(args) == 'table' and states[args.name]) or 'off'
+          skill_calls[call.id] = state
+          if state == 'off' then
+            if projected == message then projected = vim.deepcopy(message) end
+            projected.tool_calls[index]['function'].arguments = '{}'
+          end
         end
       end
     end
-    local path = message.role == 'tool' and disabled_calls[message.tool_call_id]
-      and type(message.content) == 'string' and message.content:match('^Skill [^\n]* %((.-)%)%:\n')
-    if path and disabled_context_files[path] then
-      result[#result + 1] = vim.tbl_extend('force', {}, message, { content = 'Skill disabled for this chat.' })
-    else
-      result[#result + 1] = message
+    local state = message.role == 'tool' and skill_calls[message.tool_call_id]
+    if state and state ~= 'active' and type(message.content) == 'string'
+      and message.content:match('^Skill [^\n]* %((.-)%)%:\n') then
+      projected = vim.tbl_extend('force', {}, message, {
+        content = state == 'off' and 'Skill disabled for this chat.' or 'Skill instructions unloaded for this chat.',
+      })
     end
+    result[#result + 1] = projected
   end
   return result
 end
@@ -414,13 +425,19 @@ function M.context_files()
     for _, item in ipairs(list()) do
       if item.kind == entry.kind and item.path == entry.path then current = item; break end
     end
-    if not current or current.included ~= entry.included then
+    if not current or current.included ~= entry.included or current.state ~= entry.state then
       return false, 'available files changed; reopen the context files view'
     end
-    if current.kind == 'skill' and not vim.tbl_contains(selected_skills, current.name) then
-      selected_skills[#selected_skills + 1] = current.name
+    if current.kind == 'skill' then
+      local next_state = ({ off = 'on', on = 'active', active = 'off' })[current.state]
+      for index = #selected_skills, 1, -1 do
+        if selected_skills[index] == current.name then table.remove(selected_skills, index) end
+      end
+      if next_state == 'active' then selected_skills[#selected_skills + 1] = current.name end
+      disabled_context_files[current.path] = next_state == 'off' and true or nil
+    else
+      disabled_context_files[current.path] = current.included and true or nil
     end
-    disabled_context_files[current.path] = current.included and true or nil
     review_revision = review_revision + 1
     if chat_id then
       estimate_context()

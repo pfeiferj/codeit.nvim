@@ -151,10 +151,12 @@ function M.entries(workspace, mode, paths, selected)
   table.sort(names)
   for _, name in ipairs(names) do
     local skill = available[name]
+    local available = not excluded(workspace, skill.path)
+    local active = available and vim.tbl_contains(selected or {}, name)
     entries[#entries + 1] = { kind = 'skill', name = name, path = skill.path,
       description = skill.description, content = skill.content,
-      included = not excluded(workspace, skill.path) and vim.tbl_contains(selected or {}, name),
-      available = not excluded(workspace, skill.path) }
+      included = active, available = available,
+      state = not available and 'off' or (active and 'active' or 'on') }
   end
   return entries
 end

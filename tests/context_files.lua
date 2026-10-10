@@ -108,7 +108,7 @@ assert(toggle_path(workspace .. '/AGENTS.md'):find('[off]', 1, true))
 assert(not text(files.messages(workspace, 'tracked')):find('root instruction', 1, true))
 assert(toggle_path(workspace .. '/AGENTS.md'):find('[on]', 1, true))
 for _, global in ipairs(global_skills) do
-  assert(toggle_path(global.path):find('[on]', 1, true))
+  assert(toggle_path(global.path):find('[active]', 1, true))
   assert(toggle_path(global.path):find('[off]', 1, true))
   assert(not files.skill(global.name, workspace, 'tracked'))
   local disabled = text(files.messages(workspace, 'tracked', {}, { global.name }))
@@ -116,6 +116,10 @@ for _, global in ipairs(global_skills) do
   assert(not disabled:find('Global ' .. global.name .. ' instructions', 1, true))
   assert(toggle_path(global.path):find('[on]', 1, true))
   assert(files.skill(global.name, workspace, 'tracked'))
+  local advertised = text(files.messages(workspace, 'tracked'))
+  assert(advertised:find('Global ' .. global.name .. ' description', 1, true))
+  assert(not advertised:find('Global ' .. global.name .. ' instructions', 1, true))
+  assert(toggle_path(global.path):find('[active]', 1, true))
 end
 plugin.send('start')
 assert(toolsets[1].load_skill and not toolsets[1].read_buffer and not toolsets[1].replace_buffer_lines)
@@ -142,22 +146,39 @@ assert(not files.skill('review', workspace, 'tracked'))
 assert(not text(files.messages(workspace, 'tracked', {}, { 'review' })):find('review secret', 1, true))
 plugin.context_full()
 local disabled_view = vim.fn.bufnr('codeit://context-full')
-assert(not table.concat(vim.api.nvim_buf_get_lines(disabled_view, 0, -1, false), '\n')
-  :find('review secret', 1, true))
+local off_context = table.concat(vim.api.nvim_buf_get_lines(disabled_view, 0, -1, false), '\n')
+assert(not off_context:find('review secret', 1, true))
+assert(not off_context:find('Check changes carefully', 1, true))
+assert(not off_context:find('Selected skill review', 1, true))
+local off_messages = vim.json.decode(off_context)
+for _, message in ipairs(off_messages) do
+  for _, call in ipairs(message.tool_calls or {}) do
+    if call['function'].name == 'load_skill' then assert(call['function'].arguments == '{}') end
+  end
+end
 vim.cmd('close')
 assert(toggle_path(skill.path):find('[on]', 1, true))
+plugin.context_full()
+local on_view = vim.fn.bufnr('codeit://context-full')
+local on_context = table.concat(vim.api.nvim_buf_get_lines(on_view, 0, -1, false), '\n')
+assert(on_context:find('Check changes carefully', 1, true))
+assert(not on_context:find('review secret', 1, true), 'on must unload previous skill results')
+vim.cmd('close')
+assert(toggle_path(skill.path):find('[active]', 1, true))
 for _, global in ipairs(global_skills) do
   assert(toggle_path(global.path):find('[off]', 1, true))
 end
+assert(toggle_path(global_skills[1].path):find('[on]', 1, true))
 local id = history.list(workspace)[1].id
 plugin.new()
 plugin.resume(id)
 plugin.send('continued')
 assert(text(requests[6]):find('nested instruction', 1, true)
   and text(requests[6]):find('review secret', 1, true))
-for _, global in ipairs(global_skills) do
-  assert(not files.skill(global.name, workspace, 'tracked'))
+for index, global in ipairs(global_skills) do
+  assert((files.skill(global.name, workspace, 'tracked') ~= nil) == (index == 1))
   assert(not text(requests[6]):find('Global ' .. global.name .. ' instructions', 1, true))
+  assert((text(requests[6]):find('Global ' .. global.name .. ' description', 1, true) ~= nil) == (index == 1))
 end
 vim.fn.writefile({ 'updated root instruction' }, workspace .. '/AGENTS.md')
 plugin.context_full()

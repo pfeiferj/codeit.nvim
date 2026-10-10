@@ -27,11 +27,11 @@ function M.show(workspace, list, toggle)
     local entries = list()
     choices = {}
     local lines = { '# Additional context files — ' .. workspace,
-      'Enter: toggle for this chat  |  q/Esc: close',
-      'Only trusted, currently applicable instructions are listed. Skills are listed even when not loaded.', '' }
+      'Enter: toggle instructions / cycle skills off → on → active → off  |  q/Esc: close',
+      'Skills: off = hidden; on = name/description; active = full instructions. Changes apply to this chat.', '' }
     if #entries == 0 then lines[#lines + 1] = '(No eligible files; check workspace trust and file locations.)' end
     for _, entry in ipairs(entries) do
-      local state = entry.included and '[on] ' or '[off]'
+      local state = '[' .. (entry.state or (entry.included and 'on' or 'off')) .. ']'
       local label = entry.kind == 'skill' and ('skill ' .. entry.name .. ': ') or 'instructions: '
       local path = entry.path:gsub('[\r\n]', ' ')
       lines[#lines + 1] = state .. ' ' .. label .. path
