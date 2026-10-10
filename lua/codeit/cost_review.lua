@@ -60,7 +60,7 @@ function M.show(config, workspace)
       result.total_entries, result.truncated, result.next_offset = #result.groups, false, nil
     end
     for i = #header, 1, -1 do header[i] = nil end
-    vim.list_extend(header, { '# Cost review', '',
+    vim.list_extend(header, {
       'Snapshot: ' .. snapshot_at .. '. Reopen to refresh. Scope: ' .. (scope or 'all saved workspaces'),
       'd: days · w: workspaces · g: days/workspaces · f: functions · s: scope · n/p: pages · q/Esc: close', '',
       string.format('**Saved total: %s · %d chats · In: %s%s · Out: %s%s**',
@@ -90,10 +90,10 @@ function M.show(config, workspace)
     local table_lines, table_highlights = table_popup.format({ rows = rows, alignment = alignment })
     local table_start = #header
     local highlights = {
-      { 2, 0, #header[3], 'CodeitCostMeta' },
-      { 3, 0, #header[4], 'CodeitCostMeta' },
-      { 5, 0, #header[6], 'CodeitCostTotal' },
-      { 6, 0, #header[7], result.totals.missing_cost > 0 and 'CodeitCostIncomplete' or 'CodeitCostMeta' },
+      { 0, 0, #header[1], 'CodeitCostMeta' },
+      { 1, 0, #header[2], 'CodeitCostMeta' },
+      { 3, 0, #header[4], 'CodeitCostTotal' },
+      { 4, 0, #header[5], result.totals.missing_cost > 0 and 'CodeitCostIncomplete' or 'CodeitCostMeta' },
     }
     local previous, column = 0, 0
     for _, span in ipairs(table_highlights) do

@@ -160,6 +160,8 @@ local function key(lhs)
 end
 assert(text():find('Saved total: $3.750+ · 3 chats · In: 3.704m+ · Out: 0.36m+', 1, true) and #requests == 0)
 assert(not text():find(costs.note, 1, true), 'cost overview paragraph must not be displayed')
+assert(not text():find('# Cost review', 1, true), 'cost review must not repeat the popup title')
+assert(vim.api.nvim_win_get_config(win).title[1][1] == ' Cost review ', 'popup title must remain')
 local function assert_table(rows)
   local alignment = { 'left' }
   for column = 2, #rows[1] do alignment[column] = 'right' end
@@ -189,7 +191,7 @@ local function assert_highlights()
       local highlighted = lines[row + 1]:sub(col + 1, details.end_col)
       if details.hl_group == 'CodeitCostAmount' then
         assert(highlighted:find('$', 1, true), 'amount highlighting must align with the USD cell')
-      elseif details.hl_group == 'CodeitCostIncomplete' and row > 6 then
+      elseif details.hl_group == 'CodeitCostIncomplete' and row > 4 then
         assert(highlighted == '+', 'incomplete markers must be highlighted precisely')
       end
 
