@@ -160,7 +160,15 @@ tool_reply('run_command', { argv = { 'echo', 'cancel' } })
 assert(#responses == 1, 'cancelled review response may still be in flight')
 reply({ role = 'assistant', content = '{"summary":"Prints cancel.","safe":true}' })
 
-contains(vim.fn.bufnr('codeit://chat'), 'Task cancelled')
+local status_lines = {}
+local ui_ns = vim.api.nvim_get_namespaces().codeit_chat_ui
+for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(chat_buf, ui_ns, 0, -1, { details = true })) do
+  for _, line in ipairs(mark[4].virt_lines or {}) do
+    for _, chunk in ipairs(line) do status_lines[#status_lines + 1] = chunk[1] end
+  end
+end
+assert(table.concat(status_lines, '\n'):find('Task cancelled', 1, true),
+  'cancellation status should appear in the virtual draft hint')
 plugin.send('Continue after cancellation')
 assert(requests[#requests].messages[#requests[#requests].messages].content == 'Continue after cancellation')
 local stale = table.remove(responses, 1)
