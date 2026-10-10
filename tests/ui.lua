@@ -31,7 +31,9 @@ end
 ui.render(messages, 'Ready', 'openrouter', 'model-a', 'Cost: $0.001000 | In: 100 | Out: 20 | Context: 120')
 local rendered = vim.api.nvim_buf_get_lines(chat, 0, 5, false)
 assert(rendered[1]:match('^# Codeit') and rendered[2]:match('^> Cost:'))
-assert(rendered[4] == '## You')
+assert(rendered[4] == '---' and rendered[5] == '')
+assert(vim.api.nvim_buf_get_lines(chat, 5, 6, false)[1] == '## You',
+  'submitted prompts should begin a new turn after a Markdown separator')
 vim.api.nvim_win_call(win, function()
   assert(vim.fn.synIDattr(vim.fn.synID(1, 1, true), 'name') ~= '',
     'chat heading should have active Markdown highlighting')
@@ -65,7 +67,12 @@ assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, count - 3, count, false),
   'rendered chats should have a blank line between the heading and draft')
 vim.api.nvim_buf_set_lines(chat, count - 1, -1, false, { 'first line', 'second line' })
 vim.api.nvim_win_set_cursor(win, { count + 1, 4 })
-ui.render(messages, 'Waiting', 'copilot', 'model-b', nil)
+ui.render(messages, 'Waiting', 'copilot', 'model-b', nil, nil, false)
+assert(vim.api.nvim_win_get_cursor(win)[2] == 4)
+assert(not vim.tbl_contains(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '## Message'),
+  'the draft heading should be hidden while sending is blocked')
+assert(ui.peek_input() == 'first line\nsecond line', 'hiding the heading must preserve the draft')
+ui.render(messages, 'Ready', 'copilot', 'model-b', nil, nil, true)
 assert(vim.api.nvim_win_get_cursor(win)[2] == 4)
 assert(vim.api.nvim_buf_get_lines(chat, -3, -1, false)[1] == 'first line')
 assert(ui.take_input() == 'first line\nsecond line')

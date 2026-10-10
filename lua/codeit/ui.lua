@@ -262,7 +262,7 @@ function M.take_input()
   return text
 end
 
-function M.render(messages, status, provider, model, billing, command_results)
+function M.render(messages, status, provider, model, billing, command_results, can_send)
   require('codeit.assistant_pane').set_messages(messages)
   local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
   if billing then table.insert(lines, '> ' .. billing) end
@@ -289,6 +289,10 @@ function M.render(messages, status, provider, model, billing, command_results)
       local label = ({ user = 'You', assistant = 'Assistant', tool = 'Tool' })[message.role] or message.role
       if message.role == 'tool' then
         label = 'Tool: ' .. (message.name or tool_names[message.tool_call_id] or message.tool_call_id or '')
+      end
+      if message.role == 'user' then
+        table.insert(lines, '---')
+        table.insert(lines, '')
       end
       table.insert(lines, '## ' .. label)
       local content = message.content
@@ -320,8 +324,10 @@ function M.render(messages, status, provider, model, billing, command_results)
   chat_lines = vim.deepcopy(lines)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   table.insert(lines, '')
-  table.insert(lines, '## Message')
-  table.insert(lines, '')
+  if can_send ~= false then
+    table.insert(lines, '## Message')
+    table.insert(lines, '')
+  end
   local cursor, draft_row
   if valid(transcript_win) then
     cursor = vim.api.nvim_win_get_cursor(transcript_win)

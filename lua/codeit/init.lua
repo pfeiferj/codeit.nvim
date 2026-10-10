@@ -167,7 +167,7 @@ local function render()
     displayed = vim.list_extend({}, messages)
     displayed[#displayed + 1] = { role = 'assistant', content = stream_preview }
   end
-  ui.render(displayed, status, config.provider, model(), billing, command_results)
+  ui.render(displayed, status, config.provider, model(), billing, command_results, not busy)
 end
 
 local function usage_number(value)
