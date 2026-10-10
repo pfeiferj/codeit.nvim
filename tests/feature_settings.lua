@@ -155,7 +155,7 @@ assert(table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0,
 local picker = require('codeit.settings_picker')
 local steps, inputs, applied = {}, {}, nil
 vim.ui.input = function(_, callback) callback(table.remove(inputs, 1)) end
-vim.ui.select = function(items, _, callback)
+require('codeit.settings_menu').select = function(items, _, callback)
   local wanted = table.remove(steps, 1)
   for _, item in ipairs(items) do
     if (type(item) == 'table' and (item.slug or item.id or item.value or item.label) or item) == wanted then
@@ -166,7 +166,7 @@ vim.ui.select = function(items, _, callback)
 end
 steps = { 'compaction', 'provider', 'copilot', 'api_host', 'api.business.githubcopilot.com',
   'model', 'picked-model', 'back', 'session' }
-inputs = { '' }
+inputs = {}
 picker.show(base, function(values) applied = values end)
 assert(searches[#searches].provider == 'copilot')
 assert(searches[#searches].options.api_host == 'api.business.githubcopilot.com')
@@ -174,7 +174,7 @@ assert(applied.feature_settings.compaction.model == 'picked-model')
 assert(base.feature_settings.compaction.model == 'compact-model')
 steps = { 'tool_review', 'model', 'picked-model', 'preferred_provider', 'upstream',
   'effort', 'xhigh', 'service_tier', '', 'back', 'workspace' }
-inputs = { '' }
+inputs = {}
 picker.show(applied, function(values) applied = values end)
 assert(endpoints[#endpoints] == 'picked-model', 'upstream lookup must use the feature model')
 assert(applied.feature_settings.tool_review.options.effort == 'xhigh')
@@ -192,7 +192,7 @@ picker.show(applied, function(values) applied = values end)
 assert(applied.feature_settings.tool_review.options == nil)
 -- A stale callback inside a feature submenu must not mutate/apply a draft.
 local held, live, did_apply = nil, true, false
-vim.ui.select = function(_, _, callback) held = callback end
+require('codeit.settings_menu').select = function(_, _, callback) held = callback end
 picker.show(base, function() did_apply = true end, function() return live end)
 held({ id = 'compaction' })
 held({ id = 'provider' })

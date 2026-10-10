@@ -242,7 +242,7 @@ assert(vim.deep_equal(plugin.get_settings().model_presets, presets), 'saved pres
 local picker = require('codeit.settings_picker')
 local steps, inputs, applied, scope = {}, {}, nil, nil
 vim.ui.input = function(_, callback) callback(table.remove(inputs, 1)) end
-vim.ui.select = function(items, _, callback)
+require('codeit.settings_menu').select = function(items, _, callback)
   local wanted = table.remove(steps, 1)
   for _, item in ipairs(items) do
     if (type(item) == 'table' and (item.slug or item.id or item.value or item.label) or item) == wanted then
@@ -258,7 +258,7 @@ local function pick(current)
 end
 steps = { 'preset_fast', 'provider', 'copilot', 'model', 'picked-model', 'api_host', '',
   'back', 'tool_review', 'preset', 'fast', 'back', 'workspace' }
-inputs = { '' }
+inputs = {}
 pick(base)
 assert(scope == 'workspace' and applied.model_presets.fast.model == 'picked-model')
 assert(searches[#searches].provider == 'copilot' and searches[#searches].options.api_host == options.copilot.api_host)
@@ -289,7 +289,7 @@ pick(applied)
 assert(applied.feature_settings.tool_review == nil and applied.model_presets.fast == nil)
 -- Cancel after draft edits without applying; a stale async model callback is ignored.
 local held, did_apply = nil, false
-vim.ui.select = function(_, _, callback) held = callback end
+require('codeit.settings_menu').select = function(_, _, callback) held = callback end
 picker.show(base, function() did_apply = true end)
 held({ id = 'preset_fast' })
 held({ id = 'reset' })

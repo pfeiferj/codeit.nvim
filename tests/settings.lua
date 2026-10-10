@@ -106,12 +106,12 @@ assert(picker.search(models, 'ALPHA coder')[1].id == 'vendor/alpha')
 assert(picker.search(models, 'reasoning')[1].id == 'vendor/beta')
 assert(#picker.search(models, 'missing') == 0)
 
--- Drive the actual settings menu, including search and scoped apply.
+-- Drive settings actions, including model browsing and scoped apply.
 local steps = { 'model', 'vendor/beta', 'preferred_provider', 'anthropic', 'effort', 'high', 'service_tier', 'flex', 'workspace' }
-local inputs = { 'beta' }
+local inputs = {}
 local applied, scope
 vim.ui.input = function(_, callback) callback(table.remove(inputs, 1)) end
-vim.ui.select = function(items, _, callback)
+require('codeit.settings_menu').select = function(items, _, callback)
   local wanted = table.remove(steps, 1)
   for _, item in ipairs(items) do
     if (type(item) == 'table' and (item.slug or item.id) or item) == wanted then return callback(item) end
@@ -122,7 +122,7 @@ picker.show(baseline, function(values, selected_scope) applied, scope = values, 
 assert(scope == 'workspace' and applied.models.openrouter == 'vendor/beta')
 assert(applied.request_options.openrouter.preferred_provider == 'anthropic')
 assert(applied.request_options.openrouter.effort == 'high' and applied.request_options.openrouter.service_tier == 'flex')
-steps, inputs = { 'model', 'vendor/alpha', 'session' }, { 'alpha' }
+steps, inputs = { 'model', 'vendor/alpha', 'session' }, {}
 picker.show(applied, function(values) applied = values end)
 assert(applied.models.openrouter == 'vendor/alpha')
 steps, inputs = { 'manual', 'session' }, { ' vendor/beta ' }
@@ -160,7 +160,7 @@ assert(upstream_choice('manual') == 'unlisted-provider', 'empty catalogs still a
 -- Copilot host selection is part of the draft and applies to model searches.
 local copilot_draft = vim.deepcopy(baseline)
 copilot_draft.provider = 'copilot'
-steps, inputs = { 'api_host', 'api.business.githubcopilot.com', 'model', 'gpt-4o', 'global' }, { '' }
+steps, inputs = { 'api_host', 'api.business.githubcopilot.com', 'model', 'gpt-4o', 'global' }, {}
 picker.show(copilot_draft, function(values, selected_scope) applied, scope = values, selected_scope end)
 assert(scope == 'global' and applied.request_options.copilot.api_host == 'api.business.githubcopilot.com')
 assert(copilot_draft.request_options.copilot == nil, 'host selection must not mutate active settings')
@@ -227,11 +227,11 @@ assert(history.load(workspace, copilot_id).messages[2].content == 'Copilot task'
 
 -- Cancelling and stale UI callbacks never apply a draft.
 local did_apply = false
-vim.ui.select = function(_, _, callback) callback(nil) end
+require('codeit.settings_menu').select = function(_, _, callback) callback(nil) end
 picker.show(baseline, function() did_apply = true end)
 assert(not did_apply)
 local held
-vim.ui.select = function(_, _, callback) held = callback end
+require('codeit.settings_menu').select = function(_, _, callback) held = callback end
 local live = true
 picker.show(baseline, function() did_apply = true end, function() return live end)
 live = false
