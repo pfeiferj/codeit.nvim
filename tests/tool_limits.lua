@@ -87,6 +87,16 @@ for _, limit in ipairs({ 0, 1 }) do
   assert(#requests == count, 'the turn must remain busy while prompting')
   if limit == 0 then choose(nil) else choose('stop') end
   assert(#executed == before_limit, 'declined calls must not execute')
+  local logged = {}
+  for _, line in ipairs(vim.fn.readfile(vim.fn.stdpath('state') .. '/codeit/tool-errors.jsonl')) do
+    local entry = vim.json.decode(line)
+    if entry.tool_call_id then logged[entry.tool_call_id] = entry end
+  end
+  for i = 1, 2 do
+    local entry = assert(logged['blocked' .. i], 'declined calls must be logged')
+    assert(entry.raw_arguments == '{"path":"README.md"}' and entry.arguments.path == 'README.md')
+    assert(entry.error:match('^Error: Tool call limit reached'))
+  end
   assert(#callbacks == 1 and #requests[#requests].specs == 0,
     'declining must request one tool-free final response')
   local rejected = requests[#requests].messages

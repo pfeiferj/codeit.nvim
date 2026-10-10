@@ -33,7 +33,9 @@ local file = vim.api.nvim_get_current_buf()
 vim.api.nvim_buf_set_name(file, vim.fn.getcwd() .. '/test.lua')
 vim.api.nvim_buf_set_lines(file, 0, -1, false, { 'before', 'second' })
 local plugin = require('codeit')
-plugin.setup({ provider = 'openrouter', secondary_models = { openrouter = 'review-model' } })
+plugin.setup({ provider = 'openrouter', model_presets = {
+  fast = { model = 'review-model' }, reasoning = { model = 'review-model' },
+} })
 plugin.open()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
 plugin.send('Show me the buffer')
@@ -118,10 +120,10 @@ selections = { 'review', 'reject' }
 questions = { 'What will happen?', 'Do not run it' }
 tool_reply('run_command', { argv = { 'echo', 'test' } })
 assert(#requests[#requests].specs == 0, 'reviewer must not receive tools')
-assert(requests[#requests].config.model == 'review-model', 'tool assessments use the secondary model')
+assert(requests[#requests].config.model == 'review-model', 'tool assessments use the fast preset')
 reply({ role = 'assistant', content = '{"summary":"Prints test.","safe":true}' })
 assert(#requests[#requests].specs == 0, 'follow-up reviewer must not receive tools')
-assert(requests[#requests].config.model == 'review-model', 'interactive reviewer uses the secondary model')
+assert(requests[#requests].config.model == 'review-model', 'interactive reviewer uses the reasoning preset')
 reply({ role = 'assistant', content = 'It prints test.' },
   { cost = 0.000321, prompt_tokens = 40, completion_tokens = 10 })
 reviewer_back()

@@ -38,16 +38,16 @@ end
 
 function M.show(current, apply, live)
   local draft = vim.deepcopy(current)
-  draft.secondary_models = draft.secondary_models or {}
   draft.feature_settings = draft.feature_settings or {}
+  draft.model_presets = draft.model_presets or {}
   local function valid() return not live or live() end
   local menu
-  local function choose_model(secondary, feature, back)
+  local function choose_model(feature, back, preset)
     back = back or menu
-    local selected = feature and settings.feature_config(draft, feature) or {
+    local selected = feature and (preset and settings.preset_config(draft, feature)
+      or settings.feature_config(draft, feature)) or {
       provider = draft.provider, options = draft.request_options[draft.provider],
     }
-    local models_setting = secondary and draft.secondary_models or draft.models
     vim.notify('codeit: loading ' .. selected.provider .. ' models…')
     providers.models(selected.provider, function(models, err)
       if not valid() then return end
@@ -63,15 +63,17 @@ function M.show(current, apply, live)
             return search()
           end
           vim.ui.select(matches, {
-            prompt = selected.provider .. (secondary and ' secondary' or '') .. ' models (' .. #matches .. ' matches)',
+            prompt = selected.provider .. ' models (' .. #matches .. ' matches)',
             format_item = function(item)
               return item.id .. (item.name and ' — ' .. item.name or '')
             end,
           }, function(item)
             if not valid() then return end
             if item then
-              if feature then draft.feature_settings[feature].model = item.id
-              else models_setting[selected.provider] = item.id end
+              if feature then
+                local entries = preset and draft.model_presets or draft.feature_settings
+                entries[feature].model = item.id
+              else draft.models[selected.provider] = item.id end
               return back()
             end
             search()
@@ -116,13 +118,15 @@ function M.show(current, apply, live)
       end)
     end)
   end
-  local function feature_menu(name)
+  local function override_menu(name, preset)
     if not valid() then return end
-    local feature = draft.feature_settings[name] or {}
-    local selected = settings.feature_config(draft, name)
-    local function back() feature_menu(name) end
+    local entries = preset and draft.model_presets or draft.feature_settings
+    local feature = entries[name] or {}
+    local selected = preset and settings.preset_config(draft, name) or settings.feature_config(draft, name)
+    local title = preset and ('Preset: ' .. settings.preset_labels[name]) or settings.feature_labels[name]
+    local function back() override_menu(name, preset) end
     local function store()
-      draft.feature_settings[name] = feature
+      entries[name] = feature
       feature.options = feature.options or {}
       return feature.options
     end
@@ -137,6 +141,12 @@ function M.show(current, apply, live)
       { id = 'manual', label = 'Enter model ID manually' },
       { id = 'model_clear', label = 'Use inherited model' },
     }
+    if not preset then
+      local assigned = settings.feature_preset(draft, name)
+      table.insert(items, 1, { id = 'preset', label = 'Preset: '
+        .. (settings.preset_labels[assigned] or '(main settings only)')
+        .. (feature.preset == nil and ' (default)' or '') })
+    end
     if selected.provider == 'openrouter' then
       for _, entry in ipairs({ { 'preferred_provider', 'Preferred upstream provider' },
         { 'service_tier', 'Service tier' }, { 'effort', 'Reasoning effort' } }) do
@@ -147,26 +157,42 @@ function M.show(current, apply, live)
     end
     vim.list_extend(items, {
       { id = 'options_clear', label = 'Inherit all request options' },
-      { id = 'reset', label = 'Reset this feature to inherited settings' },
+      { id = 'reset', label = preset and 'Reset preset to main chat settings' or 'Reset feature to its default preset' },
       { id = 'back', label = 'Back to settings' },
     })
-    vim.ui.select(items, { prompt = settings.feature_labels[name],
+    vim.ui.select(items, { prompt = title,
       format_item = function(item) return item.label end }, function(item)
       if not valid() then return end
       if not item or item.id == 'back' then return menu() end
       local id = item.id
-      if id == 'provider' then
-        vim.ui.select({ '', 'openrouter', 'copilot' }, { prompt = 'Feature backend',
-          format_item = function(value) return value == '' and '(inherit main backend)' or value end }, function(value)
+      if id == 'preset' then
+        local choices = {
+          { id = 'default', label = 'Default (' .. settings.preset_labels[settings.feature_presets[name]] .. ')' },
+          { id = '', label = 'Main settings only (no preset)' },
+        }
+        for _, value in ipairs(settings.presets) do
+          choices[#choices + 1] = { id = value, label = settings.preset_labels[value] }
+        end
+        vim.ui.select(choices, { prompt = 'Feature preset', format_item = function(choice) return choice.label end }, function(choice)
+          if not valid() then return end
+          if choice then
+            store()
+            feature.preset = choice.id ~= 'default' and choice.id or nil
+          end
+          back()
+        end)
+      elseif id == 'provider' then
+        vim.ui.select({ '', 'openrouter', 'copilot' }, { prompt = title .. ' backend',
+          format_item = function(value) return value == '' and '(inherit backend)' or value end }, function(value)
           if not valid() then return end
           if value ~= nil then store(); feature.provider = value end
           back()
         end)
       elseif id == 'model' then
         store()
-        choose_model(false, name, back)
+        choose_model(name, back, preset)
       elseif id == 'manual' then
-        vim.ui.input({ prompt = 'Feature model ID (blank = inherit): ', default = feature.model or '' }, function(value)
+        vim.ui.input({ prompt = title .. ' model ID (blank = inherit): ', default = feature.model or '' }, function(value)
           if not valid() then return end
           if value ~= nil then store(); feature.model = vim.trim(value) end
           back()
@@ -174,7 +200,7 @@ function M.show(current, apply, live)
       elseif id == 'model_clear' then
         store(); feature.model = nil; back()
       elseif id == 'reset' then
-        draft.feature_settings[name] = nil; back()
+        entries[name] = nil; back()
       elseif id == 'options_clear' then
         store(); feature.options = nil; back()
       elseif id == 'preferred_provider' then
@@ -197,20 +223,21 @@ function M.show(current, apply, live)
   menu = function()
     if not valid() then return end
     local options = draft.request_options[draft.provider] or {}
-    local secondary_model = draft.secondary_models[draft.provider]
     local items = {
       { id = 'provider', label = 'Backend: ' .. draft.provider },
       { id = 'model', label = 'Search models: ' .. draft.models[draft.provider] },
       { id = 'manual', label = 'Enter model ID manually' },
-      { id = 'secondary_model', label = 'Search fallback secondary models (legacy): '
-        .. (secondary_model and secondary_model ~= '' and secondary_model or '(main model)') },
-      { id = 'secondary_manual', label = 'Enter fallback secondary model ID manually' },
-      { id = 'secondary_clear', label = 'Use main model as feature fallback' },
     }
+    for _, name in ipairs(settings.presets) do
+      local selected = settings.preset_config(draft, name)
+      items[#items + 1] = { id = 'preset_' .. name, label = 'Preset ' .. settings.preset_labels[name] .. ': '
+        .. selected.provider .. ' / ' .. selected.model }
+    end
     for _, name in ipairs(settings.features) do
       local selected = settings.feature_config(draft, name)
-      items[#items + 1] = { id = name, label = settings.feature_labels[name] .. ': '
-        .. selected.provider .. ' / ' .. selected.model }
+      local assigned = settings.feature_preset(draft, name)
+      items[#items + 1] = { id = name, label = settings.feature_labels[name] .. ' ['
+        .. (settings.preset_labels[assigned] or 'main') .. ']: ' .. selected.provider .. ' / ' .. selected.model }
     end
     if draft.provider == 'openrouter' then
       vim.list_extend(items, {
@@ -237,24 +264,20 @@ function M.show(current, apply, live)
           if provider then draft.provider = provider end
           menu()
         end)
-      elseif id == 'model' or id == 'secondary_model' then
-        choose_model(id == 'secondary_model')
-      elseif id == 'secondary_clear' then
-        draft.secondary_models[draft.provider] = ''
-        menu()
+      elseif id == 'model' then
+        choose_model()
       elseif vim.tbl_contains(settings.features, id) then
-        feature_menu(id)
+        override_menu(id)
+      elseif id:sub(1, 7) == 'preset_' and vim.tbl_contains(settings.presets, id:sub(8)) then
+        override_menu(id:sub(8), true)
       elseif id == 'preferred_provider' then
         draft.request_options.openrouter = options
         choose_upstream(options)
-      elseif id == 'manual' or id == 'secondary_manual' then
-        local secondary = id == 'secondary_manual'
-        local models_setting = secondary and draft.secondary_models or draft.models
-        vim.ui.input({ prompt = secondary and 'Secondary model ID (blank = main model): ' or 'Model ID: ',
-          default = models_setting[draft.provider] or '' }, function(value)
+      elseif id == 'manual' then
+        vim.ui.input({ prompt = 'Model ID: ', default = draft.models[draft.provider] }, function(value)
           if not valid() then return end
-          if value ~= nil and (secondary or vim.trim(value) ~= '') then
-            models_setting[draft.provider] = vim.trim(value)
+          if value ~= nil and vim.trim(value) ~= '' then
+            draft.models[draft.provider] = vim.trim(value)
           end
           menu()
         end)

@@ -211,23 +211,23 @@ assert(requests[#requests].config.provider == 'openrouter')
 assert(requests[#requests].config.model == 'saved-openrouter-model')
 responses[#responses]({ role = 'assistant', content = 'Completed the old Copilot task.' })
 
--- Secondary changes must not share an in-flight summary request to a different model.
+-- Preset changes must not share an in-flight summary request to a different model.
 assert(history.save(workspace, 'old-copilot', old_copilot, { clear_summary = true }))
 local values = plugin.get_settings()
-values.secondary_models.openrouter = 'secondary-one'
+values.model_presets.fast = { model = 'summary-one' }
 assert(plugin.configure(values))
-local before_secondary = #requests
+local before_preset = #requests
 plugin.history()
-assert(requests[#requests].config.model == 'secondary-one')
-local first_secondary = responses[#responses]
-values.secondary_models.openrouter = 'secondary-two'
+assert(requests[#requests].config.model == 'summary-one')
+local first_preset = responses[#responses]
+values.model_presets.fast.model = 'summary-two'
 assert(plugin.configure(values))
 plugin.history()
-assert(#requests == before_secondary + 2 and requests[#requests].config.model == 'secondary-two')
-first_secondary({ role = 'assistant', content = 'Completed the old Copilot task.' })
+assert(#requests == before_preset + 2 and requests[#requests].config.model == 'summary-two')
+first_preset({ role = 'assistant', content = 'Completed the old Copilot task.' })
 responses[#responses]({ role = 'assistant', content = 'Completed the old Copilot task.' })
-assert(history.load(workspace, 'old-copilot').secondary_models == nil,
-  'history summaries must not overwrite saved secondary settings')
+assert(history.load(workspace, 'old-copilot').model_presets == nil,
+  'history summaries must not overwrite saved presets')
 
 -- Older histories still resume, and malformed display data cannot break rendering.
 assert(vim.deep_equal(history.load(workspace, 'old-copilot').command_results, {}))

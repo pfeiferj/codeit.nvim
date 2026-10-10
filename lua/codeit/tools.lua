@@ -2,6 +2,7 @@ local M = {}
 local agent_tools = require('codeit.agent_tools')
 local approval = require('codeit.approval')
 local file_buffer = require('codeit.file_buffer')
+local tool_log = require('codeit.tool_log')
 
 local gated = { edit_file = true, edit_loaded_buffer = true, edit_source_buffer = true,
   create_file = true, save_buffer = true, save_loaded_buffer = true, save_source_buffer = true,
@@ -136,10 +137,12 @@ end
 --- Execute a tool and call done(result_string, optional_cancel_signal).
 function M.execute(name, args, source, done, active, context)
   local completed, callback = false, done
-  done = function(...)
+  local entry = context and context.tool_log_entry or tool_log.start(name, args)
+  done = function(result, signal)
     if completed or active and not active() then return end
     completed = true
-    callback(...)
+    tool_log.finish(entry, result, signal)
+    callback(result, signal)
   end
   local function safe(action)
     return function(...)

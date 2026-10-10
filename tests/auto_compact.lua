@@ -13,7 +13,6 @@ package.loaded['codeit.providers'] = {
 }
 local plugin = require('codeit')
 plugin.setup({ system_prompt = 'system', max_context_tokens = 400,
-  secondary_models = { openrouter = 'legacy-model' },
   feature_settings = { compaction = { provider = 'copilot', model = 'compact-model',
     options = { api_host = 'api.business.githubcopilot.com' } } } })
 local user = string.rep('u', 180)
@@ -114,7 +113,7 @@ local metadata_callbacks = {}
 provider.context_limit = function(config, callback)
   metadata_callbacks[#metadata_callbacks + 1] = { model = config.model, callback = callback }
 end
-plugin.setup({ system_prompt = 'system', secondary_models = { openrouter = 'compact-model' } })
+plugin.setup({ system_prompt = 'system', model_presets = { long_context = { model = 'compact-model' } } })
 local before = #requests
 plugin.send(user .. '1')
 assert(#requests == before and #metadata_callbacks == 1)

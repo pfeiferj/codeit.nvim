@@ -32,6 +32,7 @@ until not offset
 assert(#all == 260 and all[260] == name)
 local system = vim.system
 vim.system = function(_, _, callback)
+  if not callback then return { wait = function() return { code = 1 } end } end
   vim.schedule(function() callback({ code = 2, stdout = '', stderr = '' }) end)
   return { kill = function() end }
 end

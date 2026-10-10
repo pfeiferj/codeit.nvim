@@ -3,24 +3,18 @@ M.tiers = { '', 'default', 'flex', 'priority', 'fast', 'ultrafast' }
 M.efforts = { '', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh' }
 M.copilot_hosts = { '', 'api.githubcopilot.com', 'api.business.githubcopilot.com' }
 M.features = { 'tool_assessment', 'tool_review', 'context_review', 'history_summary', 'compaction' }
+M.presets = { 'fast', 'long_context', 'reasoning' }
+M.preset_labels = { fast = 'fast', long_context = 'long context', reasoning = 'reasoning' }
+M.feature_presets = {
+  tool_assessment = 'fast', tool_review = 'reasoning', context_review = 'long_context',
+  history_summary = 'fast', compaction = 'long_context',
+}
 M.feature_labels = {
   tool_assessment = 'Tool safety assessments', tool_review = 'Interactive tool reviews',
   context_review = 'Background context review', history_summary = 'History summaries', compaction = 'Compaction',
 }
 M.option_providers = { preferred_provider = 'openrouter', service_tier = 'openrouter',
   effort = 'openrouter', api_host = 'copilot' }
-
-function M.validate_secondary_models(models)
-  if type(models) ~= 'table' then return false, 'invalid secondary models' end
-  for provider, model in pairs(models) do
-    if not vim.tbl_contains({ 'openrouter', 'copilot' }, provider)
-      or type(model) ~= 'string' or model:find('%c')
-      or (model ~= '' and vim.trim(model) == '') then
-      return false, 'secondary model IDs must be strings keyed by provider (blank = main model)'
-    end
-  end
-  return true
-end
 
 function M.validate(settings)
   if type(settings) ~= 'table' or not vim.tbl_contains({ 'openrouter', 'copilot' }, settings.provider)
@@ -30,10 +24,7 @@ function M.validate(settings)
       return false, 'model IDs must be nonempty strings'
     end
   end
-  if settings.secondary_models ~= nil then
-    local ok, err = M.validate_secondary_models(settings.secondary_models)
-    if not ok then return false, err end
-  end
+
   local options = settings.request_options
   if type(options) ~= 'table' then return false, 'invalid request options' end
   for provider, values in pairs(options) do
@@ -59,28 +50,34 @@ function M.validate(settings)
     local ok, err = M.validate_feature_settings(settings.feature_settings)
     if not ok then return false, err end
   end
+  if settings.model_presets ~= nil then
+    local ok, err = M.validate_model_presets(settings.model_presets)
+    if not ok then return false, err end
+  end
   return true
 end
 
-function M.validate_feature_settings(features)
-  if type(features) ~= 'table' then return false, 'invalid feature settings' end
-  for name, feature in pairs(features) do
-    if not vim.tbl_contains(M.features, name) or type(feature) ~= 'table' then
-      return false, 'invalid feature: ' .. tostring(name)
+local function validate_overrides(entries, names, label, allow_preset)
+  if type(entries) ~= 'table' then return false, 'invalid ' .. label .. ' settings' end
+  for name, entry in pairs(entries) do
+    if not vim.tbl_contains(names, name) or type(entry) ~= 'table' then
+      return false, 'invalid ' .. label .. ': ' .. tostring(name)
     end
-    for key, value in pairs(feature) do
-      if key == 'provider' then
-        if not vim.tbl_contains({ '', 'openrouter', 'copilot' }, value) then return false, 'invalid feature provider' end
+    for key, value in pairs(entry) do
+      if key == 'preset' and allow_preset then
+        if value ~= '' and not vim.tbl_contains(M.presets, value) then return false, 'invalid feature preset' end
+      elseif key == 'provider' then
+        if not vim.tbl_contains({ '', 'openrouter', 'copilot' }, value) then return false, 'invalid ' .. label .. ' provider' end
       elseif key == 'model' then
         if type(value) ~= 'string' or value:find('%c') or (value ~= '' and vim.trim(value) == '') then
-          return false, 'invalid feature model ID'
+          return false, 'invalid ' .. label .. ' model ID'
         end
       elseif key == 'options' then
-        if type(value) ~= 'table' then return false, 'invalid feature request options' end
+        if type(value) ~= 'table' then return false, 'invalid ' .. label .. ' request options' end
         local options = {}
         for option, setting in pairs(value) do
           local provider = M.option_providers[option]
-          if not provider then return false, 'unknown feature request option: ' .. tostring(option) end
+          if not provider then return false, 'unknown ' .. label .. ' request option: ' .. tostring(option) end
           options[provider] = options[provider] or {}
           options[provider][option] = setting
         end
@@ -88,28 +85,54 @@ function M.validate_feature_settings(features)
           models = { openrouter = 'validation', copilot = 'validation' }, request_options = options })
         if not ok then return false, err end
       else
-        return false, 'unknown feature setting: ' .. tostring(key)
+        return false, 'unknown ' .. label .. ' setting: ' .. tostring(key)
       end
     end
   end
   return true
 end
 
--- Resolve against the selected backend's defaults, never another feature's overrides.
-function M.feature_config(settings, name, main_model)
+function M.validate_feature_settings(features)
+  return validate_overrides(features, M.features, 'feature', true)
+end
+
+function M.validate_model_presets(presets)
+  return validate_overrides(presets, M.presets, 'preset', false)
+end
+
+function M.feature_preset(settings, name)
   local feature = (settings.feature_settings or {})[name] or {}
-  local provider = feature.provider
-  if not provider or provider == '' then provider = settings.provider end
-  local model = feature.model
-  if not model or model == '' then model = (settings.secondary_models or {})[provider] end
-  if not model or model == '' then
-    model = provider == settings.provider and main_model or settings.models[provider]
-  end
+  if feature.preset ~= nil then return feature.preset end
+  return M.feature_presets[name]
+end
+
+local function chosen(value)
+  return value ~= nil and value ~= ''
+end
+
+-- Always start with the resolved backend's main settings, not another preset/feature.
+local function resolve_config(settings, preset, feature, main_model)
+  local provider = chosen(feature.provider) and feature.provider
+    or (chosen(preset.provider) and preset.provider or settings.provider)
+  local model = chosen(feature.model) and feature.model or (chosen(preset.model) and preset.model)
+  if not model then model = provider == settings.provider and main_model or settings.models[provider] end
   local options = vim.deepcopy(settings.request_options[provider] or {})
-  for key, value in pairs(feature.options or {}) do
-    if M.option_providers[key] == provider then options[key] = value end
+  for _, overrides in ipairs({ preset, feature }) do
+    for key, value in pairs(overrides.options or {}) do
+      if M.option_providers[key] == provider then options[key] = value end
+    end
   end
   return { provider = provider, model = model or settings.models[provider], options = options }
+end
+
+function M.preset_config(settings, name, main_model)
+  return resolve_config(settings, (settings.model_presets or {})[name] or {}, {}, main_model)
+end
+
+function M.feature_config(settings, name, main_model)
+  local feature = (settings.feature_settings or {})[name] or {}
+  local preset = (settings.model_presets or {})[M.feature_preset(settings, name)] or {}
+  return resolve_config(settings, preset, feature, main_model)
 end
 
 local function filename()
@@ -140,10 +163,13 @@ function M.resolve(base, workspace)
       local ok, message = M.validate(saved)
       if ok then
         -- Legacy snapshots keep optional settings from the lower-precedence snapshot.
-        local secondary_models, feature_settings = result.secondary_models, result.feature_settings
-        result = vim.deepcopy(saved)
-        if result.secondary_models == nil then result.secondary_models = vim.deepcopy(secondary_models or {}) end
-        if result.feature_settings == nil then result.feature_settings = vim.deepcopy(feature_settings or {}) end
+        local previous = result
+        result = { provider = saved.provider, models = vim.deepcopy(saved.models),
+          request_options = vim.deepcopy(saved.request_options),
+          feature_settings = vim.deepcopy(saved.feature_settings), model_presets = vim.deepcopy(saved.model_presets) }
+        for _, key in ipairs({ 'feature_settings', 'model_presets' }) do
+          if result[key] == nil then result[key] = vim.deepcopy(previous[key] or {}) end
+        end
       else vim.notify('codeit: ignoring saved settings: ' .. message, vim.log.levels.WARN) end
     end
   end

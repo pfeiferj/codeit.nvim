@@ -16,8 +16,8 @@ local M = {}
 local defaults = {
   provider = 'openrouter',
   models = { openrouter = 'openai/gpt-4o-mini', copilot = 'gpt-4o' },
-  secondary_models = {}, -- legacy per-provider fallback for features without a model override
-  feature_settings = {}, -- per-feature backend, model, and request-option overrides
+  model_presets = {}, -- fast, long_context, reasoning; unset fields inherit main chat settings
+  feature_settings = {}, -- preset selection plus per-feature overrides
   request_options = {},
   system_prompt = [[You are a coding assistant operating inside Neovim. Help with the user's request, keep changes focused, and explain relevant trade-offs.
 
@@ -28,12 +28,12 @@ Use available tools to make changes and, when practical, verify them with releva
 Concisely report what changed, what you verified, and any remaining caveats.]],
   approval = { validators = {} },
   max_tool_rounds = 12,
-  context_review = true, -- prune completed turns asynchronously with the secondary model
+  context_review = true, -- prune completed turns asynchronously with the context_review feature model
   -- max_context_tokens = nil, -- detect from the provider; number overrides, false disables
 }
 local config = vim.deepcopy(defaults)
 local base_settings = { provider = config.provider, models = vim.deepcopy(config.models),
-  secondary_models = vim.deepcopy(config.secondary_models),
+  model_presets = vim.deepcopy(config.model_presets),
   feature_settings = vim.deepcopy(config.feature_settings), request_options = {} }
 local messages, command_results = {}, {}
 local session_prompt
@@ -65,7 +65,7 @@ end
 local function apply_settings(values)
   config.provider = values.provider
   config.models = vim.deepcopy(values.models)
-  config.secondary_models = vim.deepcopy(values.secondary_models or config.secondary_models or {})
+  config.model_presets = vim.deepcopy(values.model_presets or config.model_presets or {})
   config.feature_settings = vim.deepcopy(values.feature_settings or config.feature_settings or {})
   config.request_options = vim.deepcopy(values.request_options)
 end
@@ -77,7 +77,7 @@ local function save(clear_summary)
     provider = config.provider, model = model(), messages = messages,
     command_results = command_results,
     request_options = config.request_options,
-    secondary_models = config.secondary_models,
+    model_presets = config.model_presets,
     feature_settings = config.feature_settings,
     updated_at = seconds + microseconds / 1000000, cost = cost, missing_cost = missing_cost,
     tokens_in = tokens_in, tokens_out = tokens_out, missing_in = missing_in,
@@ -556,6 +556,14 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
         seen[call.id] = true
       end
     end
+    local tool_log = require('codeit.tool_log')
+    local tool_log_entries = {}
+    for index, call in ipairs(type(calls) == 'table' and calls or {}) do
+      local fn = call['function']
+      local decoded, arguments = pcall(vim.json.decode, fn.arguments or '{}')
+      tool_log_entries[index] = tool_log.start(fn.name, decoded and arguments or nil, fn.arguments)
+      tool_log_entries[index].tool_call_id = call.id
+    end
     -- Hold this response while the user decides, before retaining or executing
     -- any calls. Reuse it on approval rather than asking the provider again.
     local function process()
@@ -675,6 +683,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
           next_call(index + 1)
         end, function() return id == generation and workspace == history.workspace() end, {
           user_request = user_request,
+          tool_log_entry = tool_log_entries[index],
           review = review,
           assessment = assessments[index],
           prepare = prepare,
@@ -695,9 +704,10 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
         -- remain valid, then allow one tool-free final response.
         table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls,
           _copilot_reasoning = message._copilot_reasoning })
-        for _, call in ipairs(calls) do
-          table.insert(messages, { role = 'tool', tool_call_id = call.id,
-            content = 'Error: Tool call limit reached. The user declined additional tool rounds. This call was not executed; finish without tools.' })
+        for index, call in ipairs(calls) do
+          local result = 'Error: Tool call limit reached. The user declined additional tool rounds. This call was not executed; finish without tools.'
+          tool_log.finish(tool_log_entries[index], result)
+          table.insert(messages, { role = 'tool', tool_call_id = call.id, content = result })
         end
         save()
         render()
@@ -845,7 +855,7 @@ end
 function M.get_settings()
   sync_workspace()
   local values = { provider = config.provider, models = vim.deepcopy(config.models),
-    secondary_models = vim.deepcopy(config.secondary_models),
+    model_presets = vim.deepcopy(config.model_presets),
     feature_settings = vim.deepcopy(config.feature_settings),
     request_options = vim.deepcopy(config.request_options) }
   values.models[config.provider] = model()
@@ -858,7 +868,7 @@ function M.configure(values, scope)
   local ok, err = settings.validate(values)
   if not ok then return false, err end
   values = vim.deepcopy(values)
-  if values.secondary_models == nil then values.secondary_models = vim.deepcopy(config.secondary_models) end
+  if values.model_presets == nil then values.model_presets = vim.deepcopy(config.model_presets) end
   if values.feature_settings == nil then values.feature_settings = vim.deepcopy(config.feature_settings) end
   scope = scope or 'session'
   if not vim.tbl_contains({ 'session', 'global', 'workspace' }, scope) then return false, 'invalid settings scope' end
@@ -901,8 +911,8 @@ function M.resume(id)
   busy = false
   chat_id, chat_model = id, chat.model
   config.provider = chat.provider
-  if chat.secondary_models and settings.validate_secondary_models(chat.secondary_models) then
-    config.secondary_models = vim.deepcopy(chat.secondary_models)
+  if chat.model_presets and settings.validate_model_presets(chat.model_presets) then
+    config.model_presets = vim.deepcopy(chat.model_presets)
   end
   if chat.feature_settings and settings.validate_feature_settings(chat.feature_settings) then
     config.feature_settings = vim.deepcopy(chat.feature_settings)
@@ -1076,17 +1086,17 @@ function M.setup(opts)
     error('codeit: provider must be openrouter or copilot')
   end
   local valid, settings_err = settings.validate({ provider = config.provider, models = config.models,
-    secondary_models = config.secondary_models, feature_settings = config.feature_settings,
-    request_options = config.request_options })
+    feature_settings = config.feature_settings,
+    model_presets = config.model_presets, request_options = config.request_options })
   if not valid then error('codeit: ' .. settings_err) end
   base_settings = { provider = config.provider, models = vim.deepcopy(config.models),
-    secondary_models = vim.deepcopy(config.secondary_models),
+    model_presets = vim.deepcopy(config.model_presets),
     feature_settings = vim.deepcopy(config.feature_settings),
     request_options = vim.deepcopy(config.request_options) }
   apply_settings(settings.resolve(base_settings, history.workspace()))
   M.new()
   vim.api.nvim_create_user_command('CodeitSettings', M.settings,
-    { desc = 'Manage main/feature models, request options, and saved settings', force = true })
+    { desc = 'Manage main/feature models, presets, request options, and saved settings', force = true })
   vim.api.nvim_create_user_command('Codeit', M.toggle, { desc = 'Toggle codeit chat', force = true })
   vim.api.nvim_create_user_command('CodeitSend', function(args)
     M.open()

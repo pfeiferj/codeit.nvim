@@ -37,27 +37,22 @@ local settings_path = vim.fn.stdpath('data') .. '/codeit/settings.json'
 vim.fn.delete(settings_path)
 plugin.setup({ max_context_tokens = false })
 local baseline = plugin.get_settings()
-assert(vim.deep_equal(baseline.secondary_models, {}), 'secondary models default to main model fallback')
 local global = vim.deepcopy(baseline)
 global.models.openrouter = 'global-model'
-global.secondary_models = { openrouter = 'global-secondary', copilot = 'copilot-secondary' }
 global.request_options.openrouter = { preferred_provider = 'openai', service_tier = 'priority', effort = 'high' }
 global.request_options.copilot = { api_host = 'api.business.githubcopilot.com' }
 assert(plugin.configure(global, 'global'))
 assert(vim.fn.getfperm(settings_path) == 'rw-------')
 plugin.setup({ max_context_tokens = false })
 assert(plugin.get_settings().models.openrouter == 'global-model', 'global settings override setup')
-assert(plugin.get_settings().secondary_models.openrouter == 'global-secondary')
 assert(plugin.get_settings().request_options.copilot.api_host == 'api.business.githubcopilot.com')
 local local_settings = vim.deepcopy(global)
 local_settings.models.openrouter = 'workspace-model'
-local_settings.secondary_models.openrouter = 'workspace-secondary'
 local_settings.request_options.openrouter = { preferred_provider = '', service_tier = '', effort = '' }
 local_settings.request_options.copilot = { api_host = '' }
 assert(plugin.configure(local_settings, 'workspace'))
 plugin.setup({ max_context_tokens = false })
 assert(plugin.get_settings().models.openrouter == 'workspace-model', 'workspace overrides global')
-assert(plugin.get_settings().secondary_models.openrouter == 'workspace-secondary')
 assert(plugin.get_settings().request_options.openrouter.effort == '', 'cleared values override global options')
 assert(plugin.get_settings().request_options.copilot.api_host == '', 'workspace can restore the standard host')
 vim.fn.chdir(temp .. '/two')
@@ -69,19 +64,14 @@ assert(not plugin.configure(local_settings), 'busy chats cannot change settings'
 callbacks[#callbacks]({ role = 'assistant', content = 'Answer' })
 local saved_id = history.list(history.workspace())[1].id
 assert(history.load(history.workspace(), saved_id).request_options.openrouter.effort == 'high')
-assert(history.load(history.workspace(), saved_id).secondary_models.openrouter == 'global-secondary')
 plugin.compact()
 assert(requests[#requests].config.options.service_tier == 'priority', 'compaction uses options')
-assert(requests[#requests].config.model == 'global-secondary', 'compaction uses the secondary model')
+assert(requests[#requests].config.model == 'global-model', 'compaction inherits the main model')
 callbacks[#callbacks]({ role = 'assistant', content = 'Context summary' })
 plugin.history()
 assert(requests[#requests].config.options.preferred_provider == 'openai', 'history uses options')
-assert(requests[#requests].config.model == 'global-secondary', 'history uses the secondary model')
+assert(requests[#requests].config.model == 'global-model', 'history inherits the main model')
 callbacks[#callbacks]({ role = 'assistant', content = 'History summary' })
-local legacy_update = plugin.get_settings()
-legacy_update.secondary_models = nil
-assert(plugin.configure(legacy_update, 'global'))
-assert(plugin.get_settings().secondary_models.openrouter == 'global-secondary', 'legacy configure calls preserve secondary models')
 local session = vim.deepcopy(global)
 session.models.openrouter = 'session-model'
 assert(plugin.configure(session))
@@ -108,12 +98,6 @@ for _, bad in ipairs({ { api_host = 'attacker.example' }, { api_host = false },
   assert(not plugin.configure(invalid), 'invalid Copilot options must be rejected')
 end
 assert(not pcall(plugin.setup, { request_options = { copilot = { api_host = 'attacker.example' } } }))
-for _, bad in ipairs({ 'bad', { openrouter = false }, { copilot = '   ' }, { other = 'model' }, { openrouter = 'bad\nmodel' } }) do
-  invalid = vim.deepcopy(global)
-  invalid.secondary_models = bad
-  assert(not plugin.configure(invalid), 'invalid secondary settings must be rejected')
-end
-assert(not pcall(plugin.setup, { secondary_models = { openrouter = false } }), 'setup validates secondary models')
 plugin.setup({ max_context_tokens = false })
 
 local models = { { id = 'vendor/alpha', name = 'Alpha coder' }, { id = 'vendor/beta', description = 'Reasoning model' } }
@@ -138,18 +122,15 @@ picker.show(baseline, function(values, selected_scope) applied, scope = values, 
 assert(scope == 'workspace' and applied.models.openrouter == 'vendor/beta')
 assert(applied.request_options.openrouter.preferred_provider == 'anthropic')
 assert(applied.request_options.openrouter.effort == 'high' and applied.request_options.openrouter.service_tier == 'flex')
-steps, inputs = { 'secondary_model', 'vendor/alpha', 'session' }, { 'alpha' }
+steps, inputs = { 'model', 'vendor/alpha', 'session' }, { 'alpha' }
 picker.show(applied, function(values) applied = values end)
-assert(applied.models.openrouter == 'vendor/beta' and applied.secondary_models.openrouter == 'vendor/alpha')
-steps, inputs = { 'secondary_manual', 'session' }, { ' custom-secondary ' }
+assert(applied.models.openrouter == 'vendor/alpha')
+steps, inputs = { 'manual', 'session' }, { ' vendor/beta ' }
 picker.show(applied, function(values) applied = values end)
-assert(applied.secondary_models.openrouter == 'custom-secondary')
-steps = { 'secondary_clear', 'session' }
+assert(applied.models.openrouter == 'vendor/beta')
+steps, inputs = { 'manual', 'session' }, { '' }
 picker.show(applied, function(values) applied = values end)
-assert(applied.secondary_models.openrouter == '', 'clear switches back to main model')
-steps, inputs = { 'secondary_manual', 'session' }, { '' }
-picker.show(applied, function(values) applied = values end)
-assert(applied.secondary_models.openrouter == '', 'blank manual input selects main model fallback')
+assert(applied.models.openrouter == 'vendor/beta', 'blank manual input preserves the main model')
 assert(baseline.models.openrouter ~= 'vendor/beta', 'draft edits must not mutate active settings')
 assert(vim.api.nvim_get_commands({}).CodeitSettings)
 assert(select(1, require('codeit.slash_commands').parse('/settings')).command == 'CodeitSettings')
@@ -176,11 +157,10 @@ endpoint_error, endpoint_catalog = nil, {}
 inputs = { 'unlisted-provider' }
 assert(upstream_choice('manual') == 'unlisted-provider', 'empty catalogs still allow manual input')
 
--- Copilot host selection is part of the draft and applies to main/secondary model searches.
+-- Copilot host selection is part of the draft and applies to model searches.
 local copilot_draft = vim.deepcopy(baseline)
 copilot_draft.provider = 'copilot'
-steps, inputs = { 'api_host', 'api.business.githubcopilot.com', 'model', 'gpt-4o',
-  'secondary_model', 'gpt-4o', 'global' }, { '', '' }
+steps, inputs = { 'api_host', 'api.business.githubcopilot.com', 'model', 'gpt-4o', 'global' }, { '' }
 picker.show(copilot_draft, function(values, selected_scope) applied, scope = values, selected_scope end)
 assert(scope == 'global' and applied.request_options.copilot.api_host == 'api.business.githubcopilot.com')
 assert(copilot_draft.request_options.copilot == nil, 'host selection must not mutate active settings')
@@ -201,23 +181,23 @@ assert(plugin.get_settings().request_options.openrouter.effort == 'low')
 plugin.send('Same conversation')
 assert(requests[#requests].messages[2].content == 'Keep this chat')
 callbacks[#callbacks]({ role = 'assistant', content = 'Continued' })
-local secondary_only = plugin.get_settings()
-secondary_only.secondary_models.openrouter = 'changed-secondary'
-assert(plugin.configure(secondary_only))
-assert(history.load(workspace, current_id).secondary_models.openrouter == 'changed-secondary')
-plugin.send('Secondary change preserves chat')
+local preset_only = plugin.get_settings()
+preset_only.model_presets.long_context = { model = 'changed-compact' }
+assert(plugin.configure(preset_only))
+assert(history.load(workspace, current_id).model_presets.long_context.model == 'changed-compact')
+plugin.send('Preset change preserves chat')
 assert(requests[#requests].config.model == 'workspace-model')
-assert(requests[#requests].messages[2].content == 'Keep this chat', 'secondary-only changes preserve the conversation')
+assert(requests[#requests].messages[2].content == 'Keep this chat', 'preset-only changes preserve the conversation')
 callbacks[#callbacks]({ role = 'assistant', content = 'Still here' })
 plugin.new()
 assert(plugin.configure(local_settings))
 assert(plugin.resume(current_id))
-assert(plugin.get_settings().secondary_models.openrouter == 'changed-secondary', 'resume restores secondary models')
-secondary_only = plugin.get_settings()
-secondary_only.secondary_models.openrouter = ''
-assert(plugin.configure(secondary_only))
+assert(plugin.get_settings().model_presets.long_context.model == 'changed-compact', 'resume restores presets')
+preset_only = plugin.get_settings()
+preset_only.model_presets.long_context.model = ''
+assert(plugin.configure(preset_only))
 plugin.compact()
-assert(requests[#requests].config.model == 'workspace-model', 'blank secondary model falls back to main model')
+assert(requests[#requests].config.model == 'workspace-model', 'blank preset model falls back to main model')
 callbacks[#callbacks]({ role = 'assistant', content = 'Fallback summary' })
 plugin.set_provider('copilot')
 local copilot_settings = plugin.get_settings()
@@ -228,8 +208,8 @@ assert(requests[#requests].config.options.api_host == 'api.business.githubcopilo
 assert(requests[#requests].config.model == 'gpt-4o')
 callbacks[#callbacks]({ role = 'assistant', content = 'Copilot answer' })
 plugin.compact()
-assert(requests[#requests].config.provider == 'copilot' and requests[#requests].config.model == 'copilot-secondary')
-assert(requests[#requests].config.options.api_host == 'api.business.githubcopilot.com', 'secondary requests use the host')
+assert(requests[#requests].config.provider == 'copilot' and requests[#requests].config.model == 'gpt-4o')
+assert(requests[#requests].config.options.api_host == 'api.business.githubcopilot.com', 'feature requests use the host')
 callbacks[#callbacks]({ role = 'assistant', content = 'Copilot summary' })
 local copilot_id = history.list(workspace)[1].id
 assert(history.load(workspace, copilot_id).request_options.copilot.api_host == 'api.business.githubcopilot.com')
@@ -258,27 +238,27 @@ live = false
 held({ id = 'global' })
 assert(not did_apply)
 
--- Older chats retain current secondary defaults; malformed optional data is ignored.
+-- Older chats retain current preset defaults; malformed optional data is ignored.
 local old_chat = history.load(workspace, current_id)
-old_chat.secondary_models = nil
+old_chat.model_presets = nil
 assert(history.save(workspace, 'legacy-chat', old_chat))
 assert(plugin.resume('legacy-chat'))
-assert(plugin.get_settings().secondary_models.copilot == 'copilot-secondary')
-old_chat.secondary_models = { openrouter = false }
-assert(history.save(workspace, 'bad-secondary', old_chat))
-assert(plugin.resume('bad-secondary'))
-assert(plugin.get_settings().secondary_models.copilot == 'copilot-secondary')
+assert(plugin.get_settings().model_presets.long_context.model == '')
+old_chat.model_presets = { long_context = { model = false } }
+assert(history.save(workspace, 'bad-preset', old_chat))
+assert(plugin.resume('bad-preset'))
+assert(plugin.get_settings().model_presets.long_context.model == '')
 
 -- Legacy snapshots inherit new setup defaults; explicit empty maps clear them.
 local legacy = vim.deepcopy(global)
-legacy.secondary_models = nil
+legacy.model_presets = nil
 assert(settings.save(legacy, 'global', workspace))
 local base = vim.deepcopy(baseline)
-base.secondary_models = { openrouter = 'setup-secondary' }
-assert(settings.resolve(base, temp .. '/two').secondary_models.openrouter == 'setup-secondary')
-legacy.secondary_models = {}
+base.model_presets = { fast = { model = 'setup-fast' } }
+assert(settings.resolve(base, temp .. '/two').model_presets.fast.model == 'setup-fast')
+legacy.model_presets = {}
 assert(settings.save(legacy, 'global', workspace))
-assert(vim.deep_equal(settings.resolve(base, temp .. '/two').secondary_models, {}))
+assert(vim.deep_equal(settings.resolve(base, temp .. '/two').model_presets, {}))
 
 -- Invalid persisted JSON must not be overwritten or crash startup.
 vim.fn.writefile({ 'not json' }, settings_path)

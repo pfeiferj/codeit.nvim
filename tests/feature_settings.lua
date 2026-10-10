@@ -39,12 +39,9 @@ for _, name in ipairs(settings.features) do
   assert(result.model == features[name].model)
 end
 local inherited = vim.deepcopy(base)
-inherited.secondary_models = { openrouter = 'legacy', copilot = 'legacy-copilot' }
 inherited.feature_settings = { compaction = { options = { service_tier = '', effort = '' } } }
 local resolved = settings.feature_config(inherited, 'compaction', 'resumed-main')
-assert(resolved.model == 'legacy' and resolved.options.service_tier == '' and resolved.options.effort == '')
-inherited.secondary_models = {}
-assert(settings.feature_config(inherited, 'compaction', 'resumed-main').model == 'resumed-main')
+assert(resolved.model == 'resumed-main' and resolved.options.service_tier == '' and resolved.options.effort == '')
 inherited.feature_settings.compaction.provider = 'copilot'
 inherited.feature_settings.compaction.options.api_host = 'api.business.githubcopilot.com'
 resolved = settings.feature_config(inherited, 'compaction', 'resumed-main')

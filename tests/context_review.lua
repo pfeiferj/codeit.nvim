@@ -81,7 +81,7 @@ tools.execute = function(name, _, _, callback)
 end
 local plugin = require('codeit')
 plugin.setup({ system_prompt = 'system', max_context_tokens = false,
-  secondary_models = { openrouter = 'review-model' }, request_options = { openrouter = { effort = 'low' } } })
+  model_presets = { long_context = { model = 'review-model' } }, request_options = { openrouter = { effort = 'low' } } })
 local workspace = history.workspace()
 local function flush(expected)
   assert(vim.wait(1000, function() return #requests >= expected end, 10), 'background review was not scheduled')
