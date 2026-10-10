@@ -2,6 +2,8 @@ local M = {}
 local current
 local history = require('codeit.history')
 local costs = require('codeit.cost_tools')
+local usage_format = require('codeit.usage_format')
+local table_popup = require('codeit.table_popup')
 
 function M.show(config, workspace)
   if current then current(); return end
@@ -23,26 +25,28 @@ function M.show(config, workspace)
     vim.list_extend(header, { '# Cost review', '', costs.note, '',
       'Snapshot: ' .. snapshot_at .. '. Reopen to refresh. Scope: ' .. (scope or 'all saved workspaces'),
       'd: days · w: workspaces · g: days/workspaces · s: scope · n/p: pages · q/Esc: close', '',
-      string.format('**Saved total: $%.6f%s · %d chats · In: %.0f%s · Out: %.0f%s**',
-        result.totals.cost, result.totals.missing_cost > 0 and '+' or '', result.totals.chats,
-        result.totals.tokens_in, result.totals.missing_in and '+' or '',
-        result.totals.tokens_out, result.totals.missing_out and '+' or ''),
-      string.format('Missing cost reports: %d. + means incomplete usage.', result.totals.missing_cost), '',
-      '| Group | Chats | USD | Input tokens | Output tokens |', '| --- | ---: | ---: | ---: | ---: |' })
+      string.format('**Saved total: %s · %d chats · In: %s%s · Out: %s%s**',
+        usage_format.cost(result.totals.cost, result.totals.missing_cost > 0), result.totals.chats,
+        usage_format.tokens(result.totals.tokens_in), result.totals.missing_in and '+' or '',
+        usage_format.tokens(result.totals.tokens_out), result.totals.missing_out and '+' or ''),
+      string.format('Missing cost reports: %d. + means incomplete usage.', result.totals.missing_cost), '' })
+    local rows = { { 'Group', 'Chats', 'USD', 'Input tokens', 'Output tokens' } }
     for _, group in ipairs(result.groups) do
       local label = table.concat(vim.tbl_filter(function(v) return v ~= '' end, { group.day or '', group.workspace or '' }), ' / ')
-      label = label:gsub('[\r\n]', ' '):gsub('|', '\\|')
-      header[#header + 1] = string.format('| %s | %d | $%.6f%s | %.0f%s | %.0f%s |',
-        label, group.chats, group.cost, group.missing_cost > 0 and '+' or '', group.tokens_in,
-        group.missing_in and '+' or '', group.tokens_out, group.missing_out and '+' or '')
+      label = label:gsub('[\r\n]', ' ')
+      rows[#rows + 1] = { label, tostring(group.chats), usage_format.cost(group.cost, group.missing_cost > 0),
+        usage_format.tokens(group.tokens_in) .. (group.missing_in and '+' or ''),
+        usage_format.tokens(group.tokens_out) .. (group.missing_out and '+' or '') }
     end
+    local table_lines = table_popup.format({ rows = rows, alignment = { 'left', 'right', 'right', 'right', 'right' } })
+    vim.list_extend(header, table_lines)
     if result.total_entries == 0 then header[#header + 1] = 'No saved chats in this scope.' end
     header[#header + 1] = string.format('Groups %d–%d of %d', math.min(offset + 1, result.total_entries),
       math.min(offset + #result.groups, result.total_entries), result.total_entries)
     vim.list_extend(header, { '', '## Ask about costs', '',
       'Questions send requested history to ' .. config.provider .. ' / ' .. config.model .. '. Ctrl-S / normal Enter: send.', '' })
     chat.render(messages, waiting and 'Reviewing costs…' or 'Ready', config.provider, config.model,
-      string.format('This review: $%.6f%s', session.cost, session.missing_cost > 0 and '+' or ''), nil, not waiting)
+      'This review: ' .. usage_format.cost(session.cost, session.missing_cost > 0), nil, not waiting)
     return result
   end
   local function persist()

@@ -146,16 +146,14 @@ local function sync_workspace()
   status = 'Ready (new workspace)'
 end
 
-local function format_tokens(count, scale, suffix)
-  local value = string.format('%.3f', count / scale):gsub('0+$', ''):gsub('%.$', '')
-  return value .. suffix
-end
+local usage_format = require('codeit.usage_format')
+local format_tokens = usage_format.tokens
 
 local function render()
   local billing
   if config.provider == 'openrouter' or config.provider == 'copilot' or cost > 0 or missing_cost > 0 then
-    billing = string.format('Cost: $%.3f%s | In: %s%s | Out: %s%s | Context: %s',
-      cost, missing_cost > 0 and '+' or '', format_tokens(tokens_in, 1000000, 'm'), missing_in and '+' or '',
+    billing = string.format('Cost: %s | In: %s%s | Out: %s%s | Context: %s',
+      usage_format.cost(cost, missing_cost > 0), format_tokens(tokens_in, 1000000, 'm'), missing_in and '+' or '',
       format_tokens(tokens_out, 1000000, 'm'), missing_out and '+' or '',
       context_tokens and (context_estimated and '~' or '') .. format_tokens(context_tokens, 1000, 'k') or '—')
   end

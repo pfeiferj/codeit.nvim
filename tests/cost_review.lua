@@ -5,11 +5,19 @@ local original_stdpath = vim.fn.stdpath
 vim.fn.stdpath = function(kind) return kind == 'data' and temp or original_stdpath(kind) end
 local history = require('codeit.history')
 local costs = require('codeit.cost_tools')
+local usage_format = require('codeit.usage_format')
+assert(usage_format.cost(1.2346) == '$1.235')
+assert(usage_format.cost(0, true) == '$0.000+')
+assert(usage_format.tokens(0) == '0m')
+assert(usage_format.tokens(1234567) == '1.235m')
+assert(usage_format.tokens(120000) == '0.12m')
+assert(usage_format.tokens(12345, 1000, 'k') == '12.345k')
 local workspace, other = '/test/project', '/test/other'
 local function stamp(day) return os.time({ year = 2026, month = 6, day = day, hour = 12 }) end
 local function save(ws, id, day, amount, missing)
   assert(history.save(ws, id, { provider = 'openrouter', model = 'test-model', updated_at = stamp(day),
-    cost = amount, missing_cost = missing, tokens_in = 100, tokens_out = 10,
+    cost = amount, missing_cost = missing, tokens_in = 1234567, tokens_out = 120000,
+    missing_in = missing > 0, missing_out = missing > 0,
     messages = { { role = 'user', content = 'Investigate expensive tests' },
       { role = 'assistant', content = 'Read the logs',
         _copilot_reasoning = { { summary = { { text = 'private-secret' } } } },
@@ -29,7 +37,7 @@ local function execute(name, args)
 end
 local result = execute('get_costs')
 assert(result.totals.chats == 3 and result.totals.cost == 3.75 and result.totals.missing_cost == 1)
-assert(result.totals.tokens_in == 300 and #result.groups == 2)
+assert(result.totals.tokens_in == 3703701 and #result.groups == 2)
 assert(result.groups[1].day == '2026-06-02' and result.groups[1].chats == 2)
 result = execute('get_costs', { group_by = 'workspace', workspace = workspace })
 assert(#result.groups == 1 and result.totals.cost == 1.25)
@@ -81,13 +89,26 @@ local function key(lhs)
   assert(mapping.callback, 'missing key: ' .. lhs)
   mapping.callback()
 end
-assert(text():find('Saved total: $3.750000+', 1, true) and #requests == 0)
+assert(text():find('Saved total: $3.750+ · 3 chats · In: 3.704m+ · Out: 0.36m+', 1, true) and #requests == 0)
+local function assert_table(rows)
+  local expected = require('codeit.table_popup').format({ rows = rows,
+    alignment = { 'left', 'right', 'right', 'right', 'right' } })
+  assert(text():find(table.concat(expected, '\n'), 1, true), 'cost table must use popup formatting')
+  for _, line in ipairs(expected) do
+    assert(vim.fn.strdisplaywidth(line) == vim.fn.strdisplaywidth(expected[1]))
+  end
+end
+assert_table({
+  { 'Group', 'Chats', 'USD', 'Input tokens', 'Output tokens' },
+  { '2026-06-02', '2', '$2.500+', '2.469m+', '0.24m+' },
+  { '2026-06-01', '1', '$1.250', '1.235m', '0.12m' },
+})
 key('w')
 assert(text():find(workspace, 1, true) and text():find(other, 1, true))
 key('s')
 assert(text():find('No saved chats in this scope.', 1, true))
 key('s')
-assert(text():find('Saved total: $3.750000+', 1, true))
+assert(text():find('Saved total: $3.750+', 1, true))
 local function ask(question)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   -- The draft is the final editable line in the shared chat UI.
@@ -104,7 +125,7 @@ pending({ role = 'assistant', tool_calls = { { id = 'costs', type = 'function',
 assert(#requests == 2 and requests[2].messages[#requests[2].messages].role == 'tool')
 pending({ role = 'assistant', content = 'One chat accounted for $2.50.' }, nil,
   { cost = 0.1, prompt_tokens = 30, completion_tokens = 10 })
-assert(text():find('One chat accounted', 1, true) and text():find('This review: $0.150000', 1, true))
+assert(text():find('One chat accounted', 1, true) and text():find('This review: $0.150', 1, true))
 local saved = history.list(history.workspace())
 assert(#saved == 1 and saved[1].kind == 'cost_review' and math.abs(saved[1].cost - 0.15) < 0.000001)
 ask('More details')
