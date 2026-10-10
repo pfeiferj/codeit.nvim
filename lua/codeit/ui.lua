@@ -407,6 +407,13 @@ function M.take_input()
   return text
 end
 
+local function tool_output_language(name, content)
+  if name == 'run_command' then return 'bash' end
+  if pcall(vim.json.decode, content) then return 'json' end
+  if name == 'git_diff' then return 'diff' end
+  return 'text'
+end
+
 function M.render(messages, status, provider, model, billing, command_results, can_send)
   require('codeit.assistant_pane').set_messages(messages)
   local active_expanded = expanded_folds(transcript_win)
@@ -464,7 +471,8 @@ function M.render(messages, status, provider, model, billing, command_results, c
       end
       if type(content) == 'string' and content ~= '' then
         if message.role == 'tool' then
-          local fenced = markdown.fence(content, 'text')
+          local name = message.name or tool_names[message.tool_call_id]
+          local fenced = markdown.fence(content, tool_output_language(name, content))
           local first = #lines + 1
           vim.list_extend(lines, fenced)
           tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = message,

@@ -222,10 +222,51 @@ ui.render({
   { role = 'tool', tool_call_id = 'unmatched', content = 'other' },
 }, 'Ready', 'copilot', 'model-b', nil)
 local transcript = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
-assert(transcript:find('**Tool: git_diff**\n\n```text\ndiff\n```', 1, true))
+assert(transcript:find('**Tool: git_diff**\n\n```diff\ndiff\n```', 1, true))
 assert(transcript:find('**Tool: read_file**\n\n```text\nfile\n```', 1, true))
 assert(transcript:find('**Tool: unmatched**\n\n```text\nother\n```', 1, true), 'unmatched results retain their ID')
 assert(not transcript:find('**Tool: call_hash_', 1, true), 'matched results should not show call hashes')
+
+local command_output = 'if true; then echo "$HOME"; fi'
+local json_output = '{"enabled": true}'
+ui.render({
+  { role = 'assistant', tool_calls = {
+    { id = 'command_call', ['function'] = { name = 'run_command', arguments = '{}' } },
+  } },
+  { role = 'tool', tool_call_id = 'command_call', content = command_output },
+  { role = 'tool', name = 'read_file', content = json_output },
+  { role = 'tool', name = 'list_buffers', content = '[]' },
+  { role = 'tool', name = 'custom_tool', content = { { type = 'text', text = json_output } } },
+  { role = 'tool', name = 'list_buffers', content = 'Error: unavailable' },
+  { role = 'tool', name = 'custom_tool', content = '{invalid json}' },
+  { role = 'tool', name = 'run_command', content = json_output },
+}, 'Ready', 'copilot', 'model-b', nil)
+local language_text = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
+for _, expected in ipairs({
+  '**Tool: run_command**\n\n```bash\n' .. command_output .. '\n```',
+  '**Tool: read_file**\n\n```json\n' .. json_output .. '\n```',
+  '**Tool: list_buffers**\n\n```json\n[]\n```',
+  '**Tool: custom_tool**\n\n```json\n' .. json_output .. '\n```',
+  '**Tool: list_buffers**\n\n```text\nError: unavailable\n```',
+  '**Tool: custom_tool**\n\n```text\n{invalid json}\n```',
+  '**Tool: run_command**\n\n```bash\n' .. json_output .. '\n```',
+}) do
+  assert(language_text:find(expected, 1, true), 'missing language-aware tool output: ' .. expected)
+end
+vim.wait(50, function() return false end)
+vim.api.nvim_win_call(win, function()
+  vim.cmd('syntax sync fromstart')
+  for row, line in ipairs(vim.api.nvim_buf_get_lines(chat, 0, -1, false)) do
+    if line == command_output then
+      assert(vim.fn.synIDattr(vim.fn.synID(row, 1, true), 'name'):match('^sh'),
+        'command output should use shell syntax highlighting')
+    elseif line == json_output and row > 1
+      and vim.api.nvim_buf_get_lines(chat, row - 2, row - 1, false)[1] == '```json' then
+      assert(vim.fn.synIDattr(vim.fn.synID(row, 2, true), 'name'):match('^json'),
+        'JSON tool output should use JSON syntax highlighting')
+    end
+  end
+end)
 
 -- Tool output is literal display data, even when it contains unclosed Markdown.
 local output = table.concat({
