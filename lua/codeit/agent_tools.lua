@@ -6,7 +6,8 @@ local edits = require('codeit.edits')
 local replacement_properties = {
   old_text = { type = 'string', minLength = 1, maxLength = 200000 },
   new_text = { type = 'string', maxLength = 200000 },
-  start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
+  start_line = { type = 'integer', minimum = 1, description = 'Optional paired range in the ORIGINAL revision. Omit both bounds when old_text is globally unique; do not count lines after earlier edits.' },
+  end_line = { type = 'integer', minimum = 1, description = 'Inclusive end of the optional original-revision range; requires start_line. Matches outside this range are never used.' },
 }
 
 local function spec(name, description, properties, required)
@@ -35,18 +36,18 @@ M.specs = {
   spec('search_workspace', 'Search workspace DISK text, not unsaved buffers, with ripgrep (literal, case-sensitive). Returns filenames/line numbers and exit status (1 means no matches). Respects gitignore; skips binary files, files over 1MB, and lines over 300 columns. Output limited to 20000 bytes.', {
     query = { type = 'string', description = 'Nonempty literal text, at most 500 bytes' },
     directory = { type = 'string', description = 'Optional existing workspace directory; default root' },
-    glob = { type = 'string', maxLength = 500, description = 'Optional filename/path glob, e.g. *.lua, src/*.lua or !*.lock; filtered after gitignore. Simple Vim glob syntax; braces unsupported.' },
+    glob = { type = 'string', maxLength = 500, description = 'Optional filename/path glob, e.g. *.lua, src/*.lua or !*.lock; omit or use an empty string for no filter. Filtered after gitignore. Simple Vim glob syntax; braces unsupported.' },
     context_lines = { type = 'integer', minimum = 0, maximum = 20, description = 'Surrounding lines per match (default 0, maximum 20)' },
   }, { 'query' }),
-  spec('read_file', 'Read a workspace file by path, including unsaved changes if loaded. Clean buffers refresh from disk. Lines are 1-based/inclusive. At most 200 lines/20000 encoded bytes, even with end_line. Returns path, buffer_id, total_lines, truncated, next_start_line, modified; continue at next_start_line. Ranges past EOF return available lines. For a loaded buffer ID or the source buffer, use read_loaded_buffer or read_source_buffer instead.', {
+  spec('read_file', 'Read a workspace file by path, including unsaved changes if loaded. Clean buffers refresh from disk. Lines are 1-based/inclusive. At most 200 lines/20000 encoded bytes, even with end_line. Returns path, buffer_id, lines (exact text), parallel line_numbers (original 1-based numbers), total_lines, truncated, next_start_line, modified; continue at next_start_line. Ranges past EOF return available lines. For a loaded buffer ID or the source buffer, use read_loaded_buffer or read_source_buffer instead.', {
     path = { type = 'string', minLength = 1, description = 'Workspace file path (required). Do not pass a buffer ID.' },
     start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }, { 'path' }),
-  spec('read_loaded_buffer', 'Read a loaded ordinary buffer by ID, including unnamed buffers and unsaved changes. Use read_file instead for a workspace path. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, total_lines, truncated, next_start_line, modified.', {
+  spec('read_loaded_buffer', 'Read a loaded ordinary buffer by ID, including unnamed buffers and unsaved changes. Use read_file instead for a workspace path. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, lines (exact text), parallel line_numbers (original 1-based numbers), total_lines, truncated, next_start_line, modified.', {
     buffer_id = { type = 'integer', minimum = 1, description = 'Loaded ordinary buffer ID (required). Do not pass a path.' },
     start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }, { 'buffer_id' }),
-  spec('read_source_buffer', 'Read the ordinary buffer active before the chat opened. No path or buffer ID needed. Includes unsaved changes. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, total_lines, truncated, next_start_line, modified.', {
+  spec('read_source_buffer', 'Read the ordinary buffer active before the chat opened. No path or buffer ID needed. Includes unsaved changes. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, lines (exact text), parallel line_numbers (original 1-based numbers), total_lines, truncated, next_start_line, modified.', {
     start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }),
   spec('edit_file', 'Edit a workspace file by path. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes. Use edit_loaded_buffer or edit_source_buffer for buffer targets.', edit_properties('path'), { 'path', 'edits' }),
@@ -75,7 +76,7 @@ M.specs = {
     staged = { type = 'boolean', description = 'Compare staged index instead of working tree (default false)' },
     base = { type = 'string', minLength = 1, maxLength = 200, description = 'Optional single commit revision, resolved safely before diffing' },
   }),
-  spec('fetch_url', 'Fetch an HTTP(S) URL after confirmation, including redirects. Can access local/private networks; not a public-network sandbox. Returns HTTP status, final URL, body (up to 20000 bytes), and explicit errors for non-2xx responses. curl required; timeout 15 seconds.', {
+  spec('fetch_url', 'Fetch an HTTP(S) URL after confirmation, including redirects. Can access local/private networks; not a public-network sandbox. Returns HTTP status, final URL, body (up to 20000 bytes, truncated for larger pages), and explicit errors for non-2xx or transfer failures. Downloads are rate-limited to 200KB/s with a 15-second timeout; only a bounded body prefix is retained in memory. curl required.', {
     url = { type = 'string' },
   }, { 'url' }),
 }
@@ -197,8 +198,8 @@ function M.execute(name, args, done, active, approve, reads, prepare, source)
     if vim.fn.executable('rg') ~= 1 then return done('Error: ripgrep is required') end
     local dir, dir_err = directory(args.directory, base)
     if not dir then return done('Error: ' .. dir_err) end
-    if args.glob and (args.glob == '' or args.glob == '!' or args.glob:find('%c') or args.glob:find('[{}]')) then
-      return done('Error: glob must be nonempty simple glob syntax without controls or braces')
+    if args.glob and (args.glob == '!' or args.glob:find('%c') or args.glob:find('[{}]')) then
+      return done('Error: glob must be simple glob syntax without controls or braces; omit or use an empty string for no filter')
     end
     -- Positive rg -g filters override gitignore. Filter the structured results
     -- instead so adding a glob never reveals ignored files.
@@ -431,27 +432,28 @@ if not buffers.valid(id) then return done('Error: saving requires an already-loa
     if type(args.url) ~= 'string' or not args.url:match('^https?://[^%s]+$') or args.url:find('%c')
       or #args.url > 4096 then return done('Error: expected HTTP(S) URL of at most 4096 bytes, without control characters') end
     return approve('Fetch ' .. args.url .. '? (May access local/private networks)', function()
-      -- A temporary body file keeps metadata separate and output memory bounded.
-      local body_path = vim.fn.tempname()
-      local fd, open_err = vim.uv.fs_open(body_path, 'wx', 384)
-      if not fd then return done('Error: could not create fetch body file: ' .. tostring(open_err)) end
-      vim.uv.fs_close(fd)
+      -- Stream the body separately from metadata; never buffer it all or write it
+      -- to disk. Rate + time limits bound transfer work without rejecting ordinary
+      -- documentation pages merely because their Content-Length exceeds 200KB.
+      local chunks, bytes, truncated = {}, 0, false
       runner.run({ 'curl', '--disable', '--silent', '--show-error', '--location', '--proto', '=http,https',
         '--proto-redir', '=http,https', '--max-redirs', '3', '--max-time', '15',
-        '--max-filesize', '200000', '--output', body_path,
-        '--write-out', '%{http_code}\n%{url_effective}', '--url', args.url }, base, function(result)
-        local status, url = (result.stdout or ''):match('^(%d%d%d)\n(.*)$')
-        local file = io.open(body_path, 'rb')
-        local body = file and file:read(20001) or ''
-        if file then file:close() end
-        vim.uv.fs_unlink(body_path)
+        '--limit-rate', '200K', '--output', '-',
+        '--write-out', '%{stderr}\nCODEIT_HTTP:%{http_code}\n%{url_effective}', '--url', args.url }, base, function(result)
+        local errors, status, url = (result.stderr or ''):match('^(.*)\nCODEIT_HTTP:(%d%d%d)\n(.*)$')
         local failed = result.code ~= 0 or not status or tonumber(status) < 200 or tonumber(status) >= 300
         done((failed and 'Error: URL fetch failed\n' or '') .. vim.json.encode({
-          http_status = tonumber(status), final_url = url, body = body:sub(1, 20000),
-          truncated = #body > 20000 or result.truncated, exit_code = result.code,
-          error = failed and (result.stderr ~= '' and result.stderr or 'HTTP ' .. tostring(status)) or nil,
+          http_status = tonumber(status), final_url = url, body = table.concat(chunks),
+          truncated = truncated, exit_code = result.code,
+          error = failed and (vim.trim(errors or result.stderr or '') ~= '' and vim.trim(errors or result.stderr)
+            or (result.timed_out and 'Transfer timed out' or 'HTTP ' .. tostring(status))) or nil,
         }))
-      end, active, { cleanup = function() vim.uv.fs_unlink(body_path) end })
+      end, active, { timeout_ms = 16000, on_stdout = function(chunk)
+        local remaining = math.max(0, 20000 - bytes)
+        if #chunk > remaining then truncated = true end
+        local prefix = chunk:sub(1, remaining)
+        if prefix ~= '' then chunks[#chunks + 1] = prefix; bytes = bytes + #prefix end
+      end })
     end)
   end
   done('Error: unknown tool ' .. tostring(name))

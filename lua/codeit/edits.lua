@@ -11,7 +11,16 @@ function M.apply(lines, edits)
     if start < 1 or last < start or last > #lines then return nil, 'invalid edit range for edit ' .. index end
     local region = table.concat(vim.list_slice(lines, start, last), '\n')
     local first = region:find(edit.old_text, 1, true)
-    if not first then return nil, 'old_text not found for edit ' .. index .. '; read the file again' end
+    if not first then
+      local hint = '; read the file again and use line numbers from the ORIGINAL revision'
+      local elsewhere = text:find(edit.old_text, 1, true)
+      if elsewhere and not text:find(edit.old_text, elsewhere + 1, true) then
+        local _, newlines = text:sub(1, elsewhere - 1):gsub('\n', '')
+        hint = hint .. '; old_text is globally unique at line ' .. (newlines + 1)
+          .. ', so you may omit both range bounds when reissuing the edit'
+      end
+      return nil, 'old_text not found for edit ' .. index .. ' in original lines ' .. start .. '-' .. last .. hint
+    end
     if region:find(edit.old_text, first + 1, true) then
       return nil, 'old_text is not unique for edit ' .. index .. '; add context or specify start_line and end_line'
     end

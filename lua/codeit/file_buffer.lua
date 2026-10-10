@@ -74,18 +74,18 @@ function M.read(id, start, last)
   local count = vim.api.nvim_buf_line_count(id)
   local requested = math.min(last or count, count)
   last = math.min(requested, start + 199)
-  local lines, bytes = {}, 2
+  local lines, line_numbers, bytes = {}, {}, 4
   for row = start, last do
     local line = vim.api.nvim_buf_get_lines(id, row - 1, row, false)[1]
-    local size = #vim.json.encode(line) + 1
+    local size = #vim.json.encode(line) + #tostring(row) + 2
     if bytes + size > 20000 then
       if #lines == 0 then return nil, 'Line exceeds 20000 encoded bytes; use an approved command to inspect it in chunks' end
       break
     end
-    lines[#lines + 1], bytes = line, bytes + size
+    lines[#lines + 1], line_numbers[#line_numbers + 1], bytes = line, row, bytes + size
   end
   local ending = start + #lines - 1
-  return { start_line = start, end_line = ending, lines = lines, total_lines = count,
+  return { start_line = start, end_line = ending, lines = lines, line_numbers = line_numbers, total_lines = count,
     truncated = ending < requested,
     next_start_line = ending < count and ending + 1 or nil,
     modified = vim.bo[id].modified }

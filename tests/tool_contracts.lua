@@ -132,15 +132,26 @@ tools.configure({})
 vim.system = function(argv, opts, cb)
   assert(argv[2] == '--disable')
   assert(vim.tbl_contains(argv, '--proto-redir'))
-  local output, status
+  assert(not vim.tbl_contains(argv, '--max-filesize'))
+  assert(vim.tbl_contains(argv, '--limit-rate'))
+  local output, status, timeout
   for i, arg in ipairs(argv) do
     if arg == '--output' then output = argv[i + 1] end
-    if arg == '--url' then status = argv[i + 1]:find('404', 1, true) and '404' or '200' end
+    if arg == '--url' then
+      status = argv[i + 1]:find('404', 1, true) and '404' or '200'
+      timeout = argv[i + 1]:find('timeout', 1, true)
+    end
   end
-  vim.fn.writefile({ status == '404' and 'Not Found' or string.rep('x', 25000) }, output)
+  assert(output == '-')
   vim.schedule(function()
-    opts.stdout(nil, status .. '\nhttp://127.0.0.1/final')
-    cb({ code = 0 })
+    if status == '404' then opts.stdout(nil, 'Not Found')
+    else
+      -- Multiple chunks, exceeding the former 200KB transfer cap.
+      for _ = 1, 30 do opts.stdout(nil, string.rep('x', 10000)) end
+    end
+    opts.stderr(nil, (timeout and 'curl: (28) Operation timed out' or '')
+      .. '\nCODEIT_HTTP:' .. status .. '\nhttp://127.0.0.1/final')
+    cb({ code = timeout and 28 or 0 })
   end)
   return { kill = function() end }
 end
@@ -150,6 +161,11 @@ has(failed, '"http_status":404')
 has(failed, 'http://127.0.0.1/final')
 local fetched = vim.json.decode(run('fetch_url', { url = 'http://127.0.0.1/ok' }))
 assert(fetched.http_status == 200 and fetched.truncated and #fetched.body == 20000)
+local timeout = run('fetch_url', { url = 'http://127.0.0.1/timeout' })
+has(timeout, 'Error: URL fetch failed')
+has(timeout, 'Operation timed out')
+local partial = vim.json.decode(timeout:match('\n(.*)$'))
+assert(partial.http_status == 200 and partial.truncated and #partial.body == 20000 and partial.exit_code == 28)
 vim.system = system
 vim.cmd.cd(root)
 vim.fn.delete(dir, 'rf')

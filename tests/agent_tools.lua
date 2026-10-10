@@ -36,8 +36,10 @@ has(run('create_file', { path = 'sub/demo.txt', content = 'alpha\nbeta\n' }), 'C
 has(run('create_file', { path = 'sub/demo.txt', content = '' }), 'already exists')
 local read = vim.json.decode(run('read_file', { path = 'sub/demo.txt' }))
 assert(read.lines[1] == 'alpha' and read.lines[2] == 'beta')
+assert(vim.deep_equal(read.line_numbers, { 1, 2 }))
 local many = {}
-for i = 1, 260 do many[i] = string.format('%03d %s', i, string.rep('x', 90)) end
+-- Leave room for both encoded text and the parallel line-number array.
+for i = 1, 260 do many[i] = string.format('%03d %s', i, string.rep('x', 80)) end
 vim.fn.writefile(many, 'sub/large.txt')
 local full = vim.json.decode(run('read_file', { path = 'sub/large.txt' }))
 assert(#full.lines == 200 and full.end_line == 200 and full.truncated and full.total_lines == 260
@@ -47,6 +49,7 @@ assert(#rest.lines == 60 and rest.lines[60] == many[260] and not rest.truncated)
 local extended = vim.json.decode(run('read_file', { path = 'sub/large.txt', start_line = 250, end_line = 500 }))
 assert(#extended.lines == 11 and extended.lines[1] == many[250] and extended.end_line == 260
   and not extended.truncated, 'end_line past EOF should return available lines')
+assert(extended.line_numbers[1] == 250 and extended.line_numbers[11] == 260)
 local beyond = vim.json.decode(run('read_file', { path = 'sub/large.txt', start_line = 300, end_line = 500 }))
 assert(#beyond.lines == 0 and beyond.end_line == 299 and not beyond.truncated)
 has(run('read_file', { path = 'sub/large.txt', start_line = 5, end_line = 4 }), 'invalid range')
@@ -65,6 +68,13 @@ has(run('edit_file', { path = 'sub/demo.txt', edits = { { old_text = 'gamma', ne
 assert(preview.before == 'gamma\nbeta' and preview.after == 'delta\nbeta')
 vim.bo[edited].endofline = true
 has(run('edit_file', { path = 'sub/demo.txt', edits = { { old_text = 'missing', new_text = 'x' } } }), 'not found')
+local mismatch = run('edit_file', { path = 'sub/demo.txt', edits = {
+  { old_text = 'gamma', new_text = 'wrong', start_line = 2, end_line = 2 },
+} })
+has(mismatch, 'in original lines 2-2')
+has(mismatch, 'globally unique at line 1')
+has(mismatch, 'omit both range bounds')
+assert(vim.api.nvim_buf_get_lines(edited, 0, 1, false)[1] == 'gamma', 'must not match outside explicit ranges')
 vim.fn.writefile({ 'old', 'keep' }, 'sub/clean.txt')
 local clean = vim.fn.bufadd(dir .. '/sub/clean.txt')
 vim.fn.bufload(clean)
@@ -92,7 +102,12 @@ assert(vim.fn.readfile('sub/clean.txt')[1] == 'new' and vim.bo[clean].modified,
 vim.bo[clean].readonly = false
 local list = vim.json.decode(run('list_workspace_files', { query = 'demo' }))
 assert(vim.tbl_contains(list.files, 'sub/demo.txt') and not list.truncated)
-has(run('search_workspace', { query = 'alpha' }), 'sub/demo.txt:1:alpha')
+local search = run('search_workspace', { query = 'alpha' })
+has(search, 'sub/demo.txt:1:alpha')
+assert(run('search_workspace', { query = 'alpha', glob = '' }) == search)
+for _, glob in ipairs({ '!', '{*.txt,*.lua}', '*\n*' }) do
+  has(run('search_workspace', { query = 'alpha', glob = glob }), 'Error: glob')
+end
 local id = vim.fn.bufnr(dir .. '/sub/demo.txt')
 local namespace = vim.api.nvim_create_namespace('codeit-test')
 vim.diagnostic.set(namespace, id, { { lnum = 0, col = 1, message = 'example warning', severity = vim.diagnostic.severity.WARN } })

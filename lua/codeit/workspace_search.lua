@@ -3,7 +3,7 @@ local M = {}
 function M.run(argv, base, args, done, active)
   local runner = require('codeit.process')
   local pending, chunks, bytes, truncated, matches_returned, omitted = '', {}, 0, false, 0, false
-  local glob = args.glob
+  local glob = args.glob ~= '' and args.glob or nil
   local exclude = glob and glob:sub(1, 1) == '!'
   if exclude then glob = glob:sub(2) end
   local pattern = glob and vim.fn.glob2regpat(glob)
