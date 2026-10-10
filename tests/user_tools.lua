@@ -12,7 +12,7 @@ plugin.setup({ max_context_tokens = false })
 local prompt = require('codeit.approval_prompt')
 prompt.show = function(_, _, cb) cb('once') end
 local pending
-vim.ui.input = function(_, cb) pending = cb end
+require('codeit.question_prompt').show = function(_, _, cb) pending = cb end
 local function tool(name, args)
   table.remove(callbacks, 1)({ role = 'assistant', tool_calls = { {
     id = name, type = 'function', ['function'] = { name = name, arguments = vim.json.encode(args) },

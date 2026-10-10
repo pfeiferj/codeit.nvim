@@ -28,7 +28,7 @@ M.specs = {
 M.specs[#M.specs + 1] = {
   type = 'function', ['function'] = {
     name = 'ask_user',
-    description = 'Pause for a necessary clarification. Ask only when inspecting the project cannot resolve it. Optional choices (up to 10) plus free-text answer. Dismissal cancels the task; never treat this answer as approval to write or save.',
+    description = 'Pause for a necessary clarification, displayed in a near-full-screen popup. Questions may contain multiple lines. Ask only when inspecting the project cannot resolve it. Optional choices (up to 10) plus a multiline free-text answer. Dismissal cancels the task; never treat this answer as approval to write or save.',
     parameters = { type = 'object', properties = {
       question = { type = 'string', minLength = 1, maxLength = 2000 },
       choices = { type = 'array', maxItems = 10, items = { type = 'string', minLength = 1, maxLength = 200 } },
@@ -123,7 +123,9 @@ function M.validate(name, args)
         if total > 200000 then return 'replacement text must total at most 200KB' end
       end
       if name == 'ask_user' then
-        if vim.trim(args.question) == '' or args.question:find('%c') then return 'question must be nonempty single-line text' end
+        if vim.trim(args.question) == '' or args.question:gsub('[\n\r\t]', ''):find('%c') then
+          return 'question must be nonempty text without unsupported control characters'
+        end
         for _, choice in ipairs(args.choices or {}) do
           if vim.trim(choice) == '' or choice:find('%c') then return 'choices must be nonempty single-line text' end
         end
@@ -186,27 +188,9 @@ end
 
 execute_approved = function(name, args, source, done, active, gate, reads, prepare)
   if name == 'ask_user' then
-    local function input()
-      if active and not active() then return end
-      local close_pane = require('codeit.assistant_pane').question()
-      vim.ui.input({ prompt = 'Codeit: ' .. args.question .. ' ' }, function(answer)
-        close_pane()
-        if answer == nil then return done('Cancelled by user', 'cancel') end
-        done(vim.json.encode({ answer = answer }))
-      end)
-    end
-    if not args.choices or #args.choices == 0 then return input() end
-    local options = {}
-    for _, choice in ipairs(args.choices) do options[#options + 1] = { answer = choice, label = choice } end
-    options[#options + 1] = { label = 'Other (type an answer)' }
-    local close_pane = require('codeit.assistant_pane').question()
-    vim.ui.select(options, { prompt = 'Codeit: ' .. args.question,
-      format_item = function(item) return item.label end }, function(choice)
-      close_pane()
-      if active and not active() then return end
-      if not choice then return done('Cancelled by user', 'cancel') end
-      if choice.answer then return done(vim.json.encode({ answer = choice.answer })) end
-      input()
+    require('codeit.question_prompt').show(args.question, args.choices, function(answer)
+      if answer == nil then return done('Cancelled by user', 'cancel') end
+      done(vim.json.encode({ answer = answer }))
     end)
     return
   end

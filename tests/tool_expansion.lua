@@ -128,28 +128,29 @@ has(run('save_loaded_buffer', { buffer_id = id }), 'Rejected by approval policy'
 
 -- Questions use choices or free text, respect reject validators, and cancel cleanly.
 approval.setup({})
-local selections, inputs = 0, 0
-vim.ui.select = function(items, opts, cb)
-  selections = selections + 1; assert(opts.prompt:find('Which', 1, true)); cb(items[2])
+local questions = require('codeit.question_prompt')
+questions.show = function(question, choices, cb)
+  assert(question:find('Which', 1, true))
+  cb(choices[2])
 end
-vim.ui.input = function(_, cb) inputs = inputs + 1; cb('free answer') end
-assert(decode(run('ask_user', { question = 'Which approach?', choices = { 'A', 'B' } })).answer == 'B')
-vim.ui.select = function(items, _, cb) cb(items[#items]) end
-assert(decode(run('ask_user', { question = 'Which approach?', choices = { 'A' } })).answer == 'free answer')
-assert(decode(run('ask_user', { question = 'Clarify please' })).answer == 'free answer')
-vim.ui.input = function(_, cb) cb(nil) end
+assert(decode(run('ask_user', { question = 'Which approach?\nPlease choose.', choices = { 'A', 'B' } })).answer == 'B')
+questions.show = function(_, _, cb) cb('free answer\nwith details') end
+assert(decode(run('ask_user', { question = 'Clarify please\nMore context' })).answer == 'free answer\nwith details')
+questions.show = function(_, _, cb) cb(nil) end
 local _, signal = run('ask_user', { question = 'Clarify please' })
 assert(signal == 'cancel')
-vim.ui.select = function(_, _, cb) cb(nil) end
 _, signal = run('ask_user', { question = 'Which approach?', choices = { 'A' } })
 assert(signal == 'cancel')
+assert(tools.validate('ask_user', { question = 'First\n\nSecond\tindented\r\nThird' }) == nil)
+has(run('ask_user', { question = 'bad' .. string.char(0) }), 'Error:')
+has(run('ask_user', { question = 'question', choices = { 'A\nB' } }), 'Error:')
 has(run('ask_user', { question = '  ' }), 'Error:')
 has(run('ask_user', { question = 'question', choices = { 1 } }), 'Error:')
 approval.setup({ validators = { function(name) if name == 'ask_user' then return 'reject' end end } })
 has(run('ask_user', { question = 'blocked' }), 'Rejected by approval policy')
 approval.setup({})
 local live = true
-vim.ui.input = function(_, cb) pending = cb end
+questions.show = function(_, _, cb) pending = cb end
 result = nil
 tools.execute('ask_user', { question = 'stale' }, nil, function(value) result = value end, function() return live end)
 live = false
