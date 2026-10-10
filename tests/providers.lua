@@ -8,7 +8,7 @@ vim.env.OPENROUTER_API_KEY = 'test-openrouter-key'
 vim.env.GH_TOKEN = 'test-github-key'
 local calls = {}
 local catalog_response = '{"data":[{"id":"gpt-4o"}]}\n200'
-local http_response = '{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"cost":0.00042,"prompt_tokens":100,"completion_tokens":25,"total_tokens":125},"copilot_usage":{"total_nano_aiu":360000}}\n200'
+local http_response = '{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"cost":0.00042,"prompt_tokens":100,"completion_tokens":25,"total_tokens":125,"prompt_tokens_details":{"cached_tokens":60}},"copilot_usage":{"total_nano_aiu":360000}}\n200'
 vim.system = function(args, options, callback)
   table.insert(calls, { args = args, options = options })
   local result
@@ -35,6 +35,7 @@ local function wait_for_response(config, specs)
   assert(vim.wait(2000, function() return answer ~= nil or err ~= nil end), 'timed out')
   assert(not err, tostring(err))
   assert(answer.content == 'ok')
+  assert(billing.cached_tokens == 60)
   assert(vim.json.decode(calls[#calls].options.stdin).messages[2]._copilot_reasoning == nil,
     'Responses replay metadata must not leak to Copilot or OpenRouter chat completions')
   if config.provider == 'openrouter' then
@@ -51,6 +52,9 @@ assert(vim.tbl_contains(calls[1].args, 'https://openrouter.ai/api/v1/chat/comple
 local payload = vim.json.decode(calls[1].options.stdin)
 assert(payload.model == 'openai/gpt-4o-mini')
 assert(payload.usage.include == true)
+wait_for_response({ provider = 'openrouter', model = 'test', max_output_tokens = 256 })
+assert(vim.json.decode(calls[#calls].options.stdin).max_tokens == 256)
+table.remove(calls) -- Preserve the catalog/auth call-number checks below.
 assert(payload.tools[1]['function'].parameters.properties ~= vim.NIL)
 assert(calls[1].options.stdin:find('"properties":{}', 1, true), 'empty tool properties must encode as {}')
 wait_for_response({ provider = 'copilot', model = 'gpt-4o' })
@@ -145,6 +149,15 @@ _, endpoint_error = endpoints_for('openai/test', '{"error":{"message":"No endpoi
 assert(endpoint_error == 'HTTP 404: No endpoints')
 _, endpoint_error = endpoints_for('invalid', '{"data":{"endpoints":[]}}\n200')
 assert(endpoint_error:find('author/model', 1, true))
+
+http_response = '{"choices":[{"finish_reason":"length","message":{"content":"partial"}}],"usage":{"cost":0.1}}\n200'
+local cap_failure, cap_usage
+providers.chat({ provider = 'openrouter', model = 'test', max_output_tokens = 256 },
+  { { role = 'user', content = 'summarize' } }, {}, function(message, err, usage)
+    assert(message == nil); cap_failure, cap_usage = err, usage
+  end)
+assert(vim.wait(2000, function() return cap_failure ~= nil end))
+assert(cap_failure:find('token cap', 1, true) and cap_usage.cost == 0.1)
 
 local log_path = vim.fn.stdpath('state') .. '/codeit/provider-errors.log'
 local before = vim.fn.filereadable(log_path) == 1 and table.concat(vim.fn.readfile(log_path), '\n') or ''

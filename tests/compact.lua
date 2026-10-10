@@ -13,11 +13,11 @@ package.loaded['codeit.providers'] = {
   end,
 }
 local plugin = require('codeit')
-plugin.setup({ provider = 'openrouter' })
+plugin.setup({ provider = 'openrouter', compaction = { manual_keep_turns = 0 } })
 assert(vim.fn.exists(':CodeitCompact') == 2)
 plugin.compact() -- empty chat
 assert(#requests == 0)
-plugin.send('first task')
+plugin.send('first task' .. string.rep(' details', 30))
 local chat_id = history.list(workspace)[1].id
 plugin.compact() -- an unfinished turn
 assert(#requests == 1)

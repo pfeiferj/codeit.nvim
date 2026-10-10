@@ -5,6 +5,18 @@ Return ONLY a JSON object of the form {"replacements":[{"tool_call_id":"id","sum
 
 local protected = { ask_user = true, load_skill = true }
 
+function M.replaceable_tokens(turn)
+  local calls, count = {}, 0
+  for _, message in ipairs(turn) do
+    for _, call in ipairs(type(message.tool_calls) == 'table' and message.tool_calls or {}) do
+      if type(call['function']) == 'table' and not protected[call['function'].name] then calls[call.id] = call end
+    end
+    local call = message.role == 'tool' and calls[message.tool_call_id]
+    if call then count = count + math.ceil(#vim.json.encode({ call, message }) / 4) end
+  end
+  return count
+end
+
 local function text(content)
   if type(content) == 'string' then return content end
   local parts = {}

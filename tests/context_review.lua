@@ -79,6 +79,7 @@ require('codeit.approval').prefetch = function() return nil end
 tools.execute = function(name, _, _, callback)
   callback(name == 'edit_file' and string.rep('edit result', 500) or 'Tests passed.')
 end
+tools.request_specs = function() return { { type = 'function' } } end
 local plugin = require('codeit')
 plugin.setup({ system_prompt = 'system', max_context_tokens = false,
   model_presets = { long_context = { model = 'review-model' } }, request_options = { openrouter = { effort = 'low' } } })
@@ -117,22 +118,21 @@ assert(saved.cost == 0.2 and saved.context_estimated == true)
 plugin.send('must still be busy')
 assert(#requests == second, 'review must not clear the active main-turn busy flag')
 callbacks[second]({ role = 'assistant', content = 'Second done.' })
-flush(second + 1)
-callbacks[#requests](answer())
+vim.wait(30, function() return false end, 10)
+assert(#requests == second, 'plain prose turns must not incur a review request')
 plugin.send('third')
 local third = #requests
 local effective = requests[third].messages
 assert(effective[3].content:find('Updated main.lua', 1, true) and effective[4].tool_calls[1].id == 'short')
 assert(effective[5].content == 'Tests passed.' and effective[6].content == 'Done.')
 callbacks[third]({ role = 'assistant', content = 'Third done.' })
-flush(third + 1)
-callbacks[#requests](answer())
+vim.wait(30, function() return false end, 10)
+assert(#requests == third)
 plugin.resume(id)
 plugin.send('after resume')
 assert(requests[#requests].messages[3].content:find('Updated main.lua', 1, true))
 callbacks[#requests]({ role = 'assistant', content = 'Resumed done.' })
-flush(#requests + 1)
-callbacks[#requests](answer())
+vim.wait(30, function() return false end, 10)
 -- Failed/invalid reviews leave the effective context intact and chat usable.
 plugin.new()
 pending = finish_tool_turn('failure')
@@ -142,8 +142,7 @@ assert(#history.load(workspace, failure_id).context_reviews == 0)
 plugin.send('continue after failure')
 assert(requests[#requests].messages[3].tool_calls[1].id == 'long')
 callbacks[#requests]({ content = 'ok' })
-flush(#requests + 1)
-callbacks[#requests](nil, 'temporary failure')
+vim.wait(30, function() return false end, 10)
 assert(#history.load(workspace, failure_id).context_reviews == 0)
 -- Out-of-order reviews only update their own turns.
 plugin.new()
@@ -171,8 +170,7 @@ plugin.send(string.rep('u', 900))
 local auto_main = #requests
 assert(#requests[auto_main].specs > 0, 'pruned tool output must not spuriously trigger compaction')
 callbacks[auto_main]({ content = string.rep('a', 700) })
-flush(auto_main + 1)
-callbacks[#requests](answer())
+vim.wait(30, function() return false end, 10)
 local auto_id = history.list(workspace)[1].id
 plugin.send('trigger compact')
 local auto_summary = #requests
@@ -186,7 +184,7 @@ plugin.setup({ system_prompt = 'system', max_context_tokens = false })
 -- Compaction consumes reviewed context rather than resurrecting the raw output.
 pending = finish_tool_turn('compact reviewed')
 callbacks[pending](answer({ replacement }))
-plugin.compact()
+plugin.compact(true)
 local compact = #requests
 assert(requests[compact].messages[2].content:find('Updated main.lua', 1, true))
 assert(not requests[compact].messages[2].content:find(string.rep('edit result', 50), 1, true))
@@ -195,7 +193,7 @@ assert(#history.list(workspace)[1].context_reviews == 0)
 -- A pending review cannot undo a compaction that completed first.
 plugin.new()
 pending = finish_tool_turn('compact pending')
-plugin.compact()
+plugin.compact(true)
 callbacks[#requests]({ content = 'Compacted pending.' })
 callbacks[pending](answer({ replacement }))
 assert(history.list(workspace)[1].context_summary == 'Compacted pending.' and #history.list(workspace)[1].context_reviews == 0)

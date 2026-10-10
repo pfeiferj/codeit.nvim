@@ -11,6 +11,8 @@ package.loaded['codeit.providers'] = {
     callbacks[#callbacks + 1] = callback
   end,
 }
+-- Small synthetic windows need small synthetic schemas as well.
+require('codeit.tools').request_specs = function() return { { type = 'function' } } end
 local plugin = require('codeit')
 plugin.setup({ system_prompt = 'system', max_context_tokens = 400,
   feature_settings = { compaction = { provider = 'copilot', model = 'compact-model',
@@ -37,7 +39,7 @@ assert(first:find(user .. '1', 1, true) and first:find(user .. '2', 1, true))
 assert(not first:find(user .. '3', 1, true), 'newest complete turn must be retained')
 local previous = history.load(workspace, chat_id)
 assert(previous.compacted_until == nil, 'checkpoint is not committed before summary succeeds')
-local long_summary = string.rep('summary', 65) -- exceeds the reserved quarter by itself
+local long_summary = 'Useful bounded summary'
 callbacks[4]({ role = 'assistant', content = long_summary })
 local saved = history.load(workspace, chat_id)
 assert(saved.compacted_until == 5 and saved.context_summary == long_summary)
@@ -48,7 +50,7 @@ assert(requests[5].messages[3].content == user .. '3')
 assert(requests[5].messages[5].content == user .. '4')
 respond(5)
 plugin.send(user .. '5')
-assert(#requests == 6 and #requests[6].specs ~= 0, 'summary must not count toward trigger')
+assert(#requests == 6 and #requests[6].specs ~= 0, 'bounded summary should leave room for another turn')
 respond(6)
 plugin.send(user .. '6')
 assert(#requests == 7 and #requests[7].specs == 0)
@@ -111,6 +113,7 @@ approval.prefetch = prefetch
 local provider = require('codeit.providers')
 local metadata_callbacks = {}
 provider.context_limit = function(config, callback)
+  if config.model == 'compact-model' then return callback(4000) end
   metadata_callbacks[#metadata_callbacks + 1] = { model = config.model, callback = callback }
 end
 plugin.setup({ system_prompt = 'system', model_presets = { long_context = { model = 'compact-model' } } })

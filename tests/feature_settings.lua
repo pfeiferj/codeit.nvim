@@ -63,7 +63,7 @@ for _, bad in ipairs({ false, { unknown = {} }, { compaction = false },
   assert(not plugin.configure(invalid), 'invalid feature settings must be rejected')
   assert(not pcall(plugin.setup, invalid), 'setup must reject invalid feature settings')
 end
-plugin.setup({ max_context_tokens = false, feature_settings = features,
+plugin.setup({ max_context_tokens = false, context_review_min_tokens = 0, feature_settings = features,
   request_options = { openrouter = { effort = 'low', service_tier = 'flex' } } })
 local function reply(content, usage)
   callbacks[#callbacks]({ role = 'assistant', content = content }, nil, usage)
@@ -99,7 +99,7 @@ reply('{"replacements":[]}')
 local id = history.list(workspace)[1].id
 local chat = history.load(workspace, id)
 assert(chat.cost == 0.25 and chat.missing_cost == 3, 'missing Copilot feature usage must also be tracked')
-plugin.compact()
+plugin.compact(true)
 assert(requests[#requests].config.provider == 'copilot' and requests[#requests].config.model == 'compact-model')
 reply('Summary')
 plugin.history()
@@ -143,9 +143,9 @@ vim.fn.delete(path)
 plugin.setup({ provider = 'copilot', max_context_tokens = false, context_review = false,
   feature_settings = { compaction = { provider = 'openrouter', model = 'paid-summary' } } })
 plugin.open()
-plugin.send('Copilot main')
+plugin.send('Copilot main' .. string.rep(' details', 30))
 reply('Done', { cost = 0, prompt_tokens = 40, completion_tokens = 5, total_tokens = 45 })
-plugin.compact()
+plugin.compact(true)
 assert(requests[#requests].config.provider == 'openrouter')
 reply('Paid summary', { cost = 0.5, prompt_tokens = 100, completion_tokens = 20 })
 chat = history.load(workspace, history.list(workspace)[1].id)

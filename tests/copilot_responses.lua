@@ -63,11 +63,20 @@ assert(payload.tools[1].name == require('codeit.tools').specs[1]['function'].nam
 assert(payload.tools[1]['function'] == nil and payload.tools[1].strict == false)
 assert(calls[3].options.stdin:find('"properties":{}', 1, true), 'empty schemas must remain JSON objects')
 assert(vim.tbl_contains(calls[3].args, 'X-GitHub-Api-Version: 2026-08-01'))
-response.usage = { input_tokens = 100, output_tokens = 25, total_tokens = 125 }
+response.usage = { input_tokens = 100, output_tokens = 25, total_tokens = 125,
+  input_tokens_details = { cached_tokens = 70 } }
 response.copilot_usage = { total_nano_aiu = '360000' }
 local _, _, usage = chat('gpt-6-luna')
 assert(usage.cost == 360000 / 100000000000)
 assert(usage.prompt_tokens == 100 and usage.completion_tokens == 25 and usage.total_tokens == 125)
+assert(usage.cached_tokens == 70)
+local capped_done
+providers.chat({ provider = 'copilot', model = 'gpt-6-luna', max_output_tokens = 256 },
+  { { role = 'user', content = 'summarize' } }, {}, function(_, failure)
+    assert(not failure); capped_done = true
+  end)
+assert(vim.wait(2000, function() return capped_done end))
+assert(vim.json.decode(calls[#calls].options.stdin).max_output_tokens == 256)
 response.copilot_usage.total_nano_aiu = 0
 _, _, usage = chat('gpt-6-luna')
 assert(usage.cost == 0, 'a reported zero charge must not be treated as missing')
