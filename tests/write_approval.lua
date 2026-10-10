@@ -153,7 +153,7 @@ maps['{'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[2])
 assert_hunk_labels(buf, { 'line 4', 'line 35' })
 close('5', 'review')
 
--- Opening and navigation keep ten lines above distant hunks and immediately repin the header.
+-- Opening and navigation keep six lines above distant hunks and immediately repin the header.
 original, updated = {}, {}
 for i = 1, 200 do original[i] = 'line ' .. i; updated[i] = original[i] end
 updated[60], updated[140] = 'first centered change', 'second centered change'
@@ -165,8 +165,8 @@ end
 local function assert_positioned(line)
   assert(vim.api.nvim_win_get_cursor(win)[1] == line)
   local top = vim.fn.getwininfo(win)[1].topline
-  local context = math.min(10, vim.api.nvim_win_get_height(win) - 1)
-  assert(top == math.max(1, line - context), 'selected hunk should have ten lines above it when possible')
+  local context = math.min(6, vim.api.nvim_win_get_height(win) - 1)
+  assert(top == math.max(1, line - context), 'selected hunk should have six lines above it when possible')
   local pinned = header_marks(buf)
   assert(#pinned > 0 and pinned[1][2] == top - 1, 'positioning must immediately repin the header')
   for _, mark in ipairs(pinned) do assert_full_header(win, mark) end
