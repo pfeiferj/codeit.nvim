@@ -74,12 +74,19 @@ function M.message(response)
   end
   local texts, calls, reasoning = {}, {}, {}
   for _, item in ipairs(response.output) do
+    if type(item) ~= 'table' then return nil, 'Malformed output item from Copilot Responses' end
     if item.type == 'message' and item.role == 'assistant' then
+      if type(item.content) ~= 'table' or not vim.islist(item.content) then
+        return nil, 'Malformed message content from Copilot Responses'
+      end
       local parts = {}
-      for _, part in ipairs(item.content or {}) do
-        if part.type == 'output_text' and type(part.text) == 'string' then
+      for _, part in ipairs(item.content) do
+        if type(part) ~= 'table' then return nil, 'Malformed content part from Copilot Responses' end
+        if part.type == 'output_text' then
+          if type(part.text) ~= 'string' then return nil, 'Malformed text from Copilot Responses' end
           parts[#parts + 1] = part.text
-        elseif part.type == 'refusal' and type(part.refusal) == 'string' then
+        elseif part.type == 'refusal' then
+          if type(part.refusal) ~= 'string' then return nil, 'Malformed refusal from Copilot Responses' end
           parts[#parts + 1] = part.refusal
         end
       end

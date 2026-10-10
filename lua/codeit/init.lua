@@ -732,7 +732,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
       end
       local batch_start = #messages + 1
       table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls,
-        _copilot_reasoning = message._copilot_reasoning })
+        _copilot_reasoning = message._copilot_reasoning, reasoning_details = message.reasoning_details })
       save()
       render()
       if type(calls) ~= 'table' or #calls == 0 then
@@ -863,7 +863,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
         -- Balance every declined call so future requests and saved history
         -- remain valid, then allow one tool-free final response.
         table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls,
-          _copilot_reasoning = message._copilot_reasoning })
+          _copilot_reasoning = message._copilot_reasoning, reasoning_details = message.reasoning_details })
         for index, call in ipairs(calls) do
           local result = 'Error: Tool call limit reached. The user declined additional tool rounds. This call was not executed; finish without tools.'
           tool_log.finish(tool_log_entries[index], result)

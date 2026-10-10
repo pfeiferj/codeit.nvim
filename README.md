@@ -271,6 +271,8 @@ OpenRouter settings include **Preferred upstream provider** (loads endpoints for
 
 `:CodeitProvider openrouter` / `:CodeitProvider copilot` switches providers and starts a fresh conversation.
 
+Chat and model-metadata requests automatically retry HTTP 429 rate-limit responses up to three times. Retries honor `Retry-After` (seconds or an HTTP date); absent or invalid headers use delays of 2, 4, and 8 seconds. If the server requests a wait longer than 60 seconds, or retries are exhausted, the request ends with an error so you can retry manually later. Other HTTP errors, transport failures, and invalid successful responses are not retried. Copilot credential exchange does not use these retries.
+
 ## Storage, usage, and logs
 
 ### Workspace and chat persistence

@@ -28,7 +28,7 @@ local function wait_for_response(config, specs)
     { role = 'user', content = 'hello' },
     { role = 'assistant', content = 'prior reply', _copilot_reasoning = {
       { type = 'reasoning', encrypted_content = 'private-replay-data' },
-    } },
+    }, reasoning_details = { { type = 'reasoning.encrypted', data = 'chat-replay-data' } } },
   }, specs or {}, function(message, failure, usage)
     answer, err, billing = message, failure, usage
   end)
@@ -38,6 +38,8 @@ local function wait_for_response(config, specs)
   assert(billing.cached_tokens == 60)
   assert(vim.json.decode(calls[#calls].options.stdin).messages[2]._copilot_reasoning == nil,
     'Responses replay metadata must not leak to Copilot or OpenRouter chat completions')
+  assert(vim.json.decode(calls[#calls].options.stdin).messages[2].reasoning_details[1].data == 'chat-replay-data',
+    'chat-completions reasoning details must be replayed unchanged')
   if config.provider == 'openrouter' then
     assert(billing.cost == 0.00042)
     assert(billing.prompt_tokens == 100 and billing.completion_tokens == 25 and billing.total_tokens == 125)
@@ -149,6 +151,39 @@ _, endpoint_error = endpoints_for('openai/test', '{"error":{"message":"No endpoi
 assert(endpoint_error == 'HTTP 404: No endpoints')
 _, endpoint_error = endpoints_for('invalid', '{"data":{"endpoints":[]}}\n200')
 assert(endpoint_error:find('author/model', 1, true))
+
+for _, backend in ipairs({ 'openrouter', 'copilot' }) do
+  for _, content in ipairs({ vim.NIL, '', {} }) do
+    http_response = vim.json.encode({ choices = { { message = {
+      role = 'assistant', content = content, refusal = 'Cannot help with that',
+    } } } }) .. '\n200'
+    local answer, failure
+    providers.chat({ provider = backend, model = 'test' }, {}, {}, function(message, err)
+      answer, failure = message, err
+    end)
+    assert(vim.wait(2000, function() return answer ~= nil or failure ~= nil end))
+    assert(not failure and answer.content == 'Cannot help with that', 'refusal-only answers must be visible')
+  end
+end
+http_response = vim.json.encode({ choices = { { message = {
+  role = 'assistant', content = 'Existing answer', refusal = 'Refusal',
+} } } }) .. '\n200'
+local text_answer
+providers.chat({ provider = 'openrouter', model = 'test' }, {}, {}, function(message, err)
+  assert(not err); text_answer = message
+end)
+assert(vim.wait(2000, function() return text_answer ~= nil end))
+assert(text_answer.content == 'Existing answer', 'refusal normalization must not overwrite existing text')
+for _, value in ipairs({ vim.NIL, { choices = vim.NIL }, { choices = { vim.NIL } },
+  { choices = { { message = vim.NIL } } } }) do
+  http_response = vim.json.encode(value) .. '\n200'
+  local failure
+  providers.chat({ provider = 'openrouter', model = 'test' }, {}, {}, function(message, err)
+    assert(message == nil); failure = err
+  end)
+  assert(vim.wait(2000, function() return failure ~= nil end))
+  assert(failure == 'Response has no assistant message', tostring(failure))
+end
 
 http_response = '{"choices":[{"finish_reason":"length","message":{"content":"partial"}}],"usage":{"cost":0.1}}\n200'
 local cap_failure, cap_usage

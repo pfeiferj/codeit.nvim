@@ -19,58 +19,85 @@ local function log_error(config, err, detail)
   vim.uv.fs_close(fd)
 end
 
+local function retry_after(headers)
+  local value
+  for line in headers:gmatch('[^\r\n]+') do
+    local name, content = line:match('^([^:]+):%s*(.-)%s*$')
+    if name and name:lower() == 'retry-after' then value = content end
+  end
+  if not value then return end
+  if value:match('^%d+$') then return tonumber(value) end
+  local day, month, year, hour, minute, second = value:match(
+    '^%a+, (%d%d) (%a+) (%d%d%d%d) (%d%d):(%d%d):(%d%d) GMT$')
+  local months = { Jan = 1, Feb = 2, Mar = 3, Apr = 4, May = 5, Jun = 6,
+    Jul = 7, Aug = 8, Sep = 9, Oct = 10, Nov = 11, Dec = 12 }
+  if not day or not months[month] then return end
+  local now = os.time()
+  local utc = os.date('!*t', now)
+  utc.isdst = false
+  local offset = os.difftime(now, os.time(utc))
+  local date = os.time({ year = tonumber(year), month = months[month], day = tonumber(day),
+    hour = tonumber(hour), min = tonumber(minute), sec = tonumber(second), isdst = false })
+  return date and math.max(0, date + offset - now) or nil
+end
+
+local function http_json(args, options, callback, metadata)
+  local retries = 0
+  local function send()
+    vim.system(args, options, function(result)
+      vim.schedule(function()
+        if result.code ~= 0 then
+          return callback(nil, (result.stderr or '') ~= '' and result.stderr or 'curl exited with code ' .. result.code)
+        end
+        local data, status = (result.stdout or ''):match('^(.*)\n(%d%d%d)$')
+        if not data then return callback(nil, 'Invalid HTTP response', result.stdout or result.stderr) end
+        local headers = ''
+        -- curl can emit proxy CONNECT and informational headers before the final response.
+        while data:match('^HTTP/%S+ %d%d%d') do
+          local block, rest = data:match('^(.-)\r\n\r\n(.*)$')
+          if not block then block, rest = data:match('^(.-)\n\n(.*)$') end
+          if not block then break end
+          headers, data = block, rest
+        end
+        if status == '429' and retries < 3 then
+          local delay = retry_after(headers) or 2 ^ (retries + 1)
+          -- Do not retry earlier than requested, or leave a chat waiting indefinitely.
+          if delay <= 60 then
+            retries = retries + 1
+            return vim.defer_fn(send, math.ceil(delay * 1000))
+          end
+        end
+        local ok, decoded = pcall(vim.json.decode, data)
+        if tonumber(status) < 200 or tonumber(status) >= 300 then
+          local err = ok and type(decoded) == 'table' and decoded.error or nil
+          if type(err) == 'table' then err = err.message end
+          return callback(nil, 'HTTP ' .. status .. ': ' .. tostring(err or data:sub(1, 300)), data)
+        end
+        if not ok or (metadata and type(decoded) ~= 'table') then
+          return callback(nil, metadata and 'Invalid model metadata response'
+            or 'Invalid JSON response: ' .. data:sub(1, 300), data)
+        end
+        callback(decoded)
+      end)
+    end)
+  end
+  send()
+end
+
 local function request(url, headers, body, callback)
-  local args = { 'curl', '--silent', '--show-error', '--max-time', '120', '--request', 'POST', '--write-out', '\n%{http_code}' }
+  local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '120', '--request', 'POST', '--write-out', '\n%{http_code}' }
   for _, header in ipairs(headers) do
     vim.list_extend(args, { '--header', header })
   end
   vim.list_extend(args, { '--data-binary', '@-', url })
-  vim.system(args, { stdin = vim.json.encode(body), text = true }, function(result)
-    vim.schedule(function()
-      if result.code ~= 0 then
-        callback(nil, (result.stderr or '') ~= '' and result.stderr or 'curl exited with code ' .. result.code)
-        return
-      end
-      local data, status = (result.stdout or ''):match('^(.*)\n(%d%d%d)$')
-      if not data then
-        callback(nil, 'Invalid HTTP response', result.stdout or result.stderr)
-        return
-      end
-      local ok, decoded = pcall(vim.json.decode, data)
-      if not ok then
-        callback(nil, 'Invalid JSON response: ' .. data:sub(1, 300), data)
-      elseif tonumber(status) < 200 or tonumber(status) >= 300 then
-        local message = type(decoded) == 'table' and decoded.error
-        if type(message) == 'table' then message = message.message end
-        callback(nil, 'HTTP ' .. status .. ': ' .. tostring(message or data:sub(1, 300)), data)
-      else
-        callback(decoded)
-      end
-    end)
-  end)
+  http_json(args, { stdin = vim.json.encode(body), text = true }, callback)
 end
 
 local function get_json(url, headers, callback)
-  local args = { 'curl', '--silent', '--show-error', '--max-time', '30', '--write-out', '\n%{http_code}' }
+  local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '30', '--write-out', '\n%{http_code}' }
   for _, header in ipairs(headers) do vim.list_extend(args, { '--header', header }) end
   args[#args + 1] = url
-  vim.system(args, { text = true }, function(result)
-    vim.schedule(function()
-      if result.code ~= 0 then
-        return callback(nil, (result.stderr or '') ~= '' and result.stderr or 'curl exited with code ' .. result.code)
-      end
-      local data, status = (result.stdout or ''):match('^(.*)\n(%d%d%d)$')
-      if not data then return callback(nil, 'Invalid HTTP response', result.stdout or result.stderr) end
-      local ok, decoded = pcall(vim.json.decode, data)
-      if not ok or type(decoded) ~= 'table' then return callback(nil, 'Invalid model metadata response', data) end
-      if tonumber(status) < 200 or tonumber(status) >= 300 then
-        local err = decoded.error
-        if type(err) == 'table' then err = err.message end
-        return callback(nil, 'HTTP ' .. status .. ': ' .. tostring(err or data:sub(1, 300)), data)
-      end
-      callback(decoded)
-    end)
-  end)
+  http_json(args, { text = true }, callback, true)
 end
 
 local function github_token()
@@ -375,17 +402,23 @@ function M.chat(config, messages, tools, callback)
         return callback(message, failure, (not failure or config.max_output_tokens) and copilot_usage(response) or nil,
           failure and vim.json.encode(response) or nil)
       end
-      local choice = response and response.choices and response.choices[1]
-      if not choice or not choice.message then
+      local choice = type(response) == 'table' and type(response.choices) == 'table' and response.choices[1]
+      if type(choice) ~= 'table' or type(choice.message) ~= 'table' then
         return callback(nil, 'Response has no assistant message', nil, vim.json.encode(response))
       end
       if config.max_output_tokens and choice.finish_reason == 'length' then
         return callback(nil, 'Summary output reached its token cap',
           config.provider == 'copilot' and copilot_usage(response) or response.usage, vim.json.encode(response))
       end
+      local message = choice.message
+      if type(message.refusal) == 'string'
+        and (message.content == nil or message.content == vim.NIL or message.content == ''
+          or (type(message.content) == 'table' and vim.islist(message.content) and #message.content == 0)) then
+        message.content = message.refusal
+      end
       if config.provider == 'openrouter' then
         local usage = type(response.usage) == 'table' and response.usage or nil
-        callback(choice.message, nil, {
+        callback(message, nil, {
           cost = usage and usage.cost,
           prompt_tokens = usage and usage.prompt_tokens,
           completion_tokens = usage and usage.completion_tokens,
@@ -393,7 +426,7 @@ function M.chat(config, messages, tools, callback)
           cached_tokens = cached_tokens(usage),
         })
       else
-        callback(choice.message, nil, copilot_usage(response))
+        callback(message, nil, copilot_usage(response))
       end
     end)
   end

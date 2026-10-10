@@ -164,6 +164,23 @@ for _, case in ipairs({
   { response = { status = 'completed', output = {} }, error = 'Response has no assistant message' },
   { response = { output = { { type = 'function_call', name = 'read_file', arguments = '{}' } } },
     error = 'Malformed tool call from Copilot Responses' },
+  { response = { output = { vim.NIL } }, error = 'Malformed output item from Copilot Responses' },
+  { response = { output = { 'invalid' } }, error = 'Malformed output item from Copilot Responses' },
+  { response = { output = { { type = 'message', role = 'assistant', content = vim.NIL } } },
+    error = 'Malformed message content from Copilot Responses' },
+  { response = { output = { { type = 'message', role = 'assistant' } } },
+    error = 'Malformed message content from Copilot Responses' },
+  { response = { output = { { type = 'message', role = 'assistant', content = { text = 'invalid' } } } },
+    error = 'Malformed message content from Copilot Responses' },
+  { response = { output = { { type = 'message', role = 'assistant', content = { vim.NIL } } } },
+    error = 'Malformed content part from Copilot Responses' },
+  { response = { output = {
+    { type = 'function_call', call_id = 'call_1', name = 'read_file', arguments = '{}' },
+    { type = 'message', role = 'assistant', content = { { type = 'output_text', text = vim.NIL } } },
+  } }, error = 'Malformed text from Copilot Responses' },
+  { response = { output = { { type = 'message', role = 'assistant',
+    content = { { type = 'refusal', refusal = vim.NIL } } } } },
+    error = 'Malformed refusal from Copilot Responses' },
 }) do
   response, status = case.response, case.status or '200'
   before = #calls

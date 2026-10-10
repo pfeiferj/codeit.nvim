@@ -42,13 +42,15 @@ local function reply(message)
   callback(message)
 end
 local reasoning = { { type = 'reasoning', id = 'rs_limit', summary = {}, encrypted_content = 'encrypted-limit' } }
+local reasoning_details = { { type = 'reasoning.encrypted', id = 'or_limit', data = 'encrypted-openrouter' } }
 local function batch(prefix)
   local calls = {}
   for i = 1, 2 do
     calls[i] = { id = prefix .. i, type = 'function',
       ['function'] = { name = 'read_file', arguments = '{"path":"README.md"}' } }
   end
-  return { role = 'assistant', tool_calls = calls, _copilot_reasoning = reasoning }
+  return { role = 'assistant', tool_calls = calls, _copilot_reasoning = reasoning,
+    reasoning_details = reasoning_details }
 end
 local function assert_balanced(messages)
   local pending = {}
@@ -74,6 +76,8 @@ for _, limit in ipairs({ 0, 1 }) do
     reply(batch('completed'))
     assert(#executed == before + 2, 'the allowed batch must execute')
     assert(#callbacks == 1, 'completed batch must request a follow-up')
+    assert(vim.deep_equal(requests[#requests].messages[#requests[#requests].messages - 2].reasoning_details,
+      reasoning_details), 'completed tool batches must retain chat-completions reasoning')
   end
   local before_limit = #executed
   reply(batch('blocked'))
@@ -102,6 +106,8 @@ for _, limit in ipairs({ 0, 1 }) do
   local rejected = requests[#requests].messages
   assert(vim.deep_equal(rejected[#rejected - 2]._copilot_reasoning, reasoning),
     'declined tool batches must retain reasoning for the tool-free follow-up')
+  assert(vim.deep_equal(rejected[#rejected - 2].reasoning_details, reasoning_details),
+    'declined tool batches must retain chat-completions reasoning')
   assert_balanced(rejected)
   for i = #rejected - 1, #rejected do
     assert(rejected[i].role == 'tool' and rejected[i].content:find('Error: Tool call limit reached', 1, true))
@@ -112,6 +118,8 @@ for _, limit in ipairs({ 0, 1 }) do
   assert(#saved.messages == 6 + limit * 3, 'declined calls and final answer must be saved')
   assert(vim.deep_equal(saved.messages[#saved.messages - 3]._copilot_reasoning, reasoning),
     'encrypted reasoning must survive history save/load')
+  assert(vim.deep_equal(saved.messages[#saved.messages - 3].reasoning_details, reasoning_details),
+    'chat-completions reasoning must survive history save/load')
   plugin.send('Continue after the limit')
   local followup = requests[#requests].messages
   assert_balanced(followup)
