@@ -63,6 +63,22 @@ end
 
 local execute_approved
 
+local function normalize_optional(value, schema)
+  if type(value) ~= 'table' then return end
+  if schema.type == 'object' then
+    for key, property in pairs(schema.properties or {}) do
+      -- Normalize before validation so approvals and execution see the same defaults.
+      if value[key] == '' and not vim.tbl_contains(schema.required or {}, key) then
+        value[key] = nil
+      elseif value[key] ~= nil then
+        normalize_optional(value[key], property)
+      end
+    end
+  elseif schema.type == 'array' and schema.items then
+    for _, item in ipairs(value) do normalize_optional(item, schema.items) end
+  end
+end
+
 local function validate_value(value, property, key)
   local kind = property.type
   if kind == 'integer' then
@@ -105,6 +121,7 @@ function M.validate(name, args)
   for _, definition in ipairs(M.specs) do
     local fn = definition['function']
     if fn.name == name then
+      normalize_optional(args, fn.parameters)
       for _, key in ipairs(fn.parameters.required or {}) do
         if args[key] == nil then return 'missing argument ' .. key end
       end

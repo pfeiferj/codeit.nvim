@@ -15,6 +15,45 @@ local function run(name, args, context)
 end
 local function has(value, text) assert(value:find(text, 1, true), value) end
 
+-- Every optional field accepts an empty string, irrespective of its declared type.
+local function sample(schema)
+  if schema.type == 'integer' then return schema.minimum or 0 end
+  if schema.type == 'boolean' then return false end
+  if schema.type == 'string' then return 'x' end
+  local value = {}
+  if schema.type == 'object' then
+    for _, key in ipairs(schema.required or {}) do value[key] = sample(schema.properties[key]) end
+  elseif schema.type == 'array' then
+    for i = 1, schema.minItems or 0 do value[i] = sample(schema.items) end
+  end
+  return value
+end
+for _, definition in ipairs(tools.specs) do
+  local fn = definition['function']
+  local omitted = sample(fn.parameters)
+  assert(not tools.validate(fn.name, omitted), fn.name)
+  local empty = vim.deepcopy(omitted)
+  for key in pairs(fn.parameters.properties) do
+    if not vim.tbl_contains(fn.parameters.required or {}, key) then empty[key] = '' end
+  end
+  assert(not tools.validate(fn.name, empty), fn.name)
+  assert(vim.deep_equal(empty, omitted), fn.name .. ': empty optional fields were not omitted')
+end
+local nested = { edits = { { old_text = 'x', new_text = '', start_line = '', end_line = '' } } }
+assert(not tools.validate('edit_source_buffer', nested))
+assert(vim.deep_equal(nested, { edits = { { old_text = 'x', new_text = '' } } }))
+has(tools.validate('edit_source_buffer', {
+  edits = { { old_text = 'x', new_text = '', start_line = '', end_line = 1 } },
+}), 'requires both')
+has(tools.validate('read_file', { path = '' }), 'invalid length')
+has(tools.validate('read_loaded_buffer', { buffer_id = '' }), 'valid integer')
+has(tools.validate('read_file', { path = 'x', unknown = '' }), 'unknown argument')
+has(tools.validate('read_file', { path = 'x', start_line = ' ' }), 'valid integer')
+local explicit = { staged = false, path = 'x' }
+assert(not tools.validate('git_diff', explicit) and explicit.staged == false and explicit.path == 'x')
+local argv = { argv = { 'printf', '' } }
+assert(not tools.validate('run_command', argv) and argv.argv[2] == '')
+
 -- Filtering is performed over every filename, with deterministic paginated output.
 for i = 1, 260 do
   vim.fn.writefile({ 'x' }, string.format('%03d-%s.txt', i, string.rep('a', 100)))
@@ -42,6 +81,8 @@ vim.system = system
 -- Refresh even same-sized quick writes; never overwrite an unsaved buffer.
 vim.fn.writefile({ 'before' }, 'sample.txt')
 assert(vim.json.decode(run('read_file', { path = 'sample.txt' })).lines[1] == 'before')
+assert(run('read_file', { path = 'sample.txt', start_line = '', end_line = '' })
+  == run('read_file', { path = 'sample.txt' }))
 run('run_command', { argv = { 'sh', '-c', "printf 'after!\\n' > sample.txt" } })
 assert(vim.json.decode(run('read_file', { path = 'sample.txt' })).lines[1] == 'after!')
 local id = vim.fn.bufnr(dir .. '/sample.txt')
@@ -89,7 +130,9 @@ prompt.show = function(_, _, cb) cb('once') end
 local context = { read_versions = {} }
 has(run('edit_file', { path = 'new.txt', edits = { { old_text = 'created', new_text = 'changed' } } }, context), 'read the current file')
 run('read_file', { path = 'new.txt' }, context)
-has(run('edit_file', { path = 'new.txt', edits = { { old_text = 'created', new_text = 'changed' } } }, context), 'saved file')
+has(run('edit_file', { path = 'new.txt', edits = {
+  { old_text = 'created', new_text = 'changed', start_line = '', end_line = '' },
+} }, context), 'saved file')
 has(run('edit_file', { path = 'new.txt', edits = { { old_text = 'changed', new_text = 'again' } } }, context), 'saved file')
 run('run_command', { argv = { 'sh', '-c', "printf 'external\\n' > new.txt" } })
 has(run('edit_file', { path = 'new.txt', edits = { { old_text = 'external', new_text = 'bad' } } }, context), 'read the current file')
@@ -123,7 +166,7 @@ has(run('git_diff', { path = 'tracked.txt' }), 'deleted file')
 tools.configure({ trusted_workspaces = { [dir] = 'tracked' } })
 local prompts = 0
 prompt.show = function(_, _, cb) prompts = prompts + 1; cb('once') end
-assert(run('git_diff', {}) == run('git_diff', { path = '' }))
+assert(run('git_diff', {}) == run('git_diff', { path = '', base = '', staged = '' }))
 run('git_diff', { path = 'tracked.txt' })
 assert(prompts == 0 and vim.fn.filereadable('helper-ran') == 0)
 tools.configure({})

@@ -330,6 +330,12 @@ Instructions and selected skills are read afresh before each model request. They
 
 ## Agent tools
 
+Empty strings in optional tool fields are treated as omitted before validation,
+approval, and execution, including numeric/boolean fields and nested edit ranges.
+Required fields and array elements are not normalized: empty replacement text,
+file content, and command arguments retain their meaning. Nonempty values still
+must match the declared type.
+
 The assistant can:
 
 - List and search workspace files (`list_workspace_files`, `search_workspace`; requires `rg`), and read files with `read_file` (required workspace `path`), `read_loaded_buffer` (required loaded ordinary `buffer_id`), or `read_source_buffer` (no target arguments). These tools have disjoint target fields, so never pass both a path and an ID. Unnamed buffers and unsaved new-file buffers can be addressed by ID. `list_buffers` lists only loaded ordinary workspace buffers by default, with a `source` flag; external or unnamed source buffers are hidden unless `include_external = true` explicitly requests all ordinary buffers through approval. Listings accept an optional existing workspace `directory`, filter before pagination, and return `{ files, total_matches, truncated, next_offset }`; paths remain workspace-relative. Searches accept the same `directory`, an optional filename/path `glob` (e.g. `*.lua`, `src/*.lua`, or `!*.lock`; simple Vim glob syntax without brace alternatives), and `context_lines` from 0–20. Globs filter results after ignore rules, so they do not reveal ignored files. Match lines use `path:line:text`, context lines use `path-line-text`; exit code 1 means no matching results. For listings, use `offset = next_offset` to continue. Pages contain at most 200 paths / 20 KB of encoded path data. Searches use disk contents, not unsaved buffers, and skip ignored/binary files, files over 1 MB, and lines over 300 columns. Reads include unsaved buffer contents; clean buffers refresh from disk. Each read tool returns at most 200 lines / 20 KB of encoded line data, with `path`, `buffer_id`, `total_lines`, `modified`, `truncated`, and `next_start_line` for continuation. Explicit ranges have the same bounds; ranges beyond EOF return available lines. Individual lines exceeding the byte limit return an error rather than partial source text.
