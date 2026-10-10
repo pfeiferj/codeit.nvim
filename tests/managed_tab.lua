@@ -54,6 +54,22 @@ assert(default_split.buffer_id == source and #layout.windows() == 2)
 json('close_window', { window_id = default_split.window_id })
 local opened = json('open_window_buffer', { window_id = win, path = 'private.txt', buffer_id = '' })
 assert(not layout.user_visible(opened.buffer_id))
+for _, path in ipairs({ 'private.txt', './private.txt', dir .. '/private.txt' }) do
+  assert(json('open_window_buffer', { window_id = win, path = path, buffer_id = opened.buffer_id }).buffer_id == opened.buffer_id)
+end
+assert(vim.uv.fs_symlink(dir .. '/private.txt', dir .. '/private-link.txt'))
+assert(json('open_window_buffer', { window_id = win, path = 'private-link.txt', buffer_id = opened.buffer_id }).buffer_id == opened.buffer_id)
+local paired_split = json('split_window', { window_id = win, path = 'private.txt', buffer_id = opened.buffer_id })
+assert(paired_split.buffer_id == opened.buffer_id)
+json('close_window', { window_id = paired_split.window_id })
+for _, name in ipairs({ 'open_window_buffer', 'split_window' }) do
+  local mismatch = call(name, { window_id = win, path = 'tracked.txt', buffer_id = opened.buffer_id })
+  assert(mismatch:match('^Error: path and buffer_id must identify the same file'), mismatch)
+  error_call(name, { window_id = win, path = 'private.txt', buffer_id = source })
+  error_call(name, { window_id = win, path = 'private.txt', buffer_id = 999999 })
+  error_call(name, { window_id = win, path = 'missing', buffer_id = opened.buffer_id })
+  assert(layout.buffer(win) == opened.buffer_id and #layout.windows() == 1)
+end
 assert(vim.bo[source].modified and vim.api.nvim_buf_get_lines(source, 0, -1, false)[1] == 'unsaved user text')
 call('read_window_buffer', { window_id = win }, true)
 call('read_loaded_buffer', { buffer_id = opened.buffer_id }, true)

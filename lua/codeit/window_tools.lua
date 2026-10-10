@@ -10,8 +10,8 @@ end
 local window = { type = 'integer', minimum = 1, description = 'File window ID from list_windows; must belong to the Codeit tab' }
 local target = {
   window_id = window,
-  path = { type = 'string', minLength = 1, description = 'Existing workspace file; mutually exclusive with buffer_id' },
-  buffer_id = { type = 'integer', minimum = 1, description = 'Already-loaded ordinary buffer, including unnamed/external buffers; mutually exclusive with path' },
+  path = { type = 'string', minLength = 1, description = 'Existing workspace file; if buffer_id is also given, both must identify the same file' },
+  buffer_id = { type = 'integer', minimum = 1, description = 'Already-loaded ordinary buffer, including unnamed/external buffers; if path is also given, both must identify the same file' },
 }
 M.specs = {
   spec('list_windows', 'List ordinary file windows in the managed Codeit tab (IDs, paths, sizes, modified and user_attached flags). Excludes chat and popups. No buffer text is returned.'),
@@ -32,8 +32,7 @@ M.names = {}
 for _, entry in ipairs(M.specs) do M.names[entry['function'].name] = true end
 
 local function target_buffer(args)
-  if args.path and args.buffer_id then return nil, 'Specify path or buffer_id, not both' end
-  if args.buffer_id then return buffers.target(args) end
+  if args.buffer_id and not args.path then return buffers.target(args) end
   if not args.path then return nil, 'Specify path or buffer_id' end
   if args.path:find('\0', 1, true) then return nil, 'Invalid path' end
   local root = vim.uv.fs_realpath(vim.fn.getcwd())
@@ -42,6 +41,14 @@ local function target_buffer(args)
   local stat = real and vim.uv.fs_stat(real)
   if not root or not real or real:sub(1, #root + 1) ~= root .. '/' or not stat or stat.type ~= 'file' then
     return nil, 'Path must resolve to an existing regular workspace file'
+  end
+  if args.buffer_id then
+    local id, err = buffers.target(args)
+    if not id then return nil, err end
+    if vim.uv.fs_realpath(vim.api.nvim_buf_get_name(id)) ~= real then
+      return nil, 'path and buffer_id must identify the same file'
+    end
+    return id
   end
   local id = vim.fn.bufadd(path)
   -- Loading may run user autocmds; none of their attachments grant user-read trust.
