@@ -83,6 +83,21 @@ call('run_command', { argv = { 'echo', 'review back' } }, { review = function(hi
   cb(history[1].content:find('JSON object', 1, true) and '{"summary":"Prints text.","safe":true}' or 'Yes')
 end })
 assert(result == 'executed')
+local saved_ask, pending_review, review_active, late_answers = prompt_ui.ask_reviewer, nil, nil, 0
+prompt_ui.ask_reviewer = function(_, _, ask, back)
+  ask('Read more context', function() late_answers = late_answers + 1 end)
+  back()
+end
+choices = { 'review', 'once' }
+call('run_command', { argv = { 'echo', 'review pending' } }, { review = function(history, cb, feature, active)
+  if feature == 'tool_assessment' then return cb('{"summary":"Prints text.","safe":true}') end
+  pending_review, review_active = cb, active
+  assert(active())
+end })
+assert(result == 'executed' and not review_active(), 'leaving reviewer must invalidate its pending tool loop')
+pending_review('Late answer')
+assert(late_answers == 0, 'closed reviewer must ignore late responses')
+prompt_ui.ask_reviewer = saved_ask
 -- Trust from a read approval persists for this workspace and auto-approves future reads only.
 local dir = vim.fn.tempname()
 vim.fn.mkdir(dir, 'p')

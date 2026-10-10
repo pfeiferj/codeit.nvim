@@ -117,11 +117,25 @@ plugin.send('Check command')
 selections = { 'review', 'reject' }
 questions = { 'What will happen?', 'Do not run it' }
 tool_reply('run_command', { argv = { 'echo', 'test' } })
-assert(#requests[#requests].specs == 0, 'reviewer must not receive tools')
-assert(requests[#requests].config.model == 'review-model', 'tool assessments use the fast preset')
+assert(#requests[#requests - 1].specs == 0, 'automatic assessments must not receive tools')
+assert(requests[#requests - 1].config.model == 'review-model', 'tool assessments use the fast preset')
 reply({ role = 'assistant', content = '{"summary":"Prints test.","safe":true}' })
-assert(#requests[#requests].specs == 0, 'follow-up reviewer must not receive tools')
+assert(#requests[#requests].specs == 2, 'interactive reviewer must receive only history tools')
+assert(requests[#requests].specs[1]['function'].name == 'read_chat_history')
+assert(requests[#requests].specs[2]['function'].name == 'search_chat_history')
 assert(requests[#requests].config.model == 'review-model', 'interactive reviewer uses the reasoning preset')
+tool_reply('search_chat_history', { query = 'Check command' })
+local review_messages = requests[#requests].messages
+local matches = vim.json.decode(review_messages[#review_messages].content).matches
+assert(#matches == 1 and matches[1].text == 'Check command')
+tool_reply('read_chat_history', { start_line = matches[1].line_number, end_line = matches[1].line_number + 3 })
+review_messages = requests[#requests].messages
+assert(vim.json.decode(review_messages[#review_messages].content).lines[1] == 'Check command')
+-- Unknown reviewer calls must never reach the main executor or create another approval.
+tool_reply('run_command', { argv = { 'echo', 'must not execute' } })
+review_messages = requests[#requests].messages
+assert(review_messages[#review_messages].content:find('unknown reviewer tool', 1, true))
+assert(#selections == 1, 'reviewer calls must not consume approval choices')
 reply({ role = 'assistant', content = 'It prints test.' },
   { cost = 0.000321, prompt_tokens = 40, completion_tokens = 10 })
 reviewer_back()
@@ -134,6 +148,12 @@ reply({ role = 'assistant', content = 'Understood.' },
   { cost = 0, prompt_tokens = 80, completion_tokens = 5 })
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: 0.085k')
 assert(requests[#requests].messages[#requests[#requests].messages].content:find('Do not run it', 1, true))
+for _, message in ipairs(requests[#requests].messages) do
+  for _, call in ipairs(type(message.tool_calls) == 'table' and message.tool_calls or {}) do
+    assert(call['function'].name ~= 'search_chat_history' and call['function'].name ~= 'read_chat_history',
+      'reviewer history tools must not leak into the main transcript')
+  end
+end
 plugin.send('Cancel this task')
 selections = { 'cancel' }
 tool_reply('run_command', { argv = { 'echo', 'cancel' } })

@@ -752,12 +752,12 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
       for i = batch_start - 1, 1, -1 do
         if messages[i].role == 'user' then user_request = messages[i].content; break end
       end
-      local function review(history, callback, feature)
+      local function review(history, callback, feature, review_active)
         local selected_config = request_config(feature or 'tool_review')
-        providers.chat(selected_config, history, {}, function(message, err, usage)
-          if id ~= generation then return end
+        local function active_review() return id == generation and (not review_active or review_active()) end
+        local function respond(message, err)
+          if not active_review() then return end
           if err then return callback(nil, err) end
-          record_usage(usage, false, selected_config.provider)
           local content = message and message.content
           if type(content) == 'table' then
             local parts = {}
@@ -767,7 +767,17 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
             content = table.concat(parts, '\n')
           end
           callback(type(content) == 'string' and content or 'No reviewer response')
-        end)
+        end
+        local function usage(result) record_usage(result, false, selected_config.provider) end
+        if feature == 'tool_assessment' then
+          providers.chat(selected_config, history, {}, function(message, err, result)
+            if id ~= generation then return end
+            if not err then usage(result) end
+            respond(message, err)
+          end)
+        else
+          require('codeit.reviewer_tools').chat(selected_config, history, messages, respond, active_review, usage)
+        end
       end
       local function prepare(path)
         if type(path) == 'string' and path ~= '' and not vim.tbl_contains(context_paths, path) then
