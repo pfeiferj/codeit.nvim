@@ -1246,6 +1246,11 @@ local function summarize_chat(selected_workspace, chat, summary_config, callback
   end)
 end
 
+function M.costs()
+  sync_workspace()
+  return require('codeit.cost_review').show(request_config('cost_review'), workspace)
+end
+
 function M.history()
   sync_workspace()
   local entries = history.list(workspace)
@@ -1366,6 +1371,8 @@ function M.setup(opts)
     { desc = 'Edit the entire effective chat context as JSON', force = true })
   vim.api.nvim_create_user_command('CodeitSystemPrompt', M.system_prompt,
     { desc = 'Edit the system prompt for the current conversation', force = true })
+  vim.api.nvim_create_user_command('CodeitCosts', M.costs,
+    { desc = 'Review saved chat costs and ask questions about usage', force = true })
   vim.api.nvim_create_user_command('CodeitHistory', M.history,
     { desc = 'Browse and resume saved chats for this workspace', force = true })
   vim.api.nvim_create_user_command('CodeitTrust', function(args)

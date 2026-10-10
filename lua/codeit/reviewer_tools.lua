@@ -87,16 +87,19 @@ function M.new(messages)
   end }
 end
 
-function M.chat(config, history, transcript, callback, active, record_usage)
-  local tools = M.new(transcript)
+function M.chat(config, history, transcript, callback, active, record_usage, toolset)
+  local tools = toolset or M.new(transcript)
+  local specs = toolset and toolset.specs or M.specs
   local rounds, calls_used = 0, 0
   local request
   request = function()
     if not active() then return end
-    require('codeit.providers').chat(config, history, M.specs, function(message, err, usage)
+    require('codeit.providers').chat(config, history, specs, function(message, err, usage)
+      -- Standalone review sessions account for an in-flight charge even after closing.
+      if toolset and (usage or not err) then record_usage(usage) end
       if not active() then return end
       if err then return callback(nil, err) end
-      record_usage(usage)
+      if not toolset then record_usage(usage) end
       local calls = message and message.tool_calls
       if calls ~= nil and calls ~= vim.NIL and (type(calls) ~= 'table' or not vim.islist(calls)) then
         return callback(nil, 'Malformed reviewer tool calls')

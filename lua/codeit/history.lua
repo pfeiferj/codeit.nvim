@@ -152,4 +152,42 @@ function M.list(workspace)
   return entries
 end
 
+-- Discover workspaces from validated chat files; directory names alone are hashes.
+function M.list_all()
+  local root = vim.fn.stdpath('data') .. '/codeit/chats'
+  local result, seen = {}, {}
+  local dirs = vim.uv.fs_scandir(root)
+  if not dirs then return result end
+  while true do
+    local dir, kind = vim.uv.fs_scandir_next(dirs)
+    if not dir then break end
+    if kind == 'directory' then
+      local files = vim.uv.fs_scandir(root .. '/' .. dir)
+      while files do
+        local name, file_kind = vim.uv.fs_scandir_next(files)
+        if not name then break end
+        if file_kind == 'file' and name:match('^[%w%-]+%.json$') then
+          local file = io.open(root .. '/' .. dir .. '/' .. name, 'r')
+          if file then
+            local text = file:read('*a')
+            file:close()
+            local ok, chat = pcall(vim.json.decode, text)
+            local workspace = ok and type(chat) == 'table' and chat.workspace
+            if type(workspace) == 'string' and vim.fn.sha256(workspace) == dir and not seen[workspace] then
+              seen[workspace] = true
+              vim.list_extend(result, M.list(workspace))
+              break
+            end
+          end
+        end
+      end
+    end
+  end
+  table.sort(result, function(a, b)
+    if a.workspace ~= b.workspace then return a.workspace < b.workspace end
+    return a.id < b.id
+  end)
+  return result
+end
+
 return M
