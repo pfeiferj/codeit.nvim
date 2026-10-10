@@ -485,9 +485,21 @@ function M.render(messages, status, provider, model, billing, command_results, c
         end
       end
       for _, call in ipairs(message.tool_calls or {}) do
-        local name = call['function'] and call['function'].name or 'unknown tool'
+        local fn = call['function'] or {}
+        local name = fn.name or 'unknown tool'
         if call.id then tool_names[call.id] = name end
         table.insert(lines, '*Calling `' .. name .. '`…*')
+        local input = fn.arguments
+        if type(input) == 'string' and input ~= '' then
+          local ok, decoded = pcall(vim.json.decode, input)
+          if ok then input = require('codeit.approval_format').pretty_json(decoded) end
+          table.insert(lines, '')
+          local fenced = markdown.fence(input, ok and 'json' or 'text')
+          local first = #lines + 1
+          vim.list_extend(lines, fenced)
+          tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = call,
+            preview = fenced[2], padding = 1 }
+        end
       end
       table.insert(lines, '')
     end

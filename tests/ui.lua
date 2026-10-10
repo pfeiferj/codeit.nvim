@@ -214,7 +214,7 @@ for _, status in ipairs({ '', false }) do
 end
 ui.render({
   { role = 'assistant', content = vim.NIL, tool_calls = {
-    { id = 'call_hash_1', ['function'] = { name = 'read_file', arguments = '{}' } },
+    { id = 'call_hash_1', ['function'] = { name = 'read_file', arguments = '{"path":"src/main.lua","start_line":2}' } },
     { id = 'call_hash_2', ['function'] = { name = 'git_diff', arguments = '{}' } },
   } },
   { role = 'tool', tool_call_id = 'call_hash_2', content = 'diff' },
@@ -222,10 +222,48 @@ ui.render({
   { role = 'tool', tool_call_id = 'unmatched', content = 'other' },
 }, 'Ready', 'copilot', 'model-b', nil)
 local transcript = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
+assert(transcript:find('*Calling `read_file`…*\n\n```json\n{\n  "path": "src/main.lua",\n  "start_line": 2\n}\n```', 1, true),
+  'tool inputs should be shown as readable JSON beneath each call')
+assert(transcript:find('*Calling `git_diff`…*\n\n```json\n{}\n```', 1, true),
+  'empty tool inputs should still be shown')
 assert(transcript:find('**Tool: git_diff**\n\n```diff\ndiff\n```', 1, true))
 assert(transcript:find('**Tool: read_file**\n\n```text\nfile\n```', 1, true))
 assert(transcript:find('**Tool: unmatched**\n\n```text\nother\n```', 1, true), 'unmatched results retain their ID')
 assert(not transcript:find('**Tool: call_hash_', 1, true), 'matched results should not show call hashes')
+
+local input_call = { id = 'input_call', ['function'] = {
+  name = 'edit_file', arguments = '{"path":"src/main.lua","edits":[{"old_text":"before","new_text":"after"}]}' },
+}
+local input_message = { role = 'assistant', tool_calls = { input_call,
+  { ['function'] = { name = 'partial', arguments = '{"text":"```\nunfinished' } },
+  { ['function'] = { name = 'missing' } },
+  { ['function'] = { name = 'empty', arguments = '' } },
+  {},
+} }
+local original_arguments = input_call['function'].arguments
+ui.render({ input_message }, 'Working', 'copilot', 'model-b', nil)
+local input_lines = vim.api.nvim_buf_get_lines(chat, 0, -1, false)
+local input_text = table.concat(input_lines, '\n')
+assert(input_text:find('*Calling `partial`…*\n\n````text\n{"text":"```\nunfinished\n````', 1, true),
+  'partial inputs should remain literal and safely fenced')
+assert(input_text:find('*Calling `missing`…*', 1, true))
+assert(input_text:find('*Calling `empty`…*', 1, true))
+assert(input_text:find('*Calling `unknown tool`…*', 1, true))
+assert(input_call['function'].arguments == original_arguments, 'input formatting must not mutate messages')
+assert(table.concat(ui.chat_lines(), '\n'):find('"new_text": "after"', 1, true),
+  'read-only transcripts should include tool inputs')
+local input_fold
+for row, line in ipairs(input_lines) do
+  if line == '```json' then input_fold = row; break end
+end
+vim.api.nvim_win_call(win, function()
+  assert(vim.fn.foldclosed(input_fold) == input_fold, 'long inputs should start collapsed')
+  vim.api.nvim_win_set_cursor(win, { input_fold, 0 })
+  vim.cmd('normal! za')
+  assert(vim.fn.foldclosed(input_fold) == -1, 'tool inputs should be expandable')
+end)
+ui.render({ input_message }, 'Working', 'copilot', 'model-b', nil)
+assert(vim.fn.foldclosed(input_fold) == -1, 'expanded inputs should survive streamed renders')
 
 local command_output = 'if true; then echo "$HOME"; fi'
 local json_output = '{"enabled": true}'
