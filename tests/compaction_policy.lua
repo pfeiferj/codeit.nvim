@@ -4,7 +4,7 @@ vim.fn.mkdir(temp, 'p')
 vim.fn.chdir(temp)
 local history = require('codeit.history')
 local requests, callbacks, metadata = {}, {}, {}
-local feature_limit
+local feature_limit, long_limit, pending_metadata
 package.loaded['codeit.providers'] = {
   chat = function(config, messages, specs, callback)
     requests[#requests + 1] = { config = vim.deepcopy(config), messages = vim.deepcopy(messages), specs = specs }
@@ -12,7 +12,13 @@ package.loaded['codeit.providers'] = {
   end,
   context_limit = function(config, callback)
     metadata[#metadata + 1] = config.model
-    callback(feature_limit)
+    if pending_metadata and config.model == 'long-model' then
+      pending_metadata.callback = callback
+    elseif config.model == 'long-model' then
+      callback(long_limit)
+    else
+      callback(feature_limit)
+    end
   end,
 }
 local tools = require('codeit.tools')
@@ -22,7 +28,7 @@ require('codeit.approval').prefetch = function() return nil end
 tools.execute = function(_, _, _, callback) callback('ok') end
 local plugin = require('codeit')
 local function setup(extra)
-  feature_limit = nil
+  feature_limit, long_limit, pending_metadata = nil, nil, nil
   schemas = { { type = 'function' } }
   plugin.setup(vim.tbl_deep_extend('force', { system_prompt = 'system', context_review = false,
     max_context_tokens = false, feature_settings = { compaction = { model = 'compact' } } }, extra or {}))
@@ -118,6 +124,80 @@ before = #requests
 plugin.compact(true)
 assert(#requests == before and saved().context_summary == nil)
 assert(plugin.context_stats().compactions[1].passes == 0)
+-- Oversized compaction turns fail over only when the long-context preset fits.
+local long_preset = { provider = 'copilot', model = 'long-model',
+  options = { api_host = 'api.business.githubcopilot.com' } }
+setup({ model_presets = { long_context = long_preset } })
+turn(string.rep('q', 10000))
+feature_limit, long_limit = 1100, 10000
+before = #requests
+plugin.compact(true)
+assert(#requests == before + 1 and requests[#requests].config.model == 'long-model')
+assert(requests[#requests].config.provider == 'copilot')
+assert(requests[#requests].config.options.api_host == long_preset.options.api_host)
+reply('Large turn state.')
+assert(saved().context_summary == 'Large turn state.' and saved().compacted_until == 3)
+-- A later oversized batch retains the earlier summary and commits atomically.
+setup({ model_presets = { long_context = long_preset } })
+turn(string.rep('q', 1300), string.rep('a', 700))
+turn(string.rep('q', 10000))
+feature_limit, long_limit = 1100, 10000
+plugin.compact(true)
+assert(requests[#requests].config.model == 'compact')
+reply('First batch state.')
+assert(requests[#requests].config.model == 'long-model' and saved().context_summary == nil)
+assert(requests[#requests].messages[2].content:find('Previous summary:\nFirst batch state.', 1, true))
+reply('Combined state.')
+assert(saved().compacted_until == 5 and plugin.context_stats().compactions[1].passes == 2)
+for _, fallback_limit in ipairs({ false, 1100 }) do
+  setup({ model_presets = { long_context = long_preset } })
+  turn(string.rep('q', 10000))
+  feature_limit, long_limit = 1100, fallback_limit or nil
+  before = #requests
+  plugin.compact(true)
+  assert(#requests == before and saved().context_summary == nil)
+end
+-- Remaining active context uses the preset for this user/tool turn only.
+setup({ max_context_tokens = 1000, model_presets = { long_context = long_preset } })
+long_limit = 10000
+plugin.send(string.rep('active', 1000))
+assert(requests[#requests].config.model == 'long-model' and requests[#requests].specs ~= 0)
+callbacks[#callbacks]({ content = vim.NIL, tool_calls = { call('fallback-tool') } })
+assert(requests[#requests].config.model == 'long-model')
+reply('done')
+plugin.compact(true)
+reply('Small prior state.')
+plugin.send('small new turn')
+assert(requests[#requests].config.model == 'openai/gpt-4o-mini', 'failover must not change the main model')
+reply('done')
+-- Unavailable/insufficient metadata keeps the original best-effort request.
+for _, fallback_limit in ipairs({ false, 1000 }) do
+  setup({ max_context_tokens = 1000, model_presets = { long_context = long_preset } })
+  long_limit = fallback_limit or nil
+  plugin.send(string.rep('active', 1000))
+  assert(requests[#requests].config.model == 'openai/gpt-4o-mini')
+  reply('done')
+end
+-- Cancelled asynchronous lookups must not start fallback requests.
+setup({ max_context_tokens = 1000, model_presets = { long_context = long_preset } })
+pending_metadata = {}
+before = #requests
+plugin.send(string.rep('active', 1000))
+local stale_callback = pending_metadata.callback
+assert(stale_callback and #requests == before)
+plugin.new()
+stale_callback(10000)
+assert(#requests == before)
+setup({ model_presets = { long_context = long_preset } })
+turn(string.rep('q', 10000))
+feature_limit, pending_metadata = 1100, {}
+before = #requests
+plugin.compact(true)
+stale_callback = pending_metadata.callback
+assert(stale_callback and #requests == before)
+plugin.new()
+stale_callback(10000)
+assert(#requests == before)
 -- Tool schemas are included even when transcript growth is small.
 setup({ max_context_tokens = 1000 })
 turn(string.rep('q', 300))

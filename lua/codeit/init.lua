@@ -530,6 +530,7 @@ local function compact_through(checkpoint, id, done, main_limit)
     save()
     done(err and ('Could not compact context: ' .. tostring(err)) or nil)
   end
+  local fallback_checked = false
   local function run(limit)
     if not active() then return end
     if limit then target = math.min(target, math.max(1, math.floor(limit * 0.15))) end
@@ -546,7 +547,29 @@ local function compact_through(checkpoint, id, done, main_limit)
         transcript = candidate
         position = position + 1
       end
-      if position == first then return finish('a completed turn exceeds the compaction model input budget') end
+      if position == first then
+        local err = 'a completed turn exceeds the compaction model input budget'
+        local fallback = settings.preset_config(config, 'long_context', model())
+        if fallback_checked or (selected_config.provider == fallback.provider and selected_config.model == fallback.model
+          and vim.deep_equal(selected_config.options, fallback.options))
+          or type(providers.context_limit) ~= 'function' then return finish(err) end
+        fallback_checked = true
+        set_status('Checking long context model budget…')
+        return providers.context_limit(fallback, function(fallback_limit)
+          if not active() then return end
+          -- Unknown metadata is not evidence that the fallback can fit.
+          if not fallback_limit then return finish(err) end
+          local fallback_target = math.min(target, math.max(1, math.floor(fallback_limit * 0.15)))
+          local fallback_prompt = { role = 'system', content = compaction.prompt(fallback_target) }
+          local candidate = transcript .. groups[position] .. '\n'
+          local fallback_budget = math.max(1, math.floor(fallback_limit * 0.95 - math.ceil(fallback_target * 1.25)))
+          if message_tokens(fallback_prompt) + message_tokens({ role = 'user', content = candidate }) > fallback_budget then
+            return finish(err)
+          end
+          selected_config = fallback
+          run(fallback_limit)
+        end)
+      end
       passes = passes + 1
       set_status('Compacting context…')
       selected_config.max_output_tokens = output_cap
@@ -612,7 +635,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
     if workspace ~= history.workspace() then sync_workspace(); render(); return false end
     return true
   end
-  if not skip_auto and config.max_context_tokens == nil and not limit_checked
+  if not skip_auto and not budget.long_context and config.max_context_tokens == nil and not limit_checked
     and type(providers.context_limit) == 'function' then
     return providers.context_limit(request_config(), function(limit, err)
       if id ~= generation then return end
@@ -621,7 +644,8 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
     end)
   end
   local specs = budget.declined and {} or tools.request_specs(workspace, approval.workspace_trust(workspace))
-  local limit = config.max_context_tokens == nil and detected_limit or config.max_context_tokens
+  local limit = budget.long_context_limit or (config.max_context_tokens == nil and detected_limit or config.max_context_tokens)
+  local selected_config = budget.long_context or request_config()
   if not skip_auto then
     local checkpoint = auto_compact_checkpoint(limit, specs)
     if checkpoint then
@@ -635,16 +659,29 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
     local total = message_tokens(specs)
     for _, message in ipairs(request_messages()) do total = total + message_tokens(message) end
     if total >= compaction.input_budget(config.compaction, limit) then
+      local fallback = settings.preset_config(config, 'long_context', model())
+      if not budget.long_context and not budget.fallback_checked and not vim.deep_equal(selected_config, fallback)
+        and type(providers.context_limit) == 'function' then
+        budget.fallback_checked = true
+        set_status('Checking long context model budget…')
+        return providers.context_limit(fallback, function(fallback_limit)
+          if not active() then return end
+          if fallback_limit and total < compaction.input_budget(config.compaction, fallback_limit) then
+            budget.long_context, budget.long_context_limit = fallback, fallback_limit
+          end
+          request(round, id, true, limit, true, budget)
+        end)
+      end
       vim.notify('codeit: context exceeds the safe prompt budget; fixed instructions or the active turn cannot be compacted', vim.log.levels.WARN)
     end
   end
-  set_status('Waiting for ' .. config.provider .. '…')
+  set_status('Waiting for ' .. selected_config.provider .. '…')
   local advertised = vim.json.encode(context_files.messages(workspace, approval.workspace_trust(workspace),
     context_paths, selected_skills))
-  providers.chat(request_config(), request_messages(), specs, function(message, err, usage)
+  providers.chat(selected_config, request_messages(), specs, function(message, err, usage)
     if not active() then return end
     if err then return fail(err) end
-    record_usage(usage, true)
+    record_usage(usage, true, selected_config.provider)
     local calls = message.tool_calls
     if type(calls) == 'table' then
       local seen = {}
