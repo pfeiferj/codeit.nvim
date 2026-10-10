@@ -13,6 +13,7 @@ local messages = { { role = 'user', content = 'Earlier request' },
   { role = 'assistant', content = 'Earlier explanation' },
   { role = 'tool', content = table.concat({ 'Tool output', 'two', 'three', 'four', 'five', 'six', 'seven' }, '\n'),
     name = 'read_file' },
+  { role = 'tool', content = 'Wrapped output ' .. string.rep('wide 界\t', 200), name = 'read_file' },
   { role = 'user', content = 'Current request' } }
 ui.render(messages, '', 'test', 'test', nil,
   { { after_message = 0, command = 'CodeitTrustStatus', output = 'Trust result' } })
@@ -28,7 +29,7 @@ press(win, '<C-g>')
 local chat = vim.api.nvim_get_current_win()
 local chat_buf = vim.api.nvim_win_get_buf(chat)
 assert(chat ~= win and vim.api.nvim_win_is_valid(win) and calls == 0)
-assert(not vim.bo[chat_buf].modifiable and vim.bo[chat_buf].filetype == 'markdown')
+assert(not vim.bo[chat_buf].modifiable and vim.bo[chat_buf].filetype == 'codeit')
 local text = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), '\n')
 for _, expected in ipairs({ 'Earlier request', 'Earlier explanation', 'Tool output', 'Current request', 'Trust result' }) do
   assert(text:find(expected, 1, true), expected)
@@ -52,6 +53,11 @@ for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do
   if line == '```text' then tool_row = row; break end
 end
 assert(tool_row and vim.fn.foldclosed(tool_row) == tool_row, 'read-only previews should fold long tool results')
+for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do
+  if line:find('Wrapped output ', 1, true) == 1 then
+    assert(vim.fn.foldclosed(row) == row - 1, 'read-only previews should fold wrapped single-line output')
+  end
+end
 assert(vim.fn.foldtextresult(tool_row):find('Tool output', 1, true))
 vim.api.nvim_win_set_cursor(chat, { tool_row, 0 })
 vim.cmd('normal! za')

@@ -19,7 +19,7 @@ local win = vim.api.nvim_get_current_win()
 local config = vim.api.nvim_win_get_config(win)
 assert(config.relative == 'editor' and config.width == vim.o.columns - 4)
 assert(config.height == vim.o.lines - 6)
-assert(text():find(question, 1, true) and vim.bo.filetype == 'markdown')
+assert(text():find(question, 1, true) and vim.bo.filetype == 'codeit')
 press('<CR>')
 assert(calls == 0, 'empty answers should not submit')
 local row = vim.api.nvim_win_get_cursor(win)[1]

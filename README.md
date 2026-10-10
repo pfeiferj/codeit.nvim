@@ -1,7 +1,7 @@
 # codeit.nvim
 
 A Neovim chat assistant with OpenRouter and experimental GitHub Copilot support.
-Chat in a Markdown sidebar, let the assistant inspect and edit your workspace with
+Chat in a Codeit sidebar, let the assistant inspect and edit your workspace with
 approval, and resume conversations from local history.
 
 ## Contents
@@ -51,6 +51,14 @@ approval, and resume conversations from local history.
 
 Closing the sidebar keeps the conversation. Use `:CodeitNew` for a fresh chat or
 `:CodeitHistory` to resume an earlier one.
+
+UI buffers use the `codeit` filetype with built-in Markdown-like highlighting,
+independent of Markdown plugins and Tree-sitter parsers. Language-labelled fenced
+code blocks use Neovim's installed syntax files (including `json`, `bash`/`sh`,
+and `python`/`py`); new blocks are recognized while responses stream. Unlabelled
+or unknown-language blocks and raw tool output stay literal. Highlight groups
+such as `CodeitHeading`, `CodeitFence`, `CodeitInlineCode`, and `CodeitCodeBlock`
+can be customized with `nvim_set_hl`; they link to standard theme groups by default.
 
 <details>
 <summary>Optional setup settings</summary>

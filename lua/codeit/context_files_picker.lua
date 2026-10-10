@@ -10,7 +10,7 @@ function M.show(workspace, list, toggle)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(buf, 'codeit://context-files')
   vim.bo[buf].bufhidden = 'wipe'
-  vim.bo[buf].filetype = 'markdown'
+  require('codeit.markdown').enable(buf)
   local width = math.max(1, vim.o.columns - 4)
   local height = math.max(1, vim.o.lines - 6)
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end

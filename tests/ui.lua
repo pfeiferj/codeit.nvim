@@ -12,8 +12,8 @@ assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, 0, -1, false), { '## Mess
   'new chats should have a blank line between the heading and draft')
 assert(vim.fn.bufnr('codeit://input') == -1, 'chat must have no separate input buffer')
 assert(#vim.api.nvim_list_wins() == 2, 'chat must use only one sidebar window')
-assert(vim.bo[chat].filetype == 'markdown' and vim.bo[chat].syntax == 'markdown')
-assert(vim.b[chat].current_syntax == 'markdown', 'Markdown syntax should be loaded')
+assert(vim.bo[chat].filetype == 'codeit' and vim.bo[chat].syntax == 'codeit')
+assert(vim.b[chat].current_syntax == 'codeit', 'Codeit syntax should be loaded')
 assert(vim.wo[win].wrap and vim.wo[win].linebreak, 'sidebar prose should wrap at word boundaries')
 local ns = vim.api.nvim_get_namespaces().codeit_chat_ui
 assert(ns)
@@ -78,6 +78,22 @@ local function hint()
   error('missing draft hint')
 end
 
+local function hint_lines()
+  local lines, count = nil, 0
+  for _, mark in ipairs(marks()) do
+    if mark[4].virt_lines then
+      lines, count = mark[4].virt_lines, count + 1
+    end
+  end
+  assert(count == 1, 'refreshing the hint must not accumulate virtual lines')
+  local text = {}
+  for _, line in ipairs(lines) do
+    assert(line[1][2] == 'Comment')
+    text[#text + 1] = line[1][1]
+  end
+  return text
+end
+
 local function scroll(topline)
   vim.api.nvim_win_call(win, function() vim.fn.winrestview({ topline = topline }) end)
   vim.api.nvim_exec_autocmds('WinScrolled', { pattern = tostring(win) })
@@ -120,6 +136,57 @@ for _, mark in ipairs(marks()) do
     assert(not mark[4].virt_lines_above, 'draft information should appear below the heading')
   end
 end
+
+local long_status = 'Working on 界面 é ' .. string.rep('界', 30) .. ' ' .. string.rep('x', 90)
+local send_hint = 'Ctrl-S: send · Enter: newline (insert mode) · normal Enter: send'
+local busy_hint = 'Sending unavailable while busy · Your draft is kept'
+local function check_wrapped(expected, windows)
+  local lines = hint_lines()
+  assert(#lines > 1, 'long status should wrap into multiple virtual lines')
+  for _, window in ipairs(windows) do
+    local width = vim.api.nvim_win_get_width(window) - vim.fn.getwininfo(window)[1].textoff
+    for _, line in ipairs(lines) do
+      assert(vim.fn.strdisplaywidth(line) <= width, 'virtual status must fit the text area')
+    end
+  end
+  assert(table.concat(lines):gsub('%s', '') == expected:gsub('%s', ''),
+    'wrapping must preserve status and instructions, including Unicode and long words')
+  return #lines
+end
+ui.render(messages, long_status, 'copilot', 'model-b')
+local before_resize = vim.api.nvim_buf_get_lines(chat, 0, -1, false)
+local before_cursor = vim.api.nvim_win_get_cursor(win)
+vim.api.nvim_win_set_width(win, 24)
+vim.api.nvim_exec_autocmds('WinResized', {})
+local narrow_lines = check_wrapped(long_status .. ' · ' .. send_hint, { win })
+vim.wo[win].number = true
+vim.wo[win].foldcolumn = '2'
+vim.api.nvim_exec_autocmds('WinResized', {})
+check_wrapped(long_status .. ' · ' .. send_hint, { win })
+vim.wo[win].number = false
+vim.wo[win].foldcolumn = '0'
+vim.api.nvim_win_set_width(win, 80)
+vim.api.nvim_exec_autocmds('WinResized', {})
+assert(check_wrapped(long_status .. ' · ' .. send_hint, { win }) < narrow_lines,
+  'widening the window should reflow the hint')
+vim.api.nvim_exec_autocmds('VimResized', {})
+check_wrapped(long_status .. ' · ' .. send_hint, { win })
+assert(vim.deep_equal(before_resize, vim.api.nvim_buf_get_lines(chat, 0, -1, false)),
+  'reflow must not change the transcript or draft')
+assert(vim.deep_equal(before_cursor, vim.api.nvim_win_get_cursor(win)),
+  'reflow must not move the cursor')
+ui.toggle_popup()
+local hint_popup = vim.api.nvim_get_current_win()
+check_wrapped(long_status .. ' · ' .. send_hint, { win, hint_popup })
+vim.api.nvim_win_set_width(win, 30)
+vim.api.nvim_exec_autocmds('WinResized', {})
+check_wrapped(long_status .. ' · ' .. send_hint, { win, hint_popup })
+ui.render(messages, long_status, 'copilot', 'model-b', nil, nil, false)
+check_wrapped(long_status .. ' · ' .. busy_hint, { win, hint_popup })
+ui.toggle_popup()
+check_wrapped(long_status .. ' · ' .. busy_hint, { win })
+vim.api.nvim_win_set_width(win, 80)
+ui.render(messages, 'Ready', 'copilot', 'model-b')
 
 local count = vim.api.nvim_buf_line_count(chat)
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, count - 3, count, false), { '## Message', '', '' }),
@@ -190,12 +257,12 @@ vim.api.nvim_win_call(win, function()
     end
     error('missing line ' .. text)
   end
-  assert(syntax_at('# Heading inside output') == 'markdownCodeBlock', 'tool Markdown must stay literal')
-  assert(syntax_at('   `````') == 'markdownCodeBlock', 'embedded fences must not close the wrapper')
-  assert(syntax_at('**unfinished emphasis') == 'markdownCodeBlock')
+  assert(syntax_at('# Heading inside output') == 'CodeitCodeBlock', 'tool Markdown must stay literal')
+  assert(syntax_at('   `````') == 'CodeitCodeBlock', 'embedded fences must not close the wrapper')
+  assert(syntax_at('**unfinished emphasis') == 'CodeitCodeBlock')
   assert(syntax_at('# After tool output') == syntax_at('# Codeit (openrouter: model-a)'),
     'Markdown heading highlighting must recover after the tool block')
-  assert(syntax_at('## Message') == 'markdownH2Delimiter',
+  assert(syntax_at('## Message') == 'CodeitHeading',
     'draft heading must remain outside code blocks')
 end)
 
@@ -245,6 +312,51 @@ for row, line in ipairs(command_lines) do
 end
 assert(table.concat(ui.chat_lines(), '\n'):find(command_output, 1, true),
   'folding must retain full output in read-only transcripts')
+-- Folding uses screen rows, including single-line output that wraps.
+local text_width = vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff
+local wrapped_message = { role = 'tool', content = string.rep('x', text_width * 6) }
+local function wrapped_row(text)
+  for row, line in ipairs(vim.api.nvim_buf_get_lines(chat, 0, -1, false)) do
+    if line == text then return row end
+  end
+  error('missing wrapped output')
+end
+ui.render({ wrapped_message }, 'Ready', 'test', 'test')
+local wrapped_start = wrapped_row(wrapped_message.content) - 1
+assert(vim.fn.foldlevel(wrapped_start) == 0, 'six visual output rows should stay unfolded')
+wrapped_message.content = wrapped_message.content .. 'x'
+ui.render({ wrapped_message }, 'Ready', 'test', 'test')
+wrapped_start = wrapped_row(wrapped_message.content) - 1
+assert(vim.fn.foldclosed(wrapped_start) == wrapped_start, 'seven wrapped rows should collapse')
+assert(vim.fn.foldtextresult(wrapped_start):find('7 lines · za: expand', 1, true))
+ui.render({ wrapped_message }, 'Working', 'test', 'test')
+assert(vim.fn.foldclosed(wrapped_start) == wrapped_start, 'collapsed wrapped output must survive renders')
+vim.api.nvim_win_set_cursor(win, { wrapped_start, 0 })
+vim.cmd('normal! za')
+ui.render({ wrapped_message }, 'Working', 'test', 'test')
+assert(vim.fn.foldclosed(wrapped_start) == -1, 'expanded wrapped output must survive renders')
+ui.toggle_popup()
+assert(vim.fn.foldlevel(wrapped_start) == 0, 'wider popups should use their own visual height')
+ui.toggle_popup()
+assert(vim.fn.foldclosed(wrapped_start) == wrapped_start, 'narrow sidebars should fold wrapped output again')
+vim.api.nvim_win_set_width(win, 40)
+vim.api.nvim_exec_autocmds('WinResized', {})
+assert(vim.fn.foldtextresult(wrapped_start):find('13 lines · za: expand', 1, true))
+vim.api.nvim_win_set_width(win, 120)
+vim.api.nvim_exec_autocmds('WinResized', {})
+assert(vim.fn.foldlevel(wrapped_start) == 0, 'resizing wider should remove short visual folds')
+vim.api.nvim_win_set_width(win, 80)
+vim.api.nvim_exec_autocmds('WinResized', {})
+assert(vim.fn.foldclosed(wrapped_start) == wrapped_start, 'resizing narrower should create collapsed folds')
+local wrapped_command = string.rep('x', text_width * 6 + 1)
+ui.render({}, 'Ready', 'test', 'test', nil,
+  { { after_message = 0, command = '/contextFull', output = wrapped_command } })
+local command_row = wrapped_row(wrapped_command)
+assert(vim.fn.foldclosed(command_row) == command_row, 'single-line command results should fold by visual height')
+vim.api.nvim_win_set_cursor(win, { command_row, 0 })
+vim.cmd('normal! za')
+assert(vim.fn.foldclosed(command_row) == -1, 'single-line folds must remain expandable')
+
 local groups = {}
 ui.render(updated_messages, 'Ready', 'copilot', 'model-b', nil)
 for _, mark in ipairs(marks()) do

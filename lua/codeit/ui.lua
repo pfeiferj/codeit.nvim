@@ -12,6 +12,7 @@ local tool_folds = {}
 local role_marks = {}
 local can_send_message = true
 local draft_status
+local draft_hint_id
 for group, link in pairs({ CodeitUser = 'Special', CodeitAssistant = 'Title', CodeitTool = 'Comment' }) do
   vim.api.nvim_set_hl(0, group, { default = true, link = link })
 end
@@ -63,18 +64,49 @@ local function update_header()
   end
 end
 
+local function wrap_hint(text, width)
+  local lines, line = {}, ''
+  for word in text:gmatch('%S+') do
+    local candidate = line == '' and word or (line .. ' ' .. word)
+    if vim.fn.strdisplaywidth(candidate) <= width then
+      line = candidate
+    else
+      if line ~= '' then lines[#lines + 1], line = { { line, 'Comment' } }, '' end
+      for index = 0, vim.fn.strchars(word, true) - 1 do
+        local char = vim.fn.strcharpart(word, index, 1, true)
+        if line ~= '' and vim.fn.strdisplaywidth(line .. char) > width then
+          lines[#lines + 1], line = { { line, 'Comment' } }, ''
+        end
+        line = line .. char
+      end
+    end
+  end
+  if line ~= '' then lines[#lines + 1] = { { line, 'Comment' } } end
+  return lines
+end
+
 local function draft_hint()
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
+  local width
+  -- Virtual lines are buffer-wide, so they must fit both the sidebar and popup.
+  for _, win in ipairs({ transcript_win, sidebar_win }) do
+    if vim.api.nvim_win_is_valid(win) then
+      local available = math.max(1, vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff)
+      width = math.min(width or available, available)
+    end
+  end
+  if not width then return end
   local hint = can_send_message and 'Ctrl-S: send · Enter: newline (insert mode) · normal Enter: send'
     or 'Sending unavailable while busy · Your draft is kept'
   if draft_status and draft_status ~= '' then hint = draft_status .. ' · ' .. hint end
-  vim.api.nvim_buf_set_extmark(transcript, ui_ns, draft_start - 2, 0, {
-    virt_lines = { { { hint, 'Comment' } } },
+  draft_hint_id = vim.api.nvim_buf_set_extmark(transcript, ui_ns, draft_start - 2, 0, {
+    id = draft_hint_id,
+    virt_lines = wrap_hint(hint, width),
   })
 end
 
 function M.tool_foldtext()
-  local summary = (vim.b.codeit_fold_summaries or {})[tostring(vim.v.foldstart)]
+  local summary = (vim.w.codeit_fold_summaries or {})[tostring(vim.v.foldstart)]
   if not summary then return vim.fn.getline(vim.v.foldstart) end
   local suffix = ' … (' .. summary.count .. ' lines · za: expand)'
   local preview = summary.preview:gsub('\t', ' ')
@@ -90,10 +122,6 @@ end
 function M.decorate_chat(win, expanded)
   local buf = vim.api.nvim_win_get_buf(win)
   local summaries = {}
-  for _, fold in ipairs(tool_folds) do
-    summaries[tostring(fold.first)] = { preview = fold.preview, count = fold.count }
-  end
-  vim.b[buf].codeit_fold_summaries = summaries
   vim.wo[win].foldmethod = 'manual'
   vim.wo[win].foldenable = true
   vim.wo[win].foldlevel = 0
@@ -103,12 +131,23 @@ function M.decorate_chat(win, expanded)
     local view = vim.fn.winsaveview()
     vim.cmd('silent! normal! zE')
     for _, fold in ipairs(tool_folds) do
-      vim.cmd(fold.first .. ',' .. fold.last .. 'fold')
-      if expanded and expanded[fold.key] then vim.cmd(fold.first .. 'foldopen') end
+      -- Measure unfolded content in this window, excluding the Markdown fences.
+      local height = vim.api.nvim_win_text_height(win, {
+        start_row = fold.first - 1 + fold.padding,
+        end_row = fold.last - 1 - fold.padding,
+      })
+      local count = height.all - height.fill
+      if count > 6 then
+        summaries[tostring(fold.first)] = { preview = fold.preview, count = count }
+        vim.cmd(fold.first .. ',' .. fold.last .. 'fold')
+        if expanded and expanded[fold.key] then vim.cmd(fold.first .. 'foldopen') end
+      end
     end
+    vim.w[win].codeit_fold_summaries = summaries
     vim.fn.winrestview(view)
   end)
   vim.api.nvim_buf_clear_namespace(buf, ui_ns, 0, -1)
+  if buf == transcript then draft_hint_id = nil end
   for _, mark in ipairs(role_marks) do
     vim.api.nvim_buf_set_extmark(buf, ui_ns, mark.row, 0, {
       end_col = #mark.text, hl_group = mark.group, priority = 200,
@@ -144,7 +183,9 @@ local function expanded_folds(win)
   if win and vim.api.nvim_win_is_valid(win) then
     vim.api.nvim_win_call(win, function()
       for _, fold in ipairs(tool_folds) do
-        if vim.fn.foldclosed(fold.first) == -1 then expanded[fold.key] = true end
+        if vim.fn.foldlevel(fold.first) > 0 and vim.fn.foldclosed(fold.first) == -1 then
+          expanded[fold.key] = true
+        end
       end
     end)
   end
@@ -223,12 +264,27 @@ function M.toggle_popup()
   update_header()
 end
 
+local function refresh_chat_folds()
+  for _, win in ipairs({ transcript_win, sidebar_win }) do
+    if valid(win) then M.decorate_chat(win, expanded_folds(win)) end
+  end
+end
+
 vim.api.nvim_create_autocmd('VimResized', {
   callback = function()
     if sidebar_win and valid(transcript_win) then
       vim.api.nvim_win_set_config(transcript_win, popup_config())
       update_header()
     end
+    refresh_chat_folds()
+    draft_hint()
+  end,
+})
+
+vim.api.nvim_create_autocmd('WinResized', {
+  callback = function()
+    refresh_chat_folds()
+    draft_hint()
   end,
 })
 
@@ -376,10 +432,8 @@ function M.render(messages, status, provider, model, billing, command_results, c
       local output_lines = vim.split(result.output, '\n', { plain = true })
       local first = #lines + 1
       vim.list_extend(lines, output_lines)
-      if #output_lines > 6 then
-        tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = result,
-          preview = output_lines[1], count = #output_lines }
-      end
+      tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = result,
+        preview = output_lines[1], padding = 0 }
       table.insert(lines, '')
     end
   end
@@ -413,10 +467,8 @@ function M.render(messages, status, provider, model, billing, command_results, c
           local fenced = markdown.fence(content, 'text')
           local first = #lines + 1
           vim.list_extend(lines, fenced)
-          if #fenced > 8 then
-            tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = message,
-              preview = fenced[2], count = #fenced - 2 }
-          end
+          tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = message,
+            preview = fenced[2], padding = 1 }
         else
           vim.list_extend(lines, vim.split(content, '\n', { plain = true }))
         end
