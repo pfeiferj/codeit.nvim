@@ -155,7 +155,7 @@ function M.open(on_send, on_close)
     transcript = scratch()
     draft_start = 2
   end
-  vim.cmd('botright 76vsplit')
+  vim.cmd('botright 80vsplit')
   transcript_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(transcript_win, transcript)
   vim.bo[transcript].completeopt = 'menuone,noselect'

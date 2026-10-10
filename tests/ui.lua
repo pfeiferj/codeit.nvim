@@ -7,7 +7,7 @@ local sent
 ui.open(function() sent = ui.take_input() end, ui.close)
 local chat = vim.fn.bufnr('codeit://chat')
 local win = vim.fn.bufwinid(chat)
-assert(vim.api.nvim_win_get_width(win) == 76, 'chat sidebar should default to 76 columns')
+assert(vim.api.nvim_win_get_width(win) == 80, 'chat sidebar should default to 80 columns')
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, 0, -1, false), { '## Message', '', '' }),
   'new chats should have a blank line between the heading and draft')
 assert(vim.fn.bufnr('codeit://input') == -1, 'chat must have no separate input buffer')
