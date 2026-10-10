@@ -271,7 +271,7 @@ if name == 'ask_user' or save_tools[name] or workspace_read(name, args, context,
     ready = true
     for _, listener in ipairs(listeners) do listener(summary, unsafe) end
     listeners = {}
-  end)
+  end, 'tool_assessment')
   return function(listener)
     if ready then listener(summary, unsafe) else listeners[#listeners + 1] = listener end
   end

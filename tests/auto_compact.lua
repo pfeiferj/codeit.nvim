@@ -13,7 +13,9 @@ package.loaded['codeit.providers'] = {
 }
 local plugin = require('codeit')
 plugin.setup({ system_prompt = 'system', max_context_tokens = 400,
-  secondary_models = { openrouter = 'compact-model' } })
+  secondary_models = { openrouter = 'legacy-model' },
+  feature_settings = { compaction = { provider = 'copilot', model = 'compact-model',
+    options = { api_host = 'api.business.githubcopilot.com' } } } })
 local user = string.rep('u', 180)
 local answer = string.rep('a', 180)
 local function respond(index)
@@ -27,7 +29,9 @@ end
 local chat_id = history.list(workspace)[1].id
 plugin.send(user .. '4')
 assert(#requests == 4 and #requests[4].specs == 0, 'compaction must precede main request')
-assert(requests[4].config.model == 'compact-model', 'automatic compaction uses the secondary model')
+assert(requests[4].config.model == 'compact-model' and requests[4].config.provider == 'copilot',
+  'automatic compaction uses the independent feature model/backend')
+assert(requests[4].config.options.api_host == 'api.business.githubcopilot.com')
 local first = requests[4].messages[2].content
 assert(first:find('Previous summary', 1, true) == nil)
 assert(first:find(user .. '1', 1, true) and first:find(user .. '2', 1, true))

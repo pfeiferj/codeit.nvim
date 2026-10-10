@@ -39,41 +39,50 @@ end
 function M.show(current, apply, live)
   local draft = vim.deepcopy(current)
   draft.secondary_models = draft.secondary_models or {}
+  draft.feature_settings = draft.feature_settings or {}
   local function valid() return not live or live() end
   local menu
-  local function choose_model(secondary)
+  local function choose_model(secondary, feature, back)
+    back = back or menu
+    local selected = feature and settings.feature_config(draft, feature) or {
+      provider = draft.provider, options = draft.request_options[draft.provider],
+    }
     local models_setting = secondary and draft.secondary_models or draft.models
-    vim.notify('codeit: loading ' .. draft.provider .. ' models…')
-    providers.models(draft.provider, function(models, err)
+    vim.notify('codeit: loading ' .. selected.provider .. ' models…')
+    providers.models(selected.provider, function(models, err)
       if not valid() then return end
-      if err then vim.notify('codeit: ' .. err, vim.log.levels.ERROR); return menu() end
+      if err then vim.notify('codeit: ' .. err, vim.log.levels.ERROR); return back() end
       local search
       search = function()
         vim.ui.input({ prompt = 'Search models (ID, name, description; blank = all): ' }, function(query)
           if not valid() then return end
-          if query == nil then return menu() end
+          if query == nil then return back() end
           local matches = M.search(models, query)
           if #matches == 0 then
             vim.notify('codeit: no matching models', vim.log.levels.INFO)
             return search()
           end
           vim.ui.select(matches, {
-            prompt = draft.provider .. (secondary and ' secondary' or '') .. ' models (' .. #matches .. ' matches)',
+            prompt = selected.provider .. (secondary and ' secondary' or '') .. ' models (' .. #matches .. ' matches)',
             format_item = function(item)
               return item.id .. (item.name and ' — ' .. item.name or '')
             end,
           }, function(item)
             if not valid() then return end
-            if item then models_setting[draft.provider] = item.id; return menu() end
+            if item then
+              if feature then draft.feature_settings[feature].model = item.id
+              else models_setting[selected.provider] = item.id end
+              return back()
+            end
             search()
           end)
         end)
       end
       search()
-    end, draft.request_options[draft.provider])
+    end, selected.options)
   end
-  local function choose_upstream(options)
-    local model = draft.models.openrouter
+  local function choose_upstream(options, model, back, inherit)
+    model, back = model or draft.models.openrouter, back or menu
     vim.notify('codeit: loading upstream providers for ' .. model .. '…')
     providers.endpoints(model, function(endpoints, err)
       if not valid() then return end
@@ -82,6 +91,7 @@ function M.show(current, apply, live)
         { id = 'automatic', label = 'Automatic routing (clear preference)' },
         { id = 'manual', label = 'Enter provider slug manually' },
       }
+      if inherit then table.insert(items, 1, { id = 'inherit', label = 'Inherit upstream preference' }) end
       for _, endpoint in ipairs(endpoints or {}) do
         items[#items + 1] = { id = 'endpoint', slug = endpoint.tag, label = M.endpoint_label(endpoint) }
       end
@@ -89,23 +99,99 @@ function M.show(current, apply, live)
       vim.ui.select(items, { prompt = model .. ' upstream providers (USD; fallbacks remain enabled)',
         format_item = function(item) return item.label end }, function(item)
         if not valid() then return end
-        if not item then return menu() end
+        if not item then return back() end
         if item.id == 'manual' then
           vim.ui.input({ prompt = 'Upstream provider slug (blank = automatic): ',
             default = options.preferred_provider or '' }, function(value)
             if not valid() then return end
             if value ~= nil then
               options.preferred_provider = vim.trim(value)
-              draft.request_options.openrouter = options
             end
-            menu()
+            back()
           end)
         else
           options.preferred_provider = item.id == 'automatic' and '' or item.slug
-          draft.request_options.openrouter = options
-          menu()
+          back()
         end
       end)
+    end)
+  end
+  local function feature_menu(name)
+    if not valid() then return end
+    local feature = draft.feature_settings[name] or {}
+    local selected = settings.feature_config(draft, name)
+    local function back() feature_menu(name) end
+    local function store()
+      draft.feature_settings[name] = feature
+      feature.options = feature.options or {}
+      return feature.options
+    end
+    local function option_label(key)
+      local value = (feature.options or {})[key]
+      return value == nil and '(inherit)' or (value == '' and '(provider default)' or value)
+    end
+    local items = {
+      { id = 'provider', label = 'Backend: ' .. (feature.provider ~= nil and feature.provider ~= ''
+        and feature.provider or '(inherit: ' .. selected.provider .. ')') },
+      { id = 'model', label = 'Search models: ' .. selected.model },
+      { id = 'manual', label = 'Enter model ID manually' },
+      { id = 'model_clear', label = 'Use inherited model' },
+    }
+    if selected.provider == 'openrouter' then
+      for _, entry in ipairs({ { 'preferred_provider', 'Preferred upstream provider' },
+        { 'service_tier', 'Service tier' }, { 'effort', 'Reasoning effort' } }) do
+        items[#items + 1] = { id = entry[1], label = entry[2] .. ': ' .. option_label(entry[1]) }
+      end
+    else
+      items[#items + 1] = { id = 'api_host', label = 'Copilot API host: ' .. option_label('api_host') }
+    end
+    vim.list_extend(items, {
+      { id = 'options_clear', label = 'Inherit all request options' },
+      { id = 'reset', label = 'Reset this feature to inherited settings' },
+      { id = 'back', label = 'Back to settings' },
+    })
+    vim.ui.select(items, { prompt = settings.feature_labels[name],
+      format_item = function(item) return item.label end }, function(item)
+      if not valid() then return end
+      if not item or item.id == 'back' then return menu() end
+      local id = item.id
+      if id == 'provider' then
+        vim.ui.select({ '', 'openrouter', 'copilot' }, { prompt = 'Feature backend',
+          format_item = function(value) return value == '' and '(inherit main backend)' or value end }, function(value)
+          if not valid() then return end
+          if value ~= nil then store(); feature.provider = value end
+          back()
+        end)
+      elseif id == 'model' then
+        store()
+        choose_model(false, name, back)
+      elseif id == 'manual' then
+        vim.ui.input({ prompt = 'Feature model ID (blank = inherit): ', default = feature.model or '' }, function(value)
+          if not valid() then return end
+          if value ~= nil then store(); feature.model = vim.trim(value) end
+          back()
+        end)
+      elseif id == 'model_clear' then
+        store(); feature.model = nil; back()
+      elseif id == 'reset' then
+        draft.feature_settings[name] = nil; back()
+      elseif id == 'options_clear' then
+        store(); feature.options = nil; back()
+      elseif id == 'preferred_provider' then
+        choose_upstream(store(), selected.model, back, true)
+      else
+        local values = id == 'api_host' and settings.copilot_hosts
+          or (id == 'service_tier' and settings.tiers or settings.efforts)
+        local choices = { { value = nil, label = '(inherit)' } }
+        for _, value in ipairs(values) do
+          choices[#choices + 1] = { value = value, label = value == '' and '(provider default)' or value }
+        end
+        vim.ui.select(choices, { prompt = id, format_item = function(choice) return choice.label end }, function(choice)
+          if not valid() then return end
+          if choice then store()[id] = choice.value end
+          back()
+        end)
+      end
     end)
   end
   menu = function()
@@ -116,11 +202,16 @@ function M.show(current, apply, live)
       { id = 'provider', label = 'Backend: ' .. draft.provider },
       { id = 'model', label = 'Search models: ' .. draft.models[draft.provider] },
       { id = 'manual', label = 'Enter model ID manually' },
-      { id = 'secondary_model', label = 'Search secondary models: '
+      { id = 'secondary_model', label = 'Search fallback secondary models (legacy): '
         .. (secondary_model and secondary_model ~= '' and secondary_model or '(main model)') },
-      { id = 'secondary_manual', label = 'Enter secondary model ID manually' },
-      { id = 'secondary_clear', label = 'Use main model for secondary tasks' },
+      { id = 'secondary_manual', label = 'Enter fallback secondary model ID manually' },
+      { id = 'secondary_clear', label = 'Use main model as feature fallback' },
     }
+    for _, name in ipairs(settings.features) do
+      local selected = settings.feature_config(draft, name)
+      items[#items + 1] = { id = name, label = settings.feature_labels[name] .. ': '
+        .. selected.provider .. ' / ' .. selected.model }
+    end
     if draft.provider == 'openrouter' then
       vim.list_extend(items, {
         { id = 'preferred_provider', label = 'Preferred upstream provider: ' .. (options.preferred_provider or '') },
@@ -151,7 +242,10 @@ function M.show(current, apply, live)
       elseif id == 'secondary_clear' then
         draft.secondary_models[draft.provider] = ''
         menu()
+      elseif vim.tbl_contains(settings.features, id) then
+        feature_menu(id)
       elseif id == 'preferred_provider' then
+        draft.request_options.openrouter = options
         choose_upstream(options)
       elseif id == 'manual' or id == 'secondary_manual' then
         local secondary = id == 'secondary_manual'

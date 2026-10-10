@@ -7,7 +7,7 @@ trap 'rm -rf "$data_dir"' EXIT
 export XDG_DATA_HOME="$data_dir"
 export XDG_STATE_HOME="$data_dir/state"
 
-for suite in headless tool_limits providers copilot_auth copilot_responses ui slash_commands agent_tools tool_contracts unified_tools tool_expansion user_tools process instruction_batches approval approval_format approval_prompt write_approval trusted_workspaces trust_commands history history_picker compact context_edit context_review auto_compact model_limits settings context_files; do
+for suite in headless tool_limits providers copilot_auth copilot_responses ui slash_commands agent_tools tool_contracts unified_tools tool_expansion user_tools process instruction_batches approval approval_format approval_prompt write_approval trusted_workspaces trust_commands history history_picker compact context_edit context_review auto_compact model_limits settings feature_settings context_files; do
   if [ "$suite" = context_files ]; then
     mkdir -p "$data_dir/home"
     HOME="$data_dir/home" nvim --headless -u NONE -l "tests/$suite.lua"
