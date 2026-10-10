@@ -226,7 +226,7 @@ In tool approval popups, file-edit/save previews, the tool-call reviewer, and to
 
 The sidebar wraps prose at word boundaries, and usage stays in a window header rather than covering messages as you scroll. Speaker labels are separated from content headings and use the `CodeitUser`, `CodeitAssistant`, and `CodeitTool` highlight groups (linked to `Special`, `Title`, and `Comment` by default). The draft heading stays visible while the assistant is busy, with a subdued send hint or an unavailable indicator; your draft is preserved.
 
-Tool and slash-command results longer than six lines start collapsed, showing the first output line, total line count, and an expand hint. Put the cursor on the preview and press `za` to expand or collapse it; standard Vim fold commands also work. Full output remains in the buffer for searching and copying. Expanded tool results stay open during streamed updates, and fold state carries between the sidebar and interactive popup. Read-only chat previews support the same folds.
+Readable provider reasoning, tool calls, tool results, and slash-command results start collapsed in individual folds. Consecutive items are also bundled inside a collapsed outer **Activity** fold; user messages and assistant prose remain outside it. Press `za` on an activity preview to reveal its individual folds, then `za` on an item to expand or collapse it; standard Vim fold commands also work. Full text remains in the buffer for searching and copying, but encrypted provider reasoning is not displayed. Fold state survives streamed updates, resizing, and switches between the sidebar and interactive popup. Read-only chat previews support the same nested folds.
 
 #### Table previews
 

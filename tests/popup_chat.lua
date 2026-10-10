@@ -48,14 +48,17 @@ assert(vim.api.nvim_win_get_cursor(chat)[1] == turns[2], 'read-only preview shou
 press(chat, '{')
 assert(vim.api.nvim_win_get_cursor(chat)[1] == turns[1])
 assert(vim.wo[chat].linebreak and vim.wo[chat].foldmethod == 'manual')
-local tool_row
+local tool_row, activity_row
 for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do
-  if line == '```text' then tool_row = row; break end
+  if line == '**Activity**' then activity_row = row end
+  if line == '**Tool: read_file**' then tool_row = row; break end
 end
-assert(tool_row and vim.fn.foldclosed(tool_row) == tool_row, 'read-only previews should fold long tool results')
+assert(tool_row and vim.fn.foldclosed(tool_row) == activity_row, 'read-only previews should fold activity')
+vim.cmd(activity_row .. 'foldopen')
+assert(vim.fn.foldclosed(tool_row) == tool_row, 'read-only previews should retain individual folds')
 for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do
   if line:find('Wrapped output ', 1, true) == 1 then
-    assert(vim.fn.foldclosed(row) == row - 1, 'read-only previews should fold wrapped single-line output')
+    assert(vim.fn.foldclosed(row) == row - 3, 'read-only previews should fold wrapped single-line output')
   end
 end
 assert(vim.fn.foldtextresult(tool_row):find('Tool output', 1, true))

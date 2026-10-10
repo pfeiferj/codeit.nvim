@@ -254,10 +254,12 @@ assert(table.concat(ui.chat_lines(), '\n'):find('"new_text": "after"', 1, true),
   'read-only transcripts should include tool inputs')
 local input_fold
 for row, line in ipairs(input_lines) do
-  if line == '```json' then input_fold = row; break end
+  if line == '*Calling `edit_file`…*' then input_fold = row; break end
 end
 vim.api.nvim_win_call(win, function()
-  assert(vim.fn.foldclosed(input_fold) == input_fold, 'long inputs should start collapsed')
+  assert(vim.fn.foldclosed(input_fold) == input_fold - 2, 'activity should start collapsed')
+  vim.cmd((input_fold - 2) .. 'foldopen')
+  assert(vim.fn.foldclosed(input_fold) == input_fold, 'individual inputs should start collapsed')
   vim.api.nvim_win_set_cursor(win, { input_fold, 0 })
   vim.cmd('normal! za')
   assert(vim.fn.foldclosed(input_fold) == -1, 'tool inputs should be expandable')
@@ -347,13 +349,15 @@ end)
 
 local fold_start
 for row, line in ipairs(safe_lines) do
-  if line == '``````text' then fold_start = row; break end
+  if line == '**Tool: read_file**' then fold_start = row; break end
 end
 assert(fold_start)
 vim.api.nvim_win_call(win, function()
-  assert(vim.fn.foldclosed(fold_start) == fold_start, 'long tool output should start collapsed')
+  assert(vim.fn.foldclosed(fold_start) == fold_start - 2, 'activity should start collapsed')
+  vim.cmd((fold_start - 2) .. 'foldopen')
+  assert(vim.fn.foldclosed(fold_start) == fold_start, 'individual output should start collapsed')
   local preview = vim.fn.foldtextresult(fold_start)
-  assert(preview:find('# Heading inside output', 1, true) and preview:find('10 lines · za: expand', 1, true))
+  assert(preview:find('# Heading inside output', 1, true) and preview:find('lines · za: expand', 1, true))
   vim.api.nvim_win_set_cursor(win, { fold_start, 0 })
   vim.cmd('normal! za')
   assert(vim.fn.foldclosed(fold_start) == -1, 'za should reveal the full tool result')
@@ -364,9 +368,9 @@ local updated_messages = {
 }
 ui.render(updated_messages, 'Working', 'openrouter', 'model-a', 'Cache: 50%', nil, false)
 for row, line in ipairs(vim.api.nvim_buf_get_lines(chat, 0, -1, false)) do
-  if line == '``````text' then fold_start = row; break end
+  if line == '**Tool: read_file**' then fold_start = row; break end
 end
-assert(vim.fn.foldlevel(fold_start) == 1, 'tool folds must track header layout changes')
+assert(vim.fn.foldlevel(fold_start) == 2, 'nested tool folds must track header layout changes')
 assert(vim.wo[win].winbar == '%#WinBar#Cache: 50%%', 'billing percentages must be escaped in the winbar')
 assert(vim.fn.foldclosed(fold_start) == -1, 'expanded tool output must survive streamed renders')
 ui.toggle_popup()
@@ -382,32 +386,28 @@ assert(ui.peek_input() == nil, 'fold controls must not change the draft')
 local command_output = table.concat({ 'summary', 'one', 'two', 'three', 'four', 'five', 'six' }, '\n')
 ui.render({}, 'Ready', 'copilot', 'model-b', nil,
   { { after_message = 0, command = '/contextFull', output = command_output } })
-local command_lines = vim.api.nvim_buf_get_lines(chat, 0, -1, false)
-for row, line in ipairs(command_lines) do
-  if line == 'summary' then
-    assert(vim.fn.foldclosed(row) == row, 'long command output should also start collapsed')
-    assert(vim.fn.foldtextresult(row):find('7 lines · za: expand', 1, true))
-  end
-end
-assert(table.concat(ui.chat_lines(), '\n'):find(command_output, 1, true),
-  'folding must retain full output in read-only transcripts')
--- Folding uses screen rows, including single-line output that wraps.
-local text_width = vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff
-local wrapped_message = { role = 'tool', content = string.rep('x', text_width * 6) }
-local function wrapped_row(text)
+local function rendered_row(text)
   for row, line in ipairs(vim.api.nvim_buf_get_lines(chat, 0, -1, false)) do
     if line == text then return row end
   end
-  error('missing wrapped output')
+  error('missing line ' .. text)
 end
+local command_row = rendered_row('## Command: `/contextFull`')
+assert(vim.fn.foldclosed(command_row) == command_row - 2, 'command activity should start collapsed')
+vim.cmd((command_row - 2) .. 'foldopen')
+assert(vim.fn.foldclosed(command_row) == command_row, 'individual commands should start collapsed')
+assert(table.concat(ui.chat_lines(), '\n'):find(command_output, 1, true),
+  'folding must retain full output in read-only transcripts')
+
+-- Short and wrapped items stay nested, regardless of window width.
+local text_width = vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff
+local wrapped_message = { role = 'tool', name = 'wrapped', content = string.rep('x', text_width * 6) }
 ui.render({ wrapped_message }, 'Ready', 'test', 'test')
-local wrapped_start = wrapped_row(wrapped_message.content) - 1
-assert(vim.fn.foldlevel(wrapped_start) == 0, 'six visual output rows should stay unfolded')
+local wrapped_start = rendered_row('**Tool: wrapped**')
+assert(vim.fn.foldlevel(wrapped_start) == 2)
+vim.cmd((wrapped_start - 2) .. 'foldopen')
+assert(vim.fn.foldclosed(wrapped_start) == wrapped_start)
 wrapped_message.content = wrapped_message.content .. 'x'
-ui.render({ wrapped_message }, 'Ready', 'test', 'test')
-wrapped_start = wrapped_row(wrapped_message.content) - 1
-assert(vim.fn.foldclosed(wrapped_start) == wrapped_start, 'seven wrapped rows should collapse')
-assert(vim.fn.foldtextresult(wrapped_start):find('7 lines · za: expand', 1, true))
 ui.render({ wrapped_message }, 'Working', 'test', 'test')
 assert(vim.fn.foldclosed(wrapped_start) == wrapped_start, 'collapsed wrapped output must survive renders')
 vim.api.nvim_win_set_cursor(win, { wrapped_start, 0 })
@@ -415,23 +415,29 @@ vim.cmd('normal! za')
 ui.render({ wrapped_message }, 'Working', 'test', 'test')
 assert(vim.fn.foldclosed(wrapped_start) == -1, 'expanded wrapped output must survive renders')
 ui.toggle_popup()
-assert(vim.fn.foldlevel(wrapped_start) == 0, 'wider popups should use their own visual height')
+assert(vim.fn.foldlevel(wrapped_start) == 2 and vim.fn.foldclosed(wrapped_start) == -1,
+  'wider popups should retain nested folds and their state')
 ui.toggle_popup()
-assert(vim.fn.foldclosed(wrapped_start) == wrapped_start, 'narrow sidebars should fold wrapped output again')
+assert(vim.fn.foldclosed(wrapped_start) == -1)
+vim.api.nvim_win_set_cursor(win, { wrapped_start, 0 })
+vim.cmd('normal! za')
+local wide_summary = vim.fn.foldtextresult(wrapped_start)
 vim.api.nvim_win_set_width(win, 40)
 vim.api.nvim_exec_autocmds('WinResized', {})
-assert(vim.fn.foldtextresult(wrapped_start):find('13 lines · za: expand', 1, true))
+local narrow_summary = vim.fn.foldtextresult(wrapped_start)
+assert(narrow_summary ~= wide_summary, 'fold summaries should reflect wrapped screen height')
 vim.api.nvim_win_set_width(win, 120)
 vim.api.nvim_exec_autocmds('WinResized', {})
-assert(vim.fn.foldlevel(wrapped_start) == 0, 'resizing wider should remove short visual folds')
+assert(vim.fn.foldlevel(wrapped_start) == 2 and vim.fn.foldclosed(wrapped_start) == wrapped_start,
+  'resizing must retain short folds and their state')
 vim.api.nvim_win_set_width(win, 80)
 vim.api.nvim_exec_autocmds('WinResized', {})
-assert(vim.fn.foldclosed(wrapped_start) == wrapped_start, 'resizing narrower should create collapsed folds')
 local wrapped_command = string.rep('x', text_width * 6 + 1)
 ui.render({}, 'Ready', 'test', 'test', nil,
   { { after_message = 0, command = '/contextFull', output = wrapped_command } })
-local command_row = wrapped_row(wrapped_command)
-assert(vim.fn.foldclosed(command_row) == command_row, 'single-line command results should fold by visual height')
+command_row = rendered_row('## Command: `/contextFull`')
+vim.cmd((command_row - 2) .. 'foldopen')
+assert(vim.fn.foldclosed(command_row) == command_row)
 vim.api.nvim_win_set_cursor(win, { command_row, 0 })
 vim.cmd('normal! za')
 assert(vim.fn.foldclosed(command_row) == -1, 'single-line folds must remain expandable')

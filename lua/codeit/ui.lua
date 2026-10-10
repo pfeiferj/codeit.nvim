@@ -9,6 +9,7 @@ local draft_start = 2 -- zero-based first line of the draft
 local billing_line
 local ui_ns = vim.api.nvim_create_namespace('codeit_chat_ui')
 local tool_folds = {}
+local section_folds = {}
 local role_marks = {}
 local can_send_message = true
 local draft_status
@@ -130,17 +131,21 @@ function M.decorate_chat(win, expanded)
   vim.api.nvim_win_call(win, function()
     local view = vim.fn.winsaveview()
     vim.cmd('silent! normal! zE')
-    for _, fold in ipairs(tool_folds) do
-      -- Measure unfolded content in this window, excluding the Markdown fences.
-      local height = vim.api.nvim_win_text_height(win, {
-        start_row = fold.first - 1 + fold.padding,
-        end_row = fold.last - 1 - fold.padding,
-      })
-      local count = height.all - height.fill
-      if count > 6 then
-        summaries[tostring(fold.first)] = { preview = fold.preview, count = count }
+    -- Measure before creating any folds so nested content is counted in full.
+    for _, folds in ipairs({ tool_folds, section_folds }) do
+      for _, fold in ipairs(folds) do
+        local height = vim.api.nvim_win_text_height(win, {
+          start_row = fold.first - 1 + fold.padding,
+          end_row = fold.last - 1 - fold.padding,
+        })
+        summaries[tostring(fold.first)] = { preview = fold.preview, count = height.all - height.fill }
+      end
+    end
+    for _, folds in ipairs({ tool_folds, section_folds }) do
+      for _, fold in ipairs(folds) do
         vim.cmd(fold.first .. ',' .. fold.last .. 'fold')
-        if expanded and expanded[fold.key] then vim.cmd(fold.first .. 'foldopen') end
+        local state = folds == section_folds and expanded and expanded.sections or expanded
+        if state and state[fold.key] then vim.cmd(fold.first .. 'foldopen') end
       end
     end
     vim.w[win].codeit_fold_summaries = summaries
@@ -179,14 +184,29 @@ function M.decorate_chat(win, expanded)
 end
 
 local function expanded_folds(win)
-  local expanded = {}
+  local expanded = { sections = {} }
   if win and vim.api.nvim_win_is_valid(win) then
     vim.api.nvim_win_call(win, function()
+      local view = vim.fn.winsaveview()
+      local closed = {}
+      -- Temporarily expose children to retain their state even under a closed section.
+      for _, fold in ipairs(section_folds) do
+        if vim.fn.foldlevel(fold.first) > 0 then
+          if vim.fn.foldclosed(fold.first) == fold.first then
+            closed[#closed + 1] = fold.first
+            vim.cmd(fold.first .. 'foldopen')
+          else
+            expanded.sections[fold.key] = true
+          end
+        end
+      end
       for _, fold in ipairs(tool_folds) do
         if vim.fn.foldlevel(fold.first) > 0 and vim.fn.foldclosed(fold.first) == -1 then
           expanded[fold.key] = true
         end
       end
+      for _, row in ipairs(closed) do vim.cmd(row .. 'foldclose') end
+      vim.fn.winrestview(view)
     end)
   end
   return expanded
@@ -421,7 +441,7 @@ function M.render(messages, status, provider, model, billing, command_results, c
   require('codeit.assistant_pane').set_messages(messages)
   local active_expanded = expanded_folds(transcript_win)
   local sidebar_expanded = expanded_folds(sidebar_win)
-  tool_folds, role_marks = {}, {}
+  tool_folds, section_folds, role_marks = {}, {}, {}
   can_send_message = can_send ~= false
   draft_status = status
   local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
@@ -435,35 +455,43 @@ function M.render(messages, status, provider, model, billing, command_results, c
     results_by_message[index] = results_by_message[index] or {}
     table.insert(results_by_message[index], result)
   end
+  local section
+  local function finish_section()
+    if not section then return end
+    section.last = #lines
+    section.preview = 'Activity · ' .. section.count .. ' items'
+    section_folds[#section_folds + 1] = section
+    section = nil
+  end
+  local function start_item(key, label)
+    if not section then
+      section = { first = #lines + 1, key = key, padding = 0, count = 0 }
+      table.insert(lines, '**Activity**')
+      table.insert(lines, '')
+    end
+    section.count = section.count + 1
+    local first = #lines + 1
+    role_marks[#role_marks + 1] = { row = #lines, text = label, group = 'CodeitTool' }
+    table.insert(lines, label)
+    table.insert(lines, '')
+    return first
+  end
+  local function finish_item(first, key, preview)
+    tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = key,
+      preview = preview or lines[first], padding = 0 }
+    table.insert(lines, '')
+  end
   local function render_results(index)
     for _, result in ipairs(results_by_message[index] or {}) do
-      table.insert(lines, '## Command: `' .. result.command .. '`')
-      table.insert(lines, '')
-      local output_lines = vim.split(result.output, '\n', { plain = true })
-      local first = #lines + 1
-      vim.list_extend(lines, output_lines)
-      tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = result,
-        preview = output_lines[1], padding = 0 }
-      table.insert(lines, '')
+      local first = start_item(result, '## Command: `' .. result.command .. '`')
+      vim.list_extend(lines, vim.split(result.output, '\n', { plain = true }))
+      finish_item(first, result)
     end
   end
   render_results(0)
   local tool_names = {}
   for index, message in ipairs(messages) do
     if message.role ~= 'system' then
-      local label = ({ user = 'You', assistant = 'Assistant', tool = 'Tool' })[message.role] or message.role
-      if message.role == 'tool' then
-        label = 'Tool: ' .. (message.name or tool_names[message.tool_call_id] or message.tool_call_id or '')
-      end
-      if message.role == 'user' then
-        table.insert(lines, '---')
-        table.insert(lines, '')
-      end
-      local label_text = '**' .. label .. '**'
-      role_marks[#role_marks + 1] = { row = #lines, text = label_text,
-        group = ({ user = 'CodeitUser', assistant = 'CodeitAssistant' })[message.role] or 'CodeitTool' }
-      table.insert(lines, label_text)
-      table.insert(lines, '')
       local content = message.content
       if type(content) == 'table' then
         local parts = {}
@@ -472,39 +500,67 @@ function M.render(messages, status, provider, model, billing, command_results, c
         end
         content = table.concat(parts, '\n')
       end
-      if type(content) == 'string' and content ~= '' then
-        if message.role == 'tool' then
-          local name = message.name or tool_names[message.tool_call_id]
-          local fenced = markdown.fence(content, tool_output_language(name, content))
-          local first = #lines + 1
-          vim.list_extend(lines, fenced)
-          tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = message,
-            preview = fenced[2], padding = 1 }
-        else
+      if message.role == 'assistant' then
+        local reasoning = {}
+        local function add_text(text)
+          if type(text) == 'string' and text ~= '' then reasoning[#reasoning + 1] = text end
+        end
+        for _, detail in ipairs(message.reasoning_details or {}) do
+          add_text(detail.text)
+          add_text(detail.summary)
+        end
+        for _, item in ipairs(message._copilot_reasoning or {}) do
+          for _, part in ipairs(item.summary or {}) do add_text(part.text) end
+        end
+        if #reasoning > 0 then
+          local key = message.reasoning_details or message._copilot_reasoning
+          local first = start_item(key, '**Reasoning**')
+          vim.list_extend(lines, vim.split(table.concat(reasoning, '\n'), '\n', { plain = true }))
+          finish_item(first, key)
+        end
+      end
+      if message.role == 'user' or (message.role == 'assistant' and type(content) == 'string' and content ~= '') then
+        finish_section()
+        if message.role == 'user' then
+          table.insert(lines, '---')
+          table.insert(lines, '')
+        end
+        local label = message.role == 'user' and '**You**' or '**Assistant**'
+        role_marks[#role_marks + 1] = { row = #lines, text = label,
+          group = message.role == 'user' and 'CodeitUser' or 'CodeitAssistant' }
+        table.insert(lines, label)
+        table.insert(lines, '')
+        if type(content) == 'string' and content ~= '' then
           vim.list_extend(lines, vim.split(content, '\n', { plain = true }))
         end
+        table.insert(lines, '')
+      elseif message.role ~= 'assistant' then
+        local name = message.name or tool_names[message.tool_call_id] or message.tool_call_id or ''
+        local label = message.role == 'tool' and ('**Tool: ' .. name .. '**') or ('**' .. message.role .. '**')
+        local first = start_item(message, label)
+        if type(content) == 'string' and content ~= '' then
+          vim.list_extend(lines, markdown.fence(content, tool_output_language(name, content)))
+        end
+        finish_item(first, message, label .. (type(content) == 'string' and content ~= ''
+          and (' · ' .. vim.split(content, '\n', { plain = true })[1]) or ''))
       end
       for _, call in ipairs(message.tool_calls or {}) do
         local fn = call['function'] or {}
         local name = fn.name or 'unknown tool'
         if call.id then tool_names[call.id] = name end
-        table.insert(lines, '*Calling `' .. name .. '`…*')
+        local first = start_item(call, '*Calling `' .. name .. '`…*')
         local input = fn.arguments
         if type(input) == 'string' and input ~= '' then
           local ok, decoded = pcall(vim.json.decode, input)
           if ok then input = require('codeit.approval_format').pretty_json(decoded) end
-          table.insert(lines, '')
-          local fenced = markdown.fence(input, ok and 'json' or 'text')
-          local first = #lines + 1
-          vim.list_extend(lines, fenced)
-          tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = call,
-            preview = fenced[2], padding = 1 }
+          vim.list_extend(lines, markdown.fence(input, ok and 'json' or 'text'))
         end
+        finish_item(first, call)
       end
-      table.insert(lines, '')
     end
     render_results(index)
   end
+  finish_section()
   chat_lines = vim.deepcopy(lines)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   table.insert(lines, '')
