@@ -109,16 +109,26 @@ for score = 0, 10 do
   local buf = vim.api.nvim_get_current_buf()
   assert(#risk_marks(buf) == (score > 2 and 2 or 0), 'wrong risk highlighting at score ' .. score)
   for _, mark in ipairs(risk_marks(buf)) do
-    assert(mark[4].hl_group == 'CodeitApprovalRisk' and mark[4].priority == 200)
+    local expected = score > 5 and 'CodeitApprovalRisk' or 'CodeitApprovalWarning'
+    assert(mark[4].hl_group == expected and mark[4].priority == 200)
   end
+  update_risk(score_prompt .. '6/10', { safety_score = 6 })
+  assert(#risk_marks(buf) == 2)
+  for _, mark in ipairs(risk_marks(buf)) do assert(mark[4].hl_group == 'CodeitApprovalRisk') end
+  update_risk(score_prompt .. '3/10', { safety_score = 3 })
+  assert(#risk_marks(buf) == 2)
+  for _, mark in ipairs(risk_marks(buf)) do assert(mark[4].hl_group == 'CodeitApprovalWarning') end
   update_risk(score_prompt .. '2/10', { safety_score = 2 })
-  assert(#risk_marks(buf) == 0, 'updating a score must clear stale red highlights')
+  assert(#risk_marks(buf) == 0, 'updating a score must clear stale risk highlights')
   update_risk(score_prompt .. 'Unavailable', { risk_unknown = true })
   assert(#risk_marks(buf) == 2, 'unknown risk must be highlighted')
+  for _, mark in ipairs(risk_marks(buf)) do assert(mark[4].hl_group == 'CodeitApprovalRisk') end
   vim.api.nvim_win_close(vim.api.nvim_get_current_win(), true)
 end
 local risk_hl = vim.api.nvim_get_hl(0, { name = 'CodeitApprovalRisk', link = false })
 assert(risk_hl.fg == (vim.o.background == 'light' and 0xaf0000 or 0xff5f5f))
+local warning_hl = vim.api.nvim_get_hl(0, { name = 'CodeitApprovalWarning', link = false })
+assert(warning_hl.fg == (vim.o.background == 'light' and 0x875f00 or 0xffaf00))
 -- Extra warning lines must not move the selected choice or break Enter mappings.
 local shifted_result
 local shift_prompt = prompt.show(score_prompt .. 'Pending', options, function(choice) shifted_result = choice end)

@@ -159,6 +159,7 @@ local function key(lhs)
   mapping.callback()
 end
 assert(text():find('Saved total: $3.750+ · 3 chats · In: 3.704m+ · Out: 0.36m+', 1, true) and #requests == 0)
+assert(not text():find(costs.note, 1, true), 'cost overview paragraph must not be displayed')
 local function assert_table(rows)
   local alignment = { 'left' }
   for column = 2, #rows[1] do alignment[column] = 'right' end
@@ -178,25 +179,24 @@ local cost_ns = vim.api.nvim_get_namespaces().codeit_cost_review
 local function assert_highlights()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local marks = vim.api.nvim_buf_get_extmarks(buf, cost_ns, 0, -1, { details = true })
-  local groups, striped = {}, false
+  local groups = {}
   for _, mark in ipairs(marks) do
     local row, col, details = mark[2], mark[3], mark[4]
     assert(row < #lines, 'cost highlights must stay within the rendered header')
+    assert(not details.line_hl_group, 'cost table must not have alternating row shading')
     if details.hl_group then
       groups[details.hl_group] = true
       local highlighted = lines[row + 1]:sub(col + 1, details.end_col)
       if details.hl_group == 'CodeitCostAmount' then
         assert(highlighted:find('$', 1, true), 'amount highlighting must align with the USD cell')
-      elseif details.hl_group == 'CodeitCostIncomplete' and row > 8 then
+      elseif details.hl_group == 'CodeitCostIncomplete' and row > 6 then
         assert(highlighted == '+', 'incomplete markers must be highlighted precisely')
       end
-    elseif details.line_hl_group == 'CodeitCostRow' then
-      striped = true
-      assert(lines[row + 1]:sub(1, 1) == '|', 'stripe must highlight a table data row')
+
     end
   end
   assert(groups.CodeitTableHeader and groups.CodeitTableBorder and groups.CodeitCostTotal)
-  assert(groups.CodeitCostGroup and groups.CodeitCostAmount and groups.CodeitCostIncomplete and striped)
+  assert(groups.CodeitCostGroup and groups.CodeitCostAmount and groups.CodeitCostIncomplete)
   return #marks
 end
 assert_highlights()

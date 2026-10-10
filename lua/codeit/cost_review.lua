@@ -11,7 +11,7 @@ local function setup_highlights()
   for group, link in pairs({
     CodeitTableHeader = 'Title', CodeitTableBorder = 'Delimiter',
     CodeitCostTotal = 'Title', CodeitCostMeta = 'Comment', CodeitCostGroup = 'Directory',
-    CodeitCostAmount = 'Number', CodeitCostIncomplete = 'DiagnosticWarn', CodeitCostRow = 'CursorLine',
+    CodeitCostAmount = 'Number', CodeitCostIncomplete = 'DiagnosticWarn',
   }) do
     vim.api.nvim_set_hl(0, group, { default = true, link = link })
   end
@@ -60,7 +60,7 @@ function M.show(config, workspace)
       result.total_entries, result.truncated, result.next_offset = #result.groups, false, nil
     end
     for i = #header, 1, -1 do header[i] = nil end
-    vim.list_extend(header, { '# Cost review', '', costs.note, '',
+    vim.list_extend(header, { '# Cost review', '',
       'Snapshot: ' .. snapshot_at .. '. Reopen to refresh. Scope: ' .. (scope or 'all saved workspaces'),
       'd: days · w: workspaces · g: days/workspaces · f: functions · s: scope · n/p: pages · q/Esc: close', '',
       string.format('**Saved total: %s · %d chats · In: %s%s · Out: %s%s**',
@@ -91,10 +91,9 @@ function M.show(config, workspace)
     local table_start = #header
     local highlights = {
       { 2, 0, #header[3], 'CodeitCostMeta' },
-      { 4, 0, #header[5], 'CodeitCostMeta' },
-      { 5, 0, #header[6], 'CodeitCostMeta' },
-      { 7, 0, #header[8], 'CodeitCostTotal' },
-      { 8, 0, #header[9], result.totals.missing_cost > 0 and 'CodeitCostIncomplete' or 'CodeitCostMeta' },
+      { 3, 0, #header[4], 'CodeitCostMeta' },
+      { 5, 0, #header[6], 'CodeitCostTotal' },
+      { 6, 0, #header[7], result.totals.missing_cost > 0 and 'CodeitCostIncomplete' or 'CodeitCostMeta' },
     }
     local previous, column = 0, 0
     for _, span in ipairs(table_highlights) do
@@ -141,11 +140,6 @@ function M.show(config, workspace)
     chat.render(messages, waiting and 'Reviewing costs…' or 'Ready', config.provider, config.model,
       'This review: ' .. usage_format.cost(session.cost, session.missing_cost > 0), nil, not waiting, display_costs)
     vim.api.nvim_buf_clear_namespace(buf, highlight_ns, 0, -1)
-    for row = 2, #table_lines - 1, 2 do
-      vim.api.nvim_buf_set_extmark(buf, highlight_ns, table_start + row, 0, {
-        line_hl_group = 'CodeitCostRow', priority = 90,
-      })
-    end
     for _, span in ipairs(highlights) do
       vim.api.nvim_buf_set_extmark(buf, highlight_ns, span[1], span[2], {
         end_col = span[3], hl_group = span[4], priority = 110,

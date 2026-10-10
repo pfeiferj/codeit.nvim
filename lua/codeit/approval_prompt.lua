@@ -44,10 +44,12 @@ function M.show(prompt, options, callback, config)
   local function highlight_risk()
     vim.api.nvim_buf_clear_namespace(buf, risk_namespace, 0, -1)
     if not config.risk_unknown and (not config.safety_score or config.safety_score <= 2) then return end
+    local group = (config.risk_unknown or config.safety_score > 5)
+      and 'CodeitApprovalRisk' or 'CodeitApprovalWarning'
     for row, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
       if line:match('^Summary: ') or line:match('^%*%*Safety score:%*%* ') then
         vim.api.nvim_buf_set_extmark(buf, risk_namespace, row - 1, 0, {
-          end_col = #line, hl_group = 'CodeitApprovalRisk', priority = 200,
+          end_col = #line, hl_group = group, priority = 200,
         })
       end
     end
