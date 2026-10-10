@@ -41,11 +41,23 @@ local function retry_after(headers)
   return date and math.max(0, date + offset - now) or nil
 end
 
-local function http_json(args, options, callback, metadata)
+local function http_json(args, options, callback, metadata, streaming)
   local retries = 0
   local function send()
-    vim.system(args, options, function(result)
+    local output, parser
+    local attempt_options = vim.tbl_extend('force', {}, options)
+    if streaming then
+      output = {}
+      parser = require('codeit.stream').new(streaming.responses, streaming.on_text)
+      attempt_options.stdout = function(err, chunk)
+        if err or not chunk then return end
+        output[#output + 1] = chunk
+        vim.schedule(function() parser.push(chunk) end)
+      end
+    end
+    vim.system(args, attempt_options, function(result)
       vim.schedule(function()
+        if output then result.stdout = table.concat(output) end
         if result.code ~= 0 then
           return callback(nil, (result.stderr or '') ~= '' and result.stderr or 'curl exited with code ' .. result.code)
         end
@@ -67,6 +79,10 @@ local function http_json(args, options, callback, metadata)
             return vim.defer_fn(send, math.ceil(delay * 1000))
           end
         end
+        if parser and tonumber(status) >= 200 and tonumber(status) < 300 then
+          local response, err, streamed = parser.finish()
+          if streamed then return callback(response, err, err and data or nil) end
+        end
         local ok, decoded = pcall(vim.json.decode, data)
         if tonumber(status) < 200 or tonumber(status) >= 300 then
           local err = ok and type(decoded) == 'table' and decoded.error or nil
@@ -84,13 +100,14 @@ local function http_json(args, options, callback, metadata)
   send()
 end
 
-local function request(url, headers, body, callback)
+local function request(url, headers, body, callback, streaming)
   local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '120', '--request', 'POST', '--write-out', '\n%{http_code}' }
+  if streaming then args[#args + 1] = '--no-buffer' end
   for _, header in ipairs(headers) do
     vim.list_extend(args, { '--header', header })
   end
   vim.list_extend(args, { '--data-binary', '@-', url })
-  http_json(args, { stdin = vim.json.encode(body), text = true }, callback)
+  http_json(args, { stdin = vim.json.encode(body), text = true }, callback, false, streaming)
 end
 
 local function get_json(url, headers, callback)
@@ -354,7 +371,7 @@ local function copilot_usage(response)
 end
 
 --- Send a chat request, normalizing provider responses. callback(message, error, usage).
-function M.chat(config, messages, tools, callback)
+function M.chat(config, messages, tools, callback, on_text)
   local on_result = callback
   callback = function(message, err, usage, detail)
     if err then log_error(config, err, detail) end
@@ -395,6 +412,10 @@ function M.chat(config, messages, tools, callback)
       body.tools = tools
       body.tool_choice = 'auto'
     end
+    if on_text then
+      body.stream = true
+      if endpoint ~= '/responses' then body.stream_options = { include_usage = true } end
+    end
     request(url, headers, body, function(response, err, detail)
       if err then return callback(nil, err, nil, detail) end
       if endpoint == '/responses' then
@@ -428,7 +449,7 @@ function M.chat(config, messages, tools, callback)
       else
         callback(message, nil, copilot_usage(response))
       end
-    end)
+    end, on_text and { responses = endpoint == '/responses', on_text = on_text } or nil)
   end
 
   if config.provider == 'openrouter' then

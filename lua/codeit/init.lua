@@ -61,6 +61,7 @@ local base_settings = { provider = config.provider, models = vim.deepcopy(config
   model_presets = vim.deepcopy(config.model_presets),
   feature_settings = vim.deepcopy(config.feature_settings), request_options = {} }
 local messages, command_results = {}, {}
+local stream_preview, stream_render_pending
 local session_prompt
 local context_summary, compacted_until
 local context_reviews, review_revision = {}, 0
@@ -122,6 +123,7 @@ local function sync_workspace()
   local current = history.workspace()
   if workspace == current then return end
   generation = generation + 1
+  stream_preview = nil
   busy = false
   workspace, chat_id, chat_model = current, nil, nil
   apply_settings(settings.resolve(base_settings, workspace))
@@ -160,7 +162,12 @@ local function render()
     billing = billing .. string.format(' | Cache: %.0f%%',
       context_stats.cached_tokens / context_stats.cache_observed_tokens * 100)
   end
-  ui.render(messages, status, config.provider, model(), billing, command_results)
+  local displayed = messages
+  if stream_preview then
+    displayed = vim.list_extend({}, messages)
+    displayed[#displayed + 1] = { role = 'assistant', content = stream_preview }
+  end
+  ui.render(displayed, status, config.provider, model(), billing, command_results)
 end
 
 local function usage_number(value)
@@ -702,6 +709,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
     context_paths, selected_skills))
   providers.chat(selected_config, request_messages(), specs, function(message, err, usage)
     if not active() then return end
+    stream_preview = nil
     if err then return fail(err) end
     record_usage(usage, true, selected_config.provider)
     local calls = message.tool_calls
@@ -876,6 +884,15 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
       end)
     end
     process()
+  end, function(text)
+    if not active() then return end
+    stream_preview = text
+    if stream_render_pending then return end
+    stream_render_pending = true
+    vim.defer_fn(function()
+      stream_render_pending = false
+      if active() then render() end
+    end, 50)
   end)
 end
 
@@ -997,6 +1014,7 @@ end
 function M.new()
   sync_workspace()
   generation = generation + 1
+  stream_preview = nil
   busy = false
   chat_id, chat_model = nil, nil
   messages = {}
@@ -1087,6 +1105,7 @@ function M.resume(id)
     return false
   end
   generation = generation + 1
+  stream_preview = nil
   busy = false
   chat_id, chat_model = id, chat.model
   config.provider = chat.provider

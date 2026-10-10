@@ -1,8 +1,8 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local requests, callbacks, executed = {}, {}, {}
 package.loaded['codeit.providers'] = {
-  chat = function(config, messages, specs, callback)
-    requests[#requests + 1] = { config = config, messages = vim.deepcopy(messages), specs = specs }
+  chat = function(config, messages, specs, callback, on_text)
+    requests[#requests + 1] = { config = config, messages = vim.deepcopy(messages), specs = specs, on_text = on_text }
     callbacks[#callbacks + 1] = callback
   end,
 }
@@ -72,6 +72,10 @@ for _, limit in ipairs({ 0, 1 }) do
   plugin.send('Keep using tools')
   local id = history.list(history.workspace())[1].id
   local before = #executed
+  assert(type(requests[#requests].on_text) == 'function')
+  requests[#requests].on_text('Partial response')
+  assert(#history.load(history.workspace(), id).messages == 2, 'previews must not enter saved history')
+  assert(#executed == before and #callbacks == 1, 'previews must not execute tools')
   if limit == 1 then
     reply(batch('completed'))
     assert(#executed == before + 2, 'the allowed batch must execute')
