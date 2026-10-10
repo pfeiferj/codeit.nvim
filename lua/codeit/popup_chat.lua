@@ -25,11 +25,11 @@ function M.attach(win)
     vim.api.nvim_buf_set_lines(chat_buf, 0, -1, false, lines)
     require('codeit.markdown').enable(chat_buf)
     vim.bo[chat_buf].modifiable = false
-    local width = math.max(1, math.min(vim.o.columns - 4, math.floor(vim.o.columns * 0.85)))
-    local height = math.max(1, math.min(vim.o.lines - 4, math.floor(vim.o.lines * 0.8)))
+    local width = math.max(1, vim.o.columns - 4)
+    local height = math.max(1, vim.o.lines - 6)
     chat_win = vim.api.nvim_open_win(chat_buf, true, {
       relative = 'editor', width = width, height = height,
-      row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+      row = math.max(0, math.floor((vim.o.lines - height - 2) / 2) - 1),
       col = math.max(0, math.floor((vim.o.columns - width) / 2)),
       style = 'minimal', border = 'rounded',
       title = ' Chat context — Ctrl-G / Esc: back ', title_pos = 'center',

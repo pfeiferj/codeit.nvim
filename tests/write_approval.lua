@@ -37,6 +37,9 @@ end
 
 local win, buf, lines, maps, close = open('local x = 1\nprint(x)\n', 'local x = 2\nprint(x)\n')
 assert(title(win) == ' Review file edit: example.lua ', 'relative paths should appear in the title')
+assert(vim.api.nvim_win_get_width(win) == vim.o.columns - 4)
+assert(vim.api.nvim_win_get_height(win) == vim.o.lines - 6)
+assert(vim.api.nvim_win_get_config(win).row == 1, 'extra padding belongs below the popup')
 assert(vim.bo[buf].filetype == 'lua', 'the preview should use the source filetype')
 local text = table.concat(lines, '\n')
 assert(not text:find('Approve once', 1, true), 'options must be virtual')

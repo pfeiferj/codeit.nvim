@@ -4,8 +4,8 @@ local markdown = require('codeit.markdown')
 --- Show saved chats in a wide, scrollable picker so summaries remain readable.
 function M.show(entries, workspace, callback, delete_chat)
   entries = vim.list_extend({}, entries)
-  local width = math.max(1, math.min(vim.o.columns - 4, math.floor(vim.o.columns * 0.85)))
-  local max_height = math.max(1, math.min(vim.o.lines - 4, math.floor(vim.o.lines * 0.8)))
+  local width = math.max(1, vim.o.columns - 4)
+  local max_height = math.max(1, vim.o.lines - 6)
   local lines, choices
   local function render()
     lines = { '# Resume chat for ' .. workspace,
@@ -33,7 +33,7 @@ function M.show(entries, workspace, callback, delete_chat)
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local win = vim.api.nvim_open_win(buf, true, {
     relative = 'editor', width = width, height = height,
-    row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+    row = math.max(0, math.floor((vim.o.lines - height - 2) / 2) - 1),
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
     style = 'minimal', border = 'rounded', title = ' Chat history ', title_pos = 'center',
   })

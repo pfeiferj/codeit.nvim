@@ -14,8 +14,8 @@ local function open_and_press(key, expected, config, option_line)
   end, config)
   local win = vim.api.nvim_get_current_win()
   local win_config = vim.api.nvim_win_get_config(win)
-  assert(win_config.width >= math.floor(vim.o.columns * 0.8) and win_config.height >= math.floor(vim.o.lines * 0.75),
-    'decision window should fill most of the editor')
+  assert(win_config.width == vim.o.columns - 4 and win_config.height == vim.o.lines - 6,
+    'decision window should leave only a small fixed margin')
   local buf = vim.api.nvim_win_get_buf(win)
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
   assert(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == '# read_file',

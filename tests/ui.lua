@@ -1,4 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
+vim.o.columns = 160 -- Leave enough room to test the default sidebar width.
 local ui = require('codeit.ui')
 local messages = {}
 for i = 1, 50 do messages[i] = { role = 'user', content = 'message ' .. i } end
@@ -6,6 +7,7 @@ local sent
 ui.open(function() sent = ui.take_input() end, ui.close)
 local chat = vim.fn.bufnr('codeit://chat')
 local win = vim.fn.bufwinid(chat)
+assert(vim.api.nvim_win_get_width(win) == 76, 'chat sidebar should default to 76 columns')
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, 0, -1, false), { '## Message', '', '' }),
   'new chats should have a blank line between the heading and draft')
 assert(vim.fn.bufnr('codeit://input') == -1, 'chat must have no separate input buffer')
@@ -152,7 +154,9 @@ local popup = vim.api.nvim_get_current_win()
 assert(popup ~= sidebar and ui.is_open())
 assert(vim.api.nvim_win_get_buf(popup) == chat and vim.bo[chat].modifiable)
 assert(vim.api.nvim_win_get_config(popup).relative == 'editor')
-assert(vim.api.nvim_win_get_width(popup) == math.floor(vim.o.columns * 0.85))
+assert(vim.api.nvim_win_get_width(popup) == vim.o.columns - 4)
+assert(vim.api.nvim_win_get_height(popup) == vim.o.lines - 6)
+assert(vim.api.nvim_win_get_config(popup).row == 1, 'extra padding belongs below the popup')
 assert(vim.api.nvim_win_get_cursor(popup)[2] == 3 and ui.peek_input() == 'popup draft')
 messages[#messages + 1] = { role = 'assistant', content = 'Live popup reply' }
 ui.render(messages, 'Ready', 'copilot', 'model-b', nil)

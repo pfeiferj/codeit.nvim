@@ -40,8 +40,8 @@ function M.select(items, opts, callback)
     vim.api.nvim_set_hl(0, 'CodeitSettings' .. name, { default = true, link = link })
   end
   local origin = vim.api.nvim_get_current_win()
-  local width = math.max(1, math.min(vim.o.columns - 4, math.floor(vim.o.columns * 0.85)))
-  local height = math.max(1, math.min(#lines, vim.o.lines - 4, math.floor(vim.o.lines * 0.8)))
+  local width = math.max(1, vim.o.columns - 4)
+  local height = math.max(1, math.min(#lines, vim.o.lines - 6))
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = 'wipe'
   vim.bo[buf].filetype = 'codeit-settings'
@@ -53,7 +53,7 @@ function M.select(items, opts, callback)
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local win = vim.api.nvim_open_win(buf, true, {
     relative = 'editor', width = width, height = height,
-    row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+    row = math.max(0, math.floor((vim.o.lines - height - 2) / 2) - 1),
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
     style = 'minimal', border = 'rounded', title = ' ' .. (opts.prompt or 'Settings') .. ' ', title_pos = 'center',
     zindex = math.max(50, vim.api.nvim_win_get_config(origin).zindex or 50) + 1,

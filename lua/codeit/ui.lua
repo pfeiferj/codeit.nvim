@@ -97,11 +97,11 @@ function M.is_open()
 end
 
 local function popup_config()
-  local width = math.max(1, math.min(vim.o.columns - 4, math.floor(vim.o.columns * 0.85)))
-  local height = math.max(1, math.min(vim.o.lines - 4, math.floor(vim.o.lines * 0.8)))
+  local width = math.max(1, vim.o.columns - 4)
+  local height = math.max(1, vim.o.lines - 6)
   return {
     relative = 'editor', width = width, height = height,
-    row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+    row = math.max(0, math.floor((vim.o.lines - height - 2) / 2) - 1),
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
     style = 'minimal', border = 'rounded',
     title = ' Codeit chat — Ctrl-G / Esc: back ', title_pos = 'center',
@@ -155,7 +155,7 @@ function M.open(on_send, on_close)
     transcript = scratch()
     draft_start = 2
   end
-  vim.cmd('botright 70vsplit')
+  vim.cmd('botright 76vsplit')
   transcript_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(transcript_win, transcript)
   vim.bo[transcript].completeopt = 'menuone,noselect'

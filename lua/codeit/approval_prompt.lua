@@ -2,11 +2,11 @@ local M = {}
 local markdown = require('codeit.markdown')
 
 local function geometry()
-  local width = math.max(1, math.min(vim.o.columns - 4, math.floor(vim.o.columns * 0.85)))
-  local height = math.max(1, math.min(vim.o.lines - 4, math.floor(vim.o.lines * 0.8)))
+  local width = math.max(1, vim.o.columns - 4)
+  local height = math.max(1, vim.o.lines - 6)
   return {
     relative = 'editor', width = width, height = height,
-    row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+    row = math.max(0, math.floor((vim.o.lines - height - 2) / 2) - 1),
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
     style = 'minimal', border = 'rounded', title_pos = 'center',
   }
