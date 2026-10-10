@@ -1,3 +1,4 @@
+local context_review = require('codeit.context_review')
 local ui = require('codeit.ui')
 local providers = require('codeit.providers')
 local tools = require('codeit.tools')
@@ -26,6 +27,7 @@ Use available tools to make changes and, when practical, verify them with releva
 Concisely report what changed, what you verified, and any remaining caveats.]],
   approval = { validators = {} },
   max_tool_rounds = 12,
+  context_review = true, -- prune completed turns asynchronously with the secondary model
   -- max_context_tokens = nil, -- detect from the provider; number overrides, false disables
 }
 local config = vim.deepcopy(defaults)
@@ -34,6 +36,7 @@ local base_settings = { provider = config.provider, models = vim.deepcopy(config
 local messages, command_results = {}, {}
 local session_prompt
 local context_summary, compacted_until
+local context_reviews, review_revision = {}, 0
 local context_paths, selected_skills, disabled_context_files = {}, {}, {}
 local read_versions = {}
 local cost, missing_cost = 0, 0
@@ -77,6 +80,7 @@ local function save(clear_summary)
     tokens_in = tokens_in, tokens_out = tokens_out, missing_in = missing_in,
     missing_out = missing_out, context_tokens = context_tokens, context_estimated = context_estimated,
     context_summary = context_summary, compacted_until = compacted_until,
+    context_reviews = context_reviews,
     context_paths = context_paths, selected_skills = selected_skills,
     disabled_context_files = disabled_context_files,
   }, { clear_summary = clear_summary })
@@ -95,6 +99,7 @@ local function sync_workspace()
   messages = {}
   session_prompt = nil
   context_summary, compacted_until = nil, nil
+  context_reviews = {}
   context_paths, selected_skills = {}, {}
   read_versions = {}
   cost, missing_cost = 0, 0
@@ -197,9 +202,8 @@ local function request_messages()
   end
   vim.list_extend(result, context_files.messages(workspace or history.workspace(),
     approval.workspace_trust(workspace), context_paths, selected_skills))
-  for i = context_summary and compacted_until and compacted_until + 1 or 2, #messages do
-    result[#result + 1] = messages[i]
-  end
+  vim.list_extend(result, (context_review.project(messages, context_reviews,
+    context_summary and compacted_until and compacted_until + 1 or 2)))
   return redact_disabled_skill_results(result)
 end
 
@@ -212,6 +216,55 @@ local function estimate_context()
   for _, message in ipairs(request_messages()) do count = count + message_tokens(message) end
   context_tokens = count
   context_estimated = true
+end
+
+-- Each review owns a completed immutable turn, not the entire conversation.
+-- New turns can proceed and reviews can finish out of order without overwriting
+-- newer context. Manual context changes invalidate outstanding review snapshots.
+local function review_turn()
+  if not config.context_review then return end
+  local last, first = #messages
+  for i = last, 2, -1 do
+    if messages[i].role == 'user' then first = i; break end
+  end
+  if not first then return end
+  local id, revision, selected_workspace, selected_chat = generation, review_revision, workspace, chat_id
+  local original = vim.deepcopy(vim.list_slice(messages, first, last))
+  local turn = vim.deepcopy(redact_disabled_skill_results(original))
+  -- Encrypted provider reasoning is not useful to the reviewer.
+  for _, message in ipairs(turn) do message._copilot_reasoning = nil end
+  local selected_config = request_config(true)
+  local function active()
+    return id == generation and revision == review_revision and workspace == selected_workspace
+      and history.workspace() == selected_workspace and chat_id == selected_chat
+      and first > (compacted_until or 1)
+      and vim.deep_equal(original, vim.list_slice(messages, first, last))
+  end
+  vim.schedule(function()
+    if not active() then return end
+    providers.chat(selected_config, {
+      { role = 'system', content = context_review.prompt },
+      { role = 'user', content = vim.json.encode(turn) },
+    }, {}, function(message, err, usage)
+      if id ~= generation or workspace ~= selected_workspace or history.workspace() ~= selected_workspace
+        or chat_id ~= selected_chat then return end
+      -- Background requests contribute to billing, never to main-chat context usage.
+      if not err then record_usage(usage, false) end
+      if not active() then return end
+      local replacements
+      if not err then replacements, err = context_review.parse(message, turn) end
+      if err then
+        vim.notify('codeit: could not review context: ' .. tostring(err), vim.log.levels.WARN)
+        return
+      end
+      if #replacements == 0 then return end
+      context_reviews[#context_reviews + 1] = { first = first, last = last, replacements = replacements }
+      table.sort(context_reviews, function(a, b) return a.first < b.first end)
+      estimate_context()
+      save()
+      render() -- Preserve the active turn's status and draft.
+    end)
+  end)
 end
 
 local function context_guard()
@@ -306,6 +359,8 @@ function M.context_full()
     command_results = {}
     session_prompt = edited[1].content
     context_summary, compacted_until = nil, nil
+    context_reviews = {}
+    review_revision = review_revision + 1
     context_paths, selected_skills, disabled_context_files = {}, {}, {}
     read_versions = {}
     context_files.set_disabled(workspace, disabled_context_files)
@@ -326,6 +381,7 @@ function M.system_prompt()
     if not ok then return false, err end
     if vim.trim(edited) == '' then return false, 'system prompt cannot be empty' end
     session_prompt = edited
+    review_revision = review_revision + 1
     if messages[1] then messages[1].content = edited end
     if chat_id then
       estimate_context()
@@ -361,6 +417,7 @@ function M.context_files()
       selected_skills[#selected_skills + 1] = current.name
     end
     disabled_context_files[current.path] = current.included and true or nil
+    review_revision = review_revision + 1
     if chat_id then
       estimate_context()
       save()
@@ -386,6 +443,7 @@ function M.context()
     if not checkpoint then return false, 'compact the conversation before editing its summary' end
     if vim.trim(summary) == '' then return false, 'summary cannot be empty' end
     context_summary = vim.trim(summary)
+    review_revision = review_revision + 1
     original_summary = context_summary
     effective = vim.json.encode(request_messages())
     estimate_context()
@@ -398,7 +456,7 @@ end
 local function compact_through(checkpoint, id, done)
   local transcript = {}
   if context_summary then transcript[#transcript + 1] = 'Previous summary:\n' .. context_summary end
-  local completed = vim.list_slice(messages, (compacted_until or 1) + 1, checkpoint)
+  local completed = context_review.project(messages, context_reviews, (compacted_until or 1) + 1, checkpoint)
   for _, message in ipairs(redact_disabled_skill_results(completed)) do
     transcript[#transcript + 1] = vim.json.encode(message)
   end
@@ -422,6 +480,7 @@ local function compact_through(checkpoint, id, done)
     if err then return done('Could not compact context: ' .. tostring(err)) end
     record_usage(usage, false)
     context_summary, compacted_until = vim.trim(content), checkpoint
+    context_reviews = vim.tbl_filter(function(review) return review.first > checkpoint end, context_reviews)
     estimate_context()
     save()
     done()
@@ -433,18 +492,19 @@ local function auto_compact_checkpoint(limit)
   local count = 0
   for _, extra in ipairs(context_files.messages(workspace, approval.workspace_trust(workspace),
     context_paths, selected_skills)) do count = count + message_tokens(extra) end
-  local effective = redact_disabled_skill_results(messages)
-  for i, message in ipairs(effective) do
-    if i == 1 or i > (compacted_until or 1) then count = count + message_tokens(message) end
-  end
+  local projected, indices = context_review.project(messages, context_reviews, (compacted_until or 1) + 1)
+  local effective = redact_disabled_skill_results(projected)
+  if messages[1] then count = count + message_tokens(messages[1]) end
+  for _, message in ipairs(effective) do count = count + message_tokens(message) end
   if count < limit * 0.75 then return nil end
   local remaining = count
-  for i = (compacted_until or 1) + 1, #messages do
-    remaining = remaining - message_tokens(effective[i])
-    local message = messages[i]
-    if remaining <= limit * 0.5 and message.role == 'assistant'
-      and (type(message.tool_calls) ~= 'table' or #message.tool_calls == 0) then
-      return i
+  for i, message in ipairs(effective) do
+    remaining = remaining - message_tokens(message)
+    local index = indices[i]
+    local original = messages[index]
+    if remaining <= limit * 0.5 and original.role == 'assistant'
+      and (type(original.tool_calls) ~= 'table' or #original.tool_calls == 0) then
+      return index
     end
   end
 end
@@ -504,7 +564,10 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
         _copilot_reasoning = message._copilot_reasoning })
       save()
       render()
-      if type(calls) ~= 'table' or #calls == 0 then return complete() end
+      if type(calls) ~= 'table' or #calls == 0 then
+        complete()
+        return review_turn()
+      end
       local user_request
       for i = batch_start - 1, 1, -1 do
         if messages[i].role == 'user' then user_request = messages[i].content; break end
@@ -752,6 +815,7 @@ function M.new()
   messages = {}
   session_prompt = nil
   context_summary, compacted_until = nil, nil
+  context_reviews = {}
   context_paths, selected_skills, disabled_context_files = {}, {}, {}
   read_versions = {}
   context_files.set_disabled(workspace, disabled_context_files)
@@ -841,6 +905,7 @@ function M.resume(id)
   read_versions = {}
   session_prompt = nil
   context_summary, compacted_until = chat.context_summary, chat.compacted_until
+  context_reviews = context_review.restore(messages, chat.context_reviews)
   context_paths = type(chat.context_paths) == 'table' and vim.islist(chat.context_paths) and chat.context_paths or {}
   selected_skills = type(chat.selected_skills) == 'table' and vim.islist(chat.selected_skills) and chat.selected_skills or {}
   disabled_context_files = type(chat.disabled_context_files) == 'table' and chat.disabled_context_files or {}
@@ -992,6 +1057,9 @@ function M.setup(opts)
     or config.max_context_tokens <= 0 or config.max_context_tokens == math.huge
     or config.max_context_tokens ~= config.max_context_tokens) then
     error('codeit: max_context_tokens must be a positive number or false')
+  end
+  if type(config.context_review) ~= 'boolean' then
+    error('codeit: context_review must be a boolean')
   end
   tools.configure(config.approval)
   if not vim.tbl_contains({ 'openrouter', 'copilot' }, config.provider) then
