@@ -1,3 +1,9 @@
+local next_instance = 0
+
+--- Create an independent chat with optional presentation overrides.
+local function new(options)
+options = options or {}
+next_instance = next_instance + 1
 local M = {}
 local markdown = require('codeit.markdown')
 local slash_commands = require('codeit.slash_commands')
@@ -17,7 +23,7 @@ local draft_hint_id
 for group, link in pairs({ CodeitUser = 'Special', CodeitAssistant = 'Title', CodeitTool = 'Comment' }) do
   vim.api.nvim_set_hl(0, group, { default = true, link = link })
 end
-local slash_group = vim.api.nvim_create_augroup('codeit_slash_completion', { clear = true })
+local slash_group = vim.api.nvim_create_augroup('codeit_chat_' .. next_instance, { clear = true })
 local completion
 
 -- Keep the first Tab's matches even after replacing the typed prefix.
@@ -40,9 +46,9 @@ local function tab_complete()
   end
   local current = completion
   current.index = current.index % #current.matches + 1
-  -- <Cmd> runs after <C-e> has dismissed the popup, without leaving insert mode.
+  -- Apply the replacement after dismissing completion, without leaving insert mode.
   return (vim.fn.pumvisible() == 1 and '<C-e>' or '')
-    .. '<Cmd>lua require("codeit.ui").cycle_slash()<CR>'
+    .. '<Plug>(codeit-cycle-slash)'
 end
 
 function M.cycle_slash()
@@ -218,13 +224,13 @@ end
 
 local function scratch()
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_name(buf, 'codeit://chat')
-  vim.bo[buf].bufhidden = 'hide'
+  vim.api.nvim_buf_set_name(buf, options.name or 'codeit://chat')
+  vim.bo[buf].bufhidden = options.floating and 'wipe' or 'hide'
   vim.bo[buf].swapfile = false
   markdown.enable(buf)
   local lines = vim.deepcopy(chat_lines)
   if #lines > 0 then table.insert(lines, '') end
-  vim.list_extend(lines, { '## Message', '', '' })
+  vim.list_extend(lines, { '## ' .. (options.draft_label or 'Message'), '', '' })
   draft_start = #lines - 1
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   return buf
@@ -242,6 +248,7 @@ function M.is_open()
 end
 
 local function popup_config()
+  if options.popup_config then return options.popup_config() end
   local width = math.max(1, vim.o.columns - 4)
   local height = math.max(1, vim.o.lines - 6)
   return {
@@ -291,8 +298,9 @@ local function refresh_chat_folds()
 end
 
 vim.api.nvim_create_autocmd('VimResized', {
+  group = slash_group,
   callback = function()
-    if sidebar_win and valid(transcript_win) then
+    if (sidebar_win or options.floating) and valid(transcript_win) then
       vim.api.nvim_win_set_config(transcript_win, popup_config())
       update_header()
     end
@@ -302,6 +310,7 @@ vim.api.nvim_create_autocmd('VimResized', {
 })
 
 vim.api.nvim_create_autocmd('WinResized', {
+  group = slash_group,
   callback = function()
     refresh_chat_folds()
     draft_hint()
@@ -310,28 +319,33 @@ vim.api.nvim_create_autocmd('WinResized', {
 
 function M.open(on_send, on_close)
   if M.is_open() then
-    require('codeit.managed_tab').open()
+    if not options.floating then require('codeit.managed_tab').open() end
     focus_draft()
     return
   end
   M.close()
-  require('codeit.managed_tab').open()
+  if not options.floating then require('codeit.managed_tab').open() end
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then
     transcript = scratch()
   end
-  vim.cmd('botright 80vsplit')
-  transcript_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(transcript_win, transcript)
+  if options.floating then
+    transcript_win = vim.api.nvim_open_win(transcript, true, popup_config())
+  else
+    vim.cmd('botright 80vsplit')
+    transcript_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(transcript_win, transcript)
+  end
   vim.bo[transcript].completeopt = 'menuone,noselect'
   vim.wo[transcript_win].wrap = true
   vim.wo[transcript_win].linebreak = true
   vim.wo[transcript_win].number = false
   vim.wo[transcript_win].relativenumber = false
   vim.keymap.set('n', '<CR>', on_send, { buffer = transcript, desc = 'Send codeit message' })
-  vim.keymap.set('i', '<C-s>', function()
+  vim.keymap.set(options.floating and { 'n', 'i' } or 'i', '<C-s>', function()
     vim.cmd('stopinsert')
     on_send()
   end, { buffer = transcript, desc = 'Send codeit message' })
+  if options.slash_commands ~= false then
   vim.keymap.set('i', '<CR>', function()
     if vim.fn.pumvisible() == 1 then
       vim.schedule(function()
@@ -357,7 +371,7 @@ function M.open(on_send, on_close)
     end
     return '<CR>'
   end, { buffer = transcript, expr = true, desc = 'Run slash command or insert newline' })
-  vim.api.nvim_clear_autocmds({ group = slash_group })
+  vim.api.nvim_clear_autocmds({ group = slash_group, event = 'InsertCharPre' })
   vim.api.nvim_create_autocmd('InsertCharPre', {
     group = slash_group,
     buffer = transcript,
@@ -374,17 +388,24 @@ function M.open(on_send, on_close)
       end)
     end,
   })
+  vim.keymap.set('i', '<Plug>(codeit-cycle-slash)', M.cycle_slash,
+    { buffer = transcript, silent = true, desc = 'Apply slash completion' })
   vim.keymap.set('i', '<Tab>', tab_complete,
     { buffer = transcript, expr = true, desc = 'Complete or cycle slash commands' })
-  vim.keymap.set({ 'n', 'i' }, '<C-g>', M.toggle_popup,
-    { buffer = transcript, silent = true, desc = 'Toggle interactive chat popup' })
+  end
+  if not options.floating then
+    vim.keymap.set({ 'n', 'i' }, '<C-g>', M.toggle_popup,
+      { buffer = transcript, silent = true, desc = 'Toggle interactive chat popup' })
+  end
   vim.keymap.set('n', '<Esc>', function()
-    if sidebar_win then restore_sidebar() end
+    if options.floating then on_close()
+    elseif sidebar_win then restore_sidebar() end
   end, { buffer = transcript, silent = true, desc = 'Return from chat popup' })
   vim.keymap.set('n', 'q', on_close, { buffer = transcript, desc = 'Close codeit chat' })
   M.decorate_chat(transcript_win)
   update_header()
   focus_draft()
+  return transcript_win, transcript
 end
 
 function M.close()
@@ -396,11 +417,12 @@ function M.close()
   if transcript and vim.api.nvim_buf_is_valid(transcript) then
     vim.api.nvim_buf_clear_namespace(transcript, ui_ns, 0, -1)
   end
-  require('codeit.managed_tab').leave()
+  if not options.floating then require('codeit.managed_tab').leave() end
 end
 
 -- Ignore close events from an earlier session if the chat has since reopened.
 vim.api.nvim_create_autocmd('WinClosed', {
+  group = slash_group,
   callback = function(args)
     local closed = tonumber(args.match)
     if closed ~= transcript_win and closed ~= sidebar_win then return end
@@ -438,13 +460,14 @@ local function tool_output_language(name, content)
 end
 
 function M.render(messages, status, provider, model, billing, command_results, can_send)
-  require('codeit.assistant_pane').set_messages(messages)
+  if not options.floating then require('codeit.assistant_pane').set_messages(messages) end
   local active_expanded = expanded_folds(transcript_win)
   local sidebar_expanded = expanded_folds(sidebar_win)
   tool_folds, section_folds, role_marks = {}, {}, {}
   can_send_message = can_send ~= false
   draft_status = status
-  local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
+  local lines = options.header and vim.deepcopy(options.header)
+    or { '# Codeit (' .. provider .. ': ' .. model .. ')' }
   if billing then table.insert(lines, '> ' .. billing) end
   billing_line = billing
   table.insert(lines, '')
@@ -525,7 +548,7 @@ function M.render(messages, status, provider, model, billing, command_results, c
           table.insert(lines, '---')
           table.insert(lines, '')
         end
-        local label = message.role == 'user' and '**You**' or '**Assistant**'
+        local label = message.role == 'user' and '**You**' or ('**' .. (options.assistant_label or 'Assistant') .. '**')
         role_marks[#role_marks + 1] = { row = #lines, text = label,
           group = message.role == 'user' and 'CodeitUser' or 'CodeitAssistant' }
         table.insert(lines, label)
@@ -564,7 +587,7 @@ function M.render(messages, status, provider, model, billing, command_results, c
   chat_lines = vim.deepcopy(lines)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   table.insert(lines, '')
-  table.insert(lines, '## Message')
+  table.insert(lines, '## ' .. (options.draft_label or 'Message'))
   table.insert(lines, '')
   local cursor, draft_row
   if valid(transcript_win) then
@@ -714,4 +737,14 @@ function M.show_system_prompt(prompt, on_save)
     function(value) return true, value end, on_save)
 end
 
+function M.destroy()
+  M.close()
+  vim.api.nvim_del_augroup_by_id(slash_group)
+end
+
+return M
+end
+
+local M = new()
+M.new = new
 return M

@@ -81,86 +81,56 @@ function M.show(prompt, options, callback, config)
   end
 end
 
---- Keep the reviewer conversation and multiline question draft in one Markdown window.
+--- Use the chat UI with a tool-call header and reviewer-specific navigation.
 function M.ask_reviewer(name, args, on_question, on_back)
   local header = { '# Review tool call', '', '**Tool:** `' .. tostring(name) .. '`', '', '## Arguments', '' }
   vim.list_extend(header, markdown.fence(args, 'json'))
   vim.list_extend(header, { '', '## Conversation', '', 'Type below; <C-s> or normal-mode <Enter> to send. <Esc> to go back. <C-g> to view chat context.', '' })
-  local turns = {}
-  local lines = vim.deepcopy(header)
-  vim.list_extend(lines, { '## Question', '', '' })
-  local draft_start = #lines - 1 -- zero-based first line of the draft
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].bufhidden = 'wipe'
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  markdown.enable(buf)
-  if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local frame = geometry()
   frame.title = ' Tool-call reviewer '
   local close_pane = require('codeit.assistant_pane').open(frame)
-  local win = vim.api.nvim_open_win(buf, true, frame)
-  vim.wo[win].wrap = true
-  vim.wo[win].linebreak = true
-  vim.api.nvim_win_set_cursor(win, { draft_start + 1, 0 })
-  local close_chat = require('codeit.popup_chat').attach(win)
+  local chat = require('codeit.ui').new({
+    name = 'codeit://reviewer',
+    floating = true,
+    popup_config = function() return frame end,
+    header = header,
+    assistant_label = 'Reviewer',
+    draft_label = 'Question',
+    slash_commands = false,
+  })
+  local messages = {}
   local finished, waiting = false, false
+  local close_chat
   local function finish()
     if finished then return end
     finished = true
-    close_chat()
+    if close_chat then close_chat() end
     close_pane()
-    if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+    chat.destroy()
     on_back()
   end
-  on_close(win, finish)
   local function render()
-    if finished or not vim.api.nvim_buf_is_valid(buf) then return end
-    local prefix = vim.deepcopy(header)
-    for _, turn in ipairs(turns) do
-      vim.list_extend(prefix, { '## You' })
-      vim.list_extend(prefix, vim.split(turn.question, '\n', { plain = true }))
-      prefix[#prefix + 1] = ''
-      if turn.answer then
-        prefix[#prefix + 1] = '## Reviewer'
-        vim.list_extend(prefix, vim.split(turn.answer, '\n', { plain = true }))
-      else
-        prefix[#prefix + 1] = '*Waiting for reviewer…*'
-      end
-      prefix[#prefix + 1] = ''
-    end
-    vim.list_extend(prefix, { '## Question', '' })
-    local cursor = vim.api.nvim_win_get_cursor(win)
-    local draft_row = cursor[1] > draft_start and cursor[1] - draft_start or nil
-    vim.api.nvim_buf_set_lines(buf, 0, draft_start, false, prefix)
-    draft_start = #prefix
-    if draft_row then
-      vim.api.nvim_win_set_cursor(win, {
-        math.min(draft_start + draft_row, vim.api.nvim_buf_line_count(buf)), cursor[2],
-      })
-    end
+    chat.render(messages, waiting and 'Waiting for reviewer…' or nil, nil, nil, nil, nil, not waiting)
   end
   local function submit()
     if finished or waiting then return end
-    local question = vim.trim(table.concat(vim.api.nvim_buf_get_lines(buf, draft_start, -1, false), '\n'))
-    if question == '' then return end
-    vim.api.nvim_buf_set_lines(buf, draft_start, -1, false, { '' })
-    local turn = { question = question }
-    turns[#turns + 1] = turn
+    local question = chat.take_input()
+    if not question then return end
+    messages[#messages + 1] = { role = 'user', content = question }
     waiting = true
     render()
     on_question(question, function(answer)
-      if finished or not vim.api.nvim_buf_is_valid(buf) then return end
-      turn.answer = answer or 'No reviewer response'
+      if finished then return end
+      messages[#messages + 1] = { role = 'assistant', content = answer or 'No reviewer response' }
       waiting = false
       render()
     end)
   end
-  vim.keymap.set({ 'n', 'i' }, '<C-s>', function()
-    if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
-    submit()
-  end, { buffer = buf, silent = true, desc = 'Ask reviewer' })
-  vim.keymap.set('n', '<CR>', submit, { buffer = buf, silent = true, desc = 'Ask reviewer' })
-  vim.keymap.set('n', '<Esc>', finish, { buffer = buf, silent = true, desc = 'Back to approval' })
+  if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
+  local win = chat.open(submit, finish)
+  close_chat = require('codeit.popup_chat').attach(win)
+  on_close(win, finish)
+  render()
   vim.cmd.startinsert()
 end
 

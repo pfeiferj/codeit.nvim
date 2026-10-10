@@ -129,6 +129,11 @@ assert(transcript():find('**Tool:** `run_command`', 1, true) and transcript():fi
 assert(transcript():find('normal-mode <Enter> to send', 1, true), transcript())
 assert(vim.bo[reviewer_buf].modifiable and vim.bo[reviewer_buf].filetype == 'codeit')
 assert(vim.b[reviewer_buf].current_syntax == 'codeit')
+assert(mapping(reviewer_buf, '{') and mapping(reviewer_buf, '}'), 'reviewer should share turn navigation')
+assert(vim.wo[reviewer_win].foldmethod == 'manual', 'reviewer should share chat folding')
+for _, map in ipairs(vim.api.nvim_buf_get_keymap(reviewer_buf, 'i')) do
+  assert(map.lhs ~= '<Tab>' and map.lhs ~= '<CR>', 'reviewer should not interpret main-chat slash commands')
+end
 assert_question_footer()
 assert(vim.api.nvim_win_get_cursor(reviewer_win)[1] == draft_line(), 'focus should start on the draft')
 local send = mapping(reviewer_buf, '<CR>')
@@ -138,7 +143,19 @@ vim.api.nvim_buf_set_lines(reviewer_buf, -2, -1, false, { 'Is it safe?', 'Any si
 send()
 assert(questions[1] == 'Is it safe?\nAny side effects?' and #questions == 1)
 assert(vim.api.nvim_win_is_valid(reviewer_win))
-assert(transcript():find('## You\nIs it safe?\nAny side effects?\n\n*Waiting for reviewer…*', 1, true))
+assert(transcript():find('**You**\n\nIs it safe?\nAny side effects?', 1, true))
+local function draft_hint()
+  local ns = vim.api.nvim_get_namespaces().codeit_chat_ui
+  local parts = {}
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(reviewer_buf, ns, 0, -1, { details = true })) do
+    for _, line in ipairs(mark[4].virt_lines or {}) do
+      for _, chunk in ipairs(line) do parts[#parts + 1] = chunk[1] end
+    end
+  end
+  return table.concat(parts, ' ')
+end
+assert(draft_hint():find('Waiting for reviewer…', 1, true))
+assert(draft_hint():find('Sending unavailable', 1, true))
 assert_question_footer()
 assert(vim.api.nvim_win_get_cursor(reviewer_win)[1] == draft_line(), 'sending should focus the draft')
 vim.api.nvim_buf_set_lines(reviewer_buf, -2, -1, false, { 'Follow up' })
@@ -146,15 +163,15 @@ vim.api.nvim_win_set_cursor(reviewer_win, { draft_line(), 4 })
 send()
 assert(#questions == 1, 'do not submit while a response is pending')
 replies[1]('This only prints text')
-assert(transcript():find('## Reviewer\nThis only prints text', 1, true))
-assert(not transcript():find('Waiting for reviewer', 1, true))
+assert(transcript():find('**Reviewer**\n\nThis only prints text', 1, true))
+assert(not draft_hint():find('Waiting for reviewer', 1, true))
 assert(vim.api.nvim_buf_get_lines(reviewer_buf, -2, -1, false)[1] == 'Follow up')
 assert(vim.deep_equal(vim.api.nvim_win_get_cursor(reviewer_win), { draft_line(), 4 }),
   'reply must preserve draft cursor')
 send()
 assert(questions[2] == 'Follow up' and #questions == 2)
 replies[2]('Another answer')
-assert(transcript():find('## You\nFollow up', 1, true) and transcript():find('Another answer', 1, true))
+assert(transcript():find('**You**\n\nFollow up', 1, true) and transcript():find('Another answer', 1, true))
 assert_question_footer()
 assert(mapping(reviewer_buf, '<C-S>', 'i'), 'insert-mode Ctrl-S should send')
 mapping(reviewer_buf, '<Esc>')()
@@ -175,6 +192,33 @@ vim.api.nvim_win_close(pending_win, true)
 assert(vim.wait(1000, function() return backs == 2 end))
 replies[3]('Late answer') -- A stale response must not reopen the reviewer.
 assert(backs == 2 and vim.api.nvim_get_current_win() == previous)
+-- Reviewer instances must not replace the main chat, draft, styling, or lifecycle.
+local ui = require('codeit.ui')
+ui.open(function() error('reviewer must not send the main draft') end, ui.close)
+local main_win, main_buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+ui.render({ { role = 'user', content = 'Main request' } }, 'Ready', 'test', 'test')
+vim.api.nvim_buf_set_lines(main_buf, -2, -1, false, { 'Unsent main draft' })
+local main_lines = vim.api.nvim_buf_get_lines(main_buf, 0, -1, false)
+local autocmds = #vim.api.nvim_get_autocmds({ event = { 'WinClosed', 'WinResized', 'VimResized', 'InsertCharPre' } })
+local literal_question
+prompt.ask_reviewer('read_file', '{}', function(question, reply)
+  literal_question = question
+  reply('Reviewer answer')
+end, function() end)
+local isolated_win, isolated_buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+vim.api.nvim_buf_set_lines(isolated_buf, -2, -1, false, { '/new' })
+mapping(isolated_buf, '<C-S>')()
+assert(literal_question == '/new', 'reviewer slash-prefixed questions must be literal text')
+assert(ui.is_open() and ui.peek_input() == 'Unsent main draft')
+assert(vim.deep_equal(vim.api.nvim_buf_get_lines(main_buf, 0, -1, false), main_lines))
+assert(not table.concat(ui.chat_lines(), '\n'):find('Reviewer answer', 1, true))
+mapping(isolated_buf, '<Esc>')()
+vim.wait(20)
+assert(not vim.api.nvim_win_is_valid(isolated_win) and not vim.api.nvim_buf_is_valid(isolated_buf))
+assert(ui.is_open() and vim.api.nvim_get_current_win() == main_win)
+assert(#vim.api.nvim_get_autocmds({ event = { 'WinClosed', 'WinResized', 'VimResized', 'InsertCharPre' } }) == autocmds,
+  'closing the reviewer must remove its instance autocmds')
+ui.close()
 -- Tool-limit decisions use the same keyboard-driven popup, with safe dismissal.
 local limit_prompt = require('codeit.tool_limit_prompt')
 local function limit_choice(key, expected, default_rounds)
