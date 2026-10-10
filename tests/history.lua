@@ -45,7 +45,11 @@ local first_id = entries[1].id
 local stored = vim.fn.stdpath('data') .. '/codeit/chats/' .. vim.fn.sha256(workspace) .. '/' .. first_id .. '.json'
 assert(vim.fn.getfperm(stored) == 'rw-------')
 responses[#responses]({ role = 'assistant', content = 'first answer' }, nil,
-  { cost = 0.12, prompt_tokens = 200, completion_tokens = 10, total_tokens = 210 })
+  { cost = 0.123456, prompt_tokens = 200, completion_tokens = 10, total_tokens = 210 })
+assert(history.load(workspace, first_id).turn_costs[1].cost == 0.123456)
+plugin.open()
+assert(table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
+  :find('**You** · Turn cost: $0.123', 1, true))
 assert(history.load(workspace, first_id).messages[3].content == 'first answer')
 plugin.new()
 plugin.send('second question')
@@ -59,7 +63,25 @@ assert(#history.list(workspace) == 2, 'resuming must not create a duplicate')
 assert(history.list(workspace)[1].id == first_id, 'recently updated chat should appear first')
 responses[#responses]({ role = 'assistant', content = 'follow up answer' })
 local chat = history.load(workspace, first_id)
-assert(chat.cost == 0.12 and chat.context_tokens == nil)
+assert(chat.cost == 0.123456 and chat.context_tokens == nil)
+assert(#chat.turn_costs == 2 and chat.turn_costs[1].first == 2 and chat.turn_costs[1].cost == 0.123456)
+assert(chat.turn_costs[2].first == 4 and chat.turn_costs[2].cost == 0 and chat.turn_costs[2].missing_cost == 1)
+for _, message in ipairs(requests[#requests].messages) do
+  assert(not message.turn_costs, 'cost metadata must stay out of provider messages')
+end
+
+-- Legacy and malformed turn costs must not become fabricated zero-cost turns.
+local legacy = { provider = 'openrouter', model = 'test-model', cost = 1,
+  messages = { { role = 'user', content = 'old question' }, { role = 'assistant', content = 'old answer' } } }
+assert(history.save(workspace, 'legacy', legacy))
+assert(#history.load(workspace, 'legacy').turn_costs == 0)
+plugin.resume('legacy')
+assert(table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
+  :find('Turn cost: unknown', 1, true))
+legacy.turn_costs = { { first = 1, cost = -1 }, { first = 2, cost = 1 }, { first = 99, cost = 1 } }
+assert(history.save(workspace, 'legacy', legacy))
+assert(#history.load(workspace, 'legacy').turn_costs == 0)
+assert(history.delete(workspace, 'legacy'))
 
 -- A pending tool batch must not be replayed to the provider after restart.
 plugin.resume(second_id)

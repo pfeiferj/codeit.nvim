@@ -40,9 +40,11 @@ assert(not first:find(user .. '3', 1, true), 'newest complete turn must be retai
 local previous = history.load(workspace, chat_id)
 assert(previous.compacted_until == nil, 'checkpoint is not committed before summary succeeds')
 local long_summary = 'Useful bounded summary'
-callbacks[4]({ role = 'assistant', content = long_summary })
+callbacks[4]({ role = 'assistant', content = long_summary }, nil, { cost = 0.25 })
 local saved = history.load(workspace, chat_id)
 assert(saved.compacted_until == 5 and saved.context_summary == long_summary)
+assert(saved.turn_costs[4].cost == 0.25 and saved.turn_costs[3].cost == 0,
+  'automatic compaction must bill the active user turn')
 assert(#requests == 5 and #requests[5].messages == 5)
 assert(requests[5].config.model == 'openai/gpt-4o-mini', 'main request keeps the main model after compaction')
 assert(requests[5].messages[2].content:find(long_summary, 1, true))

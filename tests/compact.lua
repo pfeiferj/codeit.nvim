@@ -35,6 +35,8 @@ callbacks[3]({ role = 'assistant', content = '  Project summary.  ' }, nil,
 local saved = history.load(workspace, chat_id)
 assert(saved.context_summary == 'Project summary.' and saved.compacted_until == 3)
 assert(saved.cost == 0.25 and saved.tokens_in == 100 and saved.tokens_out == 20)
+assert(saved.turn_costs[1].cost == 0 and saved.turn_costs[1].missing_cost == 1,
+  'manual compaction must not change an already completed turn cost')
 assert(saved.context_tokens and saved.context_tokens > 0 and saved.context_estimated == true,
   'compaction must replace the stale context size with an estimate')
 assert(vim.fn.exists(':CodeitContext') == 2)

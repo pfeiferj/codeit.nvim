@@ -18,12 +18,16 @@ local function save(ws, id, day, amount, missing)
   assert(history.save(ws, id, { provider = 'openrouter', model = 'test-model', updated_at = stamp(day),
     cost = amount, missing_cost = missing, tokens_in = 1234567, tokens_out = 120000,
     missing_in = missing > 0, missing_out = missing > 0,
+    turn_costs = id == 'one' and { { first = 1, cost = 0.123456, missing_cost = 0 },
+      { first = 5, cost = 1.126544, missing_cost = 0 } } or nil,
     messages = { { role = 'user', content = 'Investigate expensive tests' },
       { role = 'assistant', content = 'Read the logs',
         _copilot_reasoning = { { summary = { { text = 'private-secret' } } } },
         tool_calls = { { id = 'read', ['function'] = { name = 'read_file', arguments = '{"path":"logs"}' } } } },
       { role = 'tool', tool_call_id = 'read', content = string.rep('log output\n', 250) },
-      { role = 'assistant', content = 'Done' } } }))
+      { role = 'assistant', content = 'Done' },
+      { role = 'user', content = 'Explain slow step' },
+      { role = 'assistant', content = 'Another answer' } } }))
 end
 save(workspace, 'one', 1, 1.25, 0)
 save(workspace, 'two', 2, 0, 1)
@@ -48,6 +52,15 @@ assert(#result.chats == 1 and result.chats[1].chat_id == 'two')
 result = execute('read_cost_chat', { workspace = workspace, chat_id = 'one' })
 assert(result.truncated and #result.lines == 200)
 assert(not table.concat(result.lines, '\n'):find('private-secret', 1, true))
+assert(table.concat(result.lines, '\n'):find('0.123456', 1, true), 'tools must retain full cost precision')
+result = execute('search_cost_chat', { workspace = workspace, chat_id = 'one', query = 'cost (USD)' })
+assert(#result.matches == 2)
+local first_turn = vim.json.decode(result.matches[1].text:match('cost %(USD%): (.*)'))
+local second_turn = vim.json.decode(result.matches[2].text:match('cost %(USD%): (.*)'))
+assert(first_turn.cost == 0.123456 and second_turn.cost == 1.126544)
+assert(result.matches[2].text:find('Turn 2', 1, true))
+result = execute('search_cost_chat', { workspace = workspace, chat_id = 'two', query = 'cost (USD)' })
+assert(result.matches[1].text:find('unknown (not recorded)', 1, true))
 result = execute('search_cost_chat', { workspace = workspace, chat_id = 'one', query = 'expensive' })
 assert(#result.matches == 1)
 for _, args in ipairs({ { offset = -1 }, { offset = 0.5 }, { offset = math.huge },
@@ -128,6 +141,9 @@ pending({ role = 'assistant', content = 'One chat accounted for $2.50.' }, nil,
 assert(text():find('One chat accounted', 1, true) and text():find('This review: $0.150', 1, true))
 local saved = history.list(history.workspace())
 assert(#saved == 1 and saved[1].kind == 'cost_review' and math.abs(saved[1].cost - 0.15) < 0.000001)
+assert(#saved[1].turn_costs == 1 and saved[1].turn_costs[1].first == 2)
+assert(math.abs(saved[1].turn_costs[1].cost - 0.15) < 0.000001)
+assert(text():find('**You** · Turn cost: $0.150', 1, true))
 ask('More details')
 pending(nil, 'offline')
 assert(text():find('Error: offline', 1, true))
@@ -139,6 +155,8 @@ pending({ role = 'assistant', content = 'Late response' }, nil, { cost = 0.2 })
 assert(#requests == before, 'closing stops further model/tool rounds')
 saved = history.list(history.workspace())
 assert(math.abs(saved[1].cost - 0.35) < 0.000001 and saved[1].missing_in)
+assert(#saved[1].turn_costs == 3 and saved[1].turn_costs[2].first == 6 and saved[1].turn_costs[3].first == 7)
+assert(saved[1].turn_costs[3].cost == 0.2, 'late review-session usage must persist on the question that incurred it')
 vim.wait(20)
 local empty_win = plugin.costs()
 assert(vim.api.nvim_win_is_valid(empty_win))

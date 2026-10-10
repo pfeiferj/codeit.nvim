@@ -16,7 +16,10 @@ M.specs = {
   }, { 'query' }),
 }
 
-function M.new(messages)
+function M.new(messages, turn_costs)
+  local costs_by_message = {}
+  for _, turn in ipairs(turn_costs or {}) do costs_by_message[turn.first] = turn end
+  local turn_number = 0
   local lines = {}
   local function add(text)
     for _, line in ipairs(vim.split(text, '\n', { plain = true })) do
@@ -32,6 +35,13 @@ function M.new(messages)
   for index, message in ipairs(messages) do
     add(('Message %d [%s]%s'):format(index, message.role,
       message.tool_call_id and (' tool_call_id=' .. message.tool_call_id) or ''))
+    if message.role == 'user' and turn_costs then
+      turn_number = turn_number + 1
+      local turn = costs_by_message[index]
+      add(('Turn %d cost (USD): %s'):format(turn_number, turn and vim.json.encode({
+        cost = turn.cost, missing_cost = turn.missing_cost,
+      }) or 'unknown (not recorded)'))
+    end
     if type(message.content) == 'string' then add(message.content)
     elseif type(message.content) == 'table' then add(vim.json.encode(message.content)) end
     if type(message.tool_calls) == 'table' then add('Tool calls: ' .. vim.json.encode(message.tool_calls)) end

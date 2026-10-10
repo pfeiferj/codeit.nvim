@@ -69,6 +69,8 @@ local context_reviews, review_revision = {}, 0
 local context_paths, selected_skills, disabled_context_files = {}, {}, {}
 local read_versions = {}
 local cost, missing_cost = 0, 0
+-- Keep billing outside messages so late charges do not invalidate context-review snapshots.
+local turn_costs, current_turn = {}, nil
 local tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
 local context_tokens, context_estimated
 local context_stats = { cached_tokens = 0, cache_observed_tokens = 0, main_requests = 0, compactions = {} }
@@ -109,6 +111,7 @@ local function save(clear_summary)
     model_presets = config.model_presets,
     feature_settings = config.feature_settings,
     updated_at = seconds + microseconds / 1000000, cost = cost, missing_cost = missing_cost,
+    turn_costs = turn_costs,
     tokens_in = tokens_in, tokens_out = tokens_out, missing_in = missing_in,
     missing_out = missing_out, context_tokens = context_tokens, context_estimated = context_estimated,
     context_summary = context_summary, compacted_until = compacted_until,
@@ -137,6 +140,7 @@ local function sync_workspace()
   context_paths, selected_skills = {}, {}
   read_versions = {}
   cost, missing_cost = 0, 0
+  turn_costs, current_turn = {}, nil
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
   context_tokens, context_estimated = nil, nil
   context_stats = { cached_tokens = 0, cache_observed_tokens = 0, main_requests = 0, compactions = {} }
@@ -166,7 +170,7 @@ local function render()
     displayed = vim.list_extend({}, messages)
     displayed[#displayed + 1] = { role = 'assistant', content = stream_preview }
   end
-  ui.render(displayed, status, config.provider, model(), billing, command_results, not busy)
+  ui.render(displayed, status, config.provider, model(), billing, command_results, not busy, turn_costs)
 end
 
 local function usage_number(value)
@@ -174,11 +178,14 @@ local function usage_number(value)
   if number and number >= 0 and number < math.huge then return number end
 end
 
-local function record_usage(usage, main_chat, provider)
+local function record_usage(usage, main_chat, provider, turn)
   provider = provider or config.provider
   if provider ~= 'openrouter' and provider ~= 'copilot' then return end
   local amount = usage_number(usage and usage.cost)
   if amount then cost = cost + amount else missing_cost = missing_cost + 1 end
+  if turn then
+    if amount then turn.cost = turn.cost + amount else turn.missing_cost = turn.missing_cost + 1 end
+  end
   local input_count = usage_number(usage and usage.prompt_tokens)
   local output_count = usage_number(usage and usage.completion_tokens)
   if input_count then tokens_in = tokens_in + input_count else missing_in = true end
@@ -205,14 +212,14 @@ local function set_status(text)
 end
 
 local function fail(err)
-  turn_reviews = nil
+  turn_reviews, current_turn = nil, nil
   busy = false
   set_status('Error: ' .. tostring(err))
   vim.notify('codeit: ' .. tostring(err), vim.log.levels.ERROR)
 end
 
 local function complete()
-  turn_reviews = nil
+  turn_reviews, current_turn = nil, nil
   busy = false
   set_status('Ready')
 end
@@ -290,6 +297,10 @@ local function review_turn()
     if messages[i].role == 'user' then first = i; break end
   end
   if not first then return end
+  local billed_turn
+  for _, turn_cost in ipairs(turn_costs) do
+    if turn_cost.first == first then billed_turn = turn_cost; break end
+  end
   local id, revision, selected_workspace, selected_chat = generation, review_revision, workspace, chat_id
   local original = vim.deepcopy(vim.list_slice(messages, first, last))
   local turn = vim.deepcopy(redact_disabled_skill_results(original))
@@ -313,7 +324,7 @@ local function review_turn()
       if id ~= generation or workspace ~= selected_workspace or history.workspace() ~= selected_workspace
         or chat_id ~= selected_chat then return end
       -- Background requests contribute to billing, never to main-chat context usage.
-      if not err then record_usage(usage, false, selected_config.provider) end
+      if not err then record_usage(usage, false, selected_config.provider, billed_turn) end
       if not active() then return end
       local replacements
       if not err then replacements, err = context_review.parse(message, turn) end
@@ -524,6 +535,7 @@ function M.context()
 end
 
 local function compact_through(checkpoint, id, done, main_limit)
+  local billed_turn = current_turn
   local started, before = vim.uv.hrtime(), 0
   for _, message in ipairs(request_messages()) do before = before + message_tokens(message) end
   local selected_workspace = workspace
@@ -604,7 +616,7 @@ local function compact_through(checkpoint, id, done, main_limit)
       providers.chat(selected_config, { prompt, { role = 'user', content = transcript } }, {}, function(message, err, usage)
         if not active() then return end
         if usage or not err then
-          record_usage(usage, false, selected_config.provider)
+          record_usage(usage, false, selected_config.provider, billed_turn)
           billed = billed + (usage_number(usage and usage.cost) or 0)
         end
         local content = message and message.content
@@ -657,6 +669,7 @@ local function auto_compact_checkpoint(limit, specs)
 end
 
 local function request(round, id, skip_auto, detected_limit, limit_checked, budget)
+  local billed_turn = current_turn
   budget = budget or { limit = config.max_tool_rounds }
   local function active()
     if id ~= generation then return false end
@@ -710,7 +723,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
     if not active() then return end
     stream_preview = nil
     if err then return fail(err) end
-    record_usage(usage, true, selected_config.provider)
+    record_usage(usage, true, selected_config.provider, billed_turn)
     local calls = message.tool_calls
     if type(calls) == 'table' then
       local seen = {}
@@ -766,7 +779,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
           end
           callback(type(content) == 'string' and content or 'No reviewer response')
         end
-        local function usage(result) record_usage(result, false, selected_config.provider) end
+        local function usage(result) record_usage(result, false, selected_config.provider, billed_turn) end
         if feature == 'tool_assessment' then
           providers.chat(selected_config, history, {}, function(message, err, result)
             if id ~= generation then return end
@@ -996,6 +1009,8 @@ function M.send(text)
     table.insert(messages, { role = 'system', content = current_prompt() })
   end
   table.insert(messages, { role = 'user', content = text })
+  current_turn = { first = #messages, cost = 0, missing_cost = 0 }
+  turn_costs[#turn_costs + 1] = current_turn
   if not chat_id then chat_id = history.new_id() end
   save(true)
   turn_reviews = vim.deepcopy(context_reviews)
@@ -1039,6 +1054,7 @@ function M.new()
   read_versions = {}
   context_files.set_disabled(workspace, disabled_context_files)
   cost, missing_cost = 0, 0
+  turn_costs, current_turn = {}, nil
   tokens_in, tokens_out, missing_in, missing_out = 0, 0, false, false
   context_tokens, context_estimated = nil, nil
   context_stats = { cached_tokens = 0, cache_observed_tokens = 0, main_requests = 0, compactions = {} }
@@ -1143,6 +1159,7 @@ function M.resume(id)
   disabled_context_files = type(chat.disabled_context_files) == 'table' and chat.disabled_context_files or {}
   context_files.set_disabled(workspace, disabled_context_files)
   cost, missing_cost = tonumber(chat.cost) or 0, tonumber(chat.missing_cost) or 0
+  turn_costs, current_turn = chat.turn_costs, nil
   tokens_in, tokens_out = tonumber(chat.tokens_in) or 0, tonumber(chat.tokens_out) or 0
   missing_in, missing_out = chat.missing_in == true, chat.missing_out == true
   local stats = type(chat.context_stats) == 'table' and chat.context_stats or {}

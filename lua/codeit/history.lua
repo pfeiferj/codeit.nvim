@@ -111,6 +111,22 @@ function M.load(workspace, id)
     or (type(checkpoint.tool_calls) == 'table' and #checkpoint.tool_calls > 0) then
     chat.context_summary, chat.compacted_until = nil, nil
   end
+  local turn_costs, previous = {}, 0
+  if type(chat.turn_costs) == 'table' and vim.islist(chat.turn_costs) then
+    for _, turn in ipairs(chat.turn_costs) do
+      if type(turn) == 'table' then
+        local first, amount, missing = turn.first, turn.cost, turn.missing_cost or 0
+        if type(first) == 'number' and first == math.floor(first) and first > previous
+          and first <= #chat.messages and chat.messages[first].role == 'user'
+          and type(amount) == 'number' and amount >= 0 and amount < math.huge
+          and type(missing) == 'number' and missing >= 0 and missing < math.huge and missing == math.floor(missing) then
+          turn_costs[#turn_costs + 1] = { first = first, cost = amount, missing_cost = missing }
+          previous = first
+        end
+      end
+    end
+  end
+  chat.turn_costs = turn_costs
   return chat
 end
 

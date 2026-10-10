@@ -7,6 +7,7 @@ next_instance = next_instance + 1
 local M = {}
 local markdown = require('codeit.markdown')
 local slash_commands = require('codeit.slash_commands')
+local usage_format = require('codeit.usage_format')
 
 local transcript, transcript_win
 local sidebar_win
@@ -481,7 +482,9 @@ local function follow_prompt(win, view, prompt, previous_prompt, new_turn)
   end)
 end
 
-function M.render(messages, status, provider, model, billing, command_results, can_send)
+function M.render(messages, status, provider, model, billing, command_results, can_send, turn_costs)
+  local costs_by_message = {}
+  for _, turn in ipairs(turn_costs or {}) do costs_by_message[turn.first] = turn end
   local views = {}
   for _, win in ipairs({ transcript_win, sidebar_win }) do
     if valid(win) then
@@ -586,6 +589,10 @@ function M.render(messages, status, provider, model, billing, command_results, c
           latest_prompt_row, latest_prompt_index = #lines + 1, index
         end
         local label = message.role == 'user' and '**You**' or ('**' .. (options.assistant_label or 'Assistant') .. '**')
+        if message.role == 'user' and turn_costs then
+          local turn = costs_by_message[index]
+          label = label .. ' · Turn cost: ' .. (turn and usage_format.cost(turn.cost, turn.missing_cost > 0) or 'unknown')
+        end
         role_marks[#role_marks + 1] = { row = #lines, text = label,
           group = message.role == 'user' and 'CodeitUser' or 'CodeitAssistant' }
         table.insert(lines, label)

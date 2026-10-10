@@ -147,6 +147,13 @@ assert(#responses == 1)
 reply({ role = 'assistant', content = 'Understood.' },
   { cost = 0, prompt_tokens = 80, completion_tokens = 5 })
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: 0.085k')
+contains(vim.fn.bufnr('codeit://chat'), '**You** · Turn cost: $0.000+')
+local history = require('codeit.history')
+local reviewed_chat = history.list(history.workspace())[1]
+local reviewed_turn = reviewed_chat.turn_costs[#reviewed_chat.turn_costs]
+assert(reviewed_chat.messages[reviewed_turn.first].content == 'Check command')
+assert(reviewed_turn.cost == 0.000321 and reviewed_turn.missing_cost == 5,
+  'a turn must include its main requests, assessment, and all interactive reviewer requests')
 assert(requests[#requests].messages[#requests[#requests].messages].content:find('Do not run it', 1, true))
 for _, message in ipairs(requests[#requests].messages) do
   for _, call in ipairs(type(message.tool_calls) == 'table' and message.tool_calls or {}) do
@@ -187,6 +194,8 @@ plugin.send('Check rounding')
 reply({ role = 'assistant', content = 'Rounded.' },
   { cost = 1.23456, prompt_tokens = 1234, completion_tokens = 5678, total_tokens = 123456 })
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $1.235 | In: 2.681m | Out: 1.226m | Context: 123.456k')
+contains(vim.fn.bufnr('codeit://chat'), '**You** · Turn cost: $1.235')
+contains(vim.fn.bufnr('codeit://chat'), '**You** · Turn cost: $0.000')
 plugin.new()
 local batch_prompts, batch_choices = {}, {}
 prompt_ui.show = function(prompt, _, callback)

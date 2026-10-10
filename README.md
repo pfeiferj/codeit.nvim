@@ -327,6 +327,8 @@ Closing the sidebar does not discard the conversation. `read_source_buffer` targ
 
 ### Cost and token usage
 
+Each user prompt displays its running **Turn cost** in USD. A turn includes its assistant/tool loop, tool assessments and reviews, automatic compaction, and any background context review of that turn. Late background charges update their originating turn, even while a later turn is active. Costs use three decimal places in the UI; full-precision values and missing-cost counts are saved in the chat's `turn_costs` array, keyed by the original user-message index (`first`). A `+` marks incomplete reported costs. Older turns without recorded costs show `unknown`; they are not reconstructed from chat totals. Standalone operations such as manual compaction count toward the chat total but are not assigned to a completed turn.
+
 The chat's cost/token usage line stays visible at the top of the transcript as you scroll. For OpenRouter and Copilot it shows session cost in USD, cumulative input (`In`) and output (`Out`) tokens in millions (`m`) across chat and reviewer requests, and the latest main-chat response's context length (`Context`) in thousands (`k`; from `total_tokens` or input + output tokens). Immediately after background context pruning, compacting, or editing the summary, `Context` updates to an approximate size of the effective message context, marked with `~`; the next main-chat response replaces it with reported usage. The estimate excludes tool definitions and uses roughly four characters per token. Displayed numbers have at most three decimal places. A `+` after a total means some requests omitted that usage field; `—` means the latest context is unavailable. Copilot cost comes from the server's `copilot_usage.total_nano_aiu`, converted to USD (one billion nano-AIU = one AI credit = $0.01); no catalog-based estimate is substituted when the charge is missing. Both Copilot and OpenRouter feature requests contribute cost/tokens regardless of the main chat's provider. `:CodeitNew`, switching providers, and `setup()` reset these figures for the new chat; resuming a saved chat restores its figures. Closing and reopening the sidebar preserves them.
 
 ### Cost review
@@ -345,7 +347,10 @@ free. Provider/model labels are the last saved selection, not a billing breakdow
 Type a question and send with Ctrl-S or normal-mode Enter to discuss costs. The
 `cost_review` feature model (fast preset by default, configurable in
 `:CodeitSettings`) can query totals by date/workspace, list individual chats, and
-read/search their transcripts with bounded, paginated read-only tools. **Requested
+read/search their transcripts with bounded, paginated read-only tools. These tools
+include numbered, full-precision turn costs and missing-cost counts, so you can ask
+questions such as “Which turn in this chat was most expensive?” Unrecorded costs
+in older history remain unknown. **Requested
 history from any saved workspace may be sent to the selected provider**, including
 tool arguments/results. The scope toggle filters the displayed table, not the
 reviewer's access. No history is sent until you ask a question. Review requests
