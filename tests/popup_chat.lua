@@ -11,7 +11,8 @@ local function press(win, key, mode)
 end
 local messages = { { role = 'user', content = 'Earlier request' },
   { role = 'assistant', content = 'Earlier explanation' },
-  { role = 'tool', content = 'Tool output', name = 'read_file' },
+  { role = 'tool', content = table.concat({ 'Tool output', 'two', 'three', 'four', 'five', 'six', 'seven' }, '\n'),
+    name = 'read_file' },
   { role = 'user', content = 'Current request' } }
 ui.render(messages, '', 'test', 'test', nil,
   { { after_message = 0, command = 'CodeitTrustStatus', output = 'Trust result' } })
@@ -33,6 +34,17 @@ for _, expected in ipairs({ 'Earlier request', 'Earlier explanation', 'Tool outp
   assert(text:find(expected, 1, true), expected)
 end
 assert(not text:find('## Message', 1, true))
+assert(vim.wo[chat].linebreak and vim.wo[chat].foldmethod == 'manual')
+local tool_row
+for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do
+  if line == '```text' then tool_row = row; break end
+end
+assert(tool_row and vim.fn.foldclosed(tool_row) == tool_row, 'read-only previews should fold long tool results')
+assert(vim.fn.foldtextresult(tool_row):find('Tool output', 1, true))
+vim.api.nvim_win_set_cursor(chat, { tool_row, 0 })
+vim.cmd('normal! za')
+assert(vim.fn.foldclosed(tool_row) == -1 and not vim.bo[chat_buf].modifiable,
+  'read-only tool results should expand without making the transcript editable')
 for _, map in ipairs(vim.api.nvim_buf_get_keymap(chat_buf, 'n')) do
   assert(map.lhs ~= '1' and map.lhs ~= '<CR>', 'preview must not inherit approval mappings')
 end

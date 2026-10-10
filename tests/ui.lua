@@ -14,11 +14,19 @@ assert(vim.fn.bufnr('codeit://input') == -1, 'chat must have no separate input b
 assert(#vim.api.nvim_list_wins() == 2, 'chat must use only one sidebar window')
 assert(vim.bo[chat].filetype == 'markdown' and vim.bo[chat].syntax == 'markdown')
 assert(vim.b[chat].current_syntax == 'markdown', 'Markdown syntax should be loaded')
-local ns = vim.api.nvim_get_namespaces().codeit_sticky_header
+assert(vim.wo[win].wrap and vim.wo[win].linebreak, 'sidebar prose should wrap at word boundaries')
+local ns = vim.api.nvim_get_namespaces().codeit_chat_ui
 assert(ns)
 
 local function marks()
   return vim.api.nvim_buf_get_extmarks(chat, ns, 0, -1, { details = true })
+end
+
+local function hint()
+  for _, mark in ipairs(marks()) do
+    if mark[4].virt_lines then return mark[4].virt_lines[1][1][1] end
+  end
+  error('missing draft hint')
 end
 
 local function scroll(topline)
@@ -32,35 +40,25 @@ ui.render(messages, 'Ready', 'openrouter', 'model-a', 'Cost: $0.001000 | In: 100
 local rendered = vim.api.nvim_buf_get_lines(chat, 0, 5, false)
 assert(rendered[1]:match('^# Codeit') and rendered[2]:match('^> Cost:'))
 assert(rendered[4] == '---' and rendered[5] == '')
-assert(vim.api.nvim_buf_get_lines(chat, 5, 6, false)[1] == '## You',
-  'submitted prompts should begin a new turn after a Markdown separator')
+assert(vim.api.nvim_buf_get_lines(chat, 5, 7, false)[1] == '**You**'
+  and vim.api.nvim_buf_get_lines(chat, 5, 7, false)[2] == '',
+  'speaker labels should be distinct from headings and separated from content')
 vim.api.nvim_win_call(win, function()
   assert(vim.fn.synIDattr(vim.fn.synID(1, 1, true), 'name') ~= '',
     'chat heading should have active Markdown highlighting')
 end)
-scroll(1)
-assert(#marks() == 0, 'do not cover the real header at the top')
-scroll(2)
-assert(#marks() == 0, 'do not cover the real usage line')
-scroll(3)
-assert(#marks() == 1 and marks()[1][2] == 2, 'usage must stick as soon as it scrolls out of view')
-scroll(10)
-local overlaid = marks()
-assert(#overlaid == 1 and overlaid[1][2] == 9)
-assert(overlaid[1][4].virt_text[1][1]:find('Cost: $0.001000 | In: 100 | Out: 20 | Context: 120', 1, true) == 1)
-assert(not overlaid[1][4].virt_text[1][1]:find('# Codeit', 1, true))
-assert(overlaid[1][4].virt_text_win_col == 0)
-scroll(20)
-assert(#marks() == 1 and marks()[1][2] == 19, 'scrolling down must move the usage mark')
-scroll(19)
-assert(#marks() == 1 and marks()[1][2] == 18, 'scrolling up must not duplicate usage')
-scroll(18)
-assert(#marks() == 1 and marks()[1][2] == 17, 'repeated reverse scrolling must not accumulate marks')
+local usage = 'Cost: $0.001000 | In: 100 | Out: 20 | Context: 120'
+for _, topline in ipairs({ 1, 2, 3, 10, 20, 19, 18 }) do
+  scroll(topline)
+  assert(vim.wo[win].winbar == '%#WinBar#' .. usage, 'usage should remain outside the transcript')
+  for _, mark in ipairs(marks()) do
+    assert(not mark[4].virt_text, 'no usage overlay may obscure transcript text')
+  end
+end
 ui.render(messages, 'Ready', 'copilot', 'model-b', nil)
-scroll(10)
-assert(#marks() == 0, 'providers without usage must not display a sticky line')
+assert(vim.wo[win].winbar == '', 'providers without usage must not display a usage header')
 scroll(1)
-assert(#marks() == 0)
+assert(hint():find('Ctrl-S: send', 1, true))
 
 local count = vim.api.nvim_buf_line_count(chat)
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, count - 3, count, false), { '## Message', '', '' }),
@@ -69,9 +67,10 @@ vim.api.nvim_buf_set_lines(chat, count - 1, -1, false, { 'first line', 'second l
 vim.api.nvim_win_set_cursor(win, { count + 1, 4 })
 ui.render(messages, 'Waiting', 'copilot', 'model-b', nil, nil, false)
 assert(vim.api.nvim_win_get_cursor(win)[2] == 4)
-assert(not vim.tbl_contains(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '## Message'),
-  'the draft heading should be hidden while sending is blocked')
-assert(ui.peek_input() == 'first line\nsecond line', 'hiding the heading must preserve the draft')
+assert(vim.tbl_contains(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '## Message'),
+  'the draft heading should remain visible while sending is blocked')
+assert(hint():find('Sending unavailable', 1, true))
+assert(ui.peek_input() == 'first line\nsecond line', 'blocked sending must preserve the draft')
 ui.render(messages, 'Ready', 'copilot', 'model-b', nil, nil, true)
 assert(vim.api.nvim_win_get_cursor(win)[2] == 4)
 assert(vim.api.nvim_buf_get_lines(chat, -3, -1, false)[1] == 'first line')
@@ -89,10 +88,10 @@ ui.render({
   { role = 'tool', tool_call_id = 'unmatched', content = 'other' },
 }, 'Ready', 'copilot', 'model-b', nil)
 local transcript = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
-assert(transcript:find('## Tool: git_diff\n\n```text\ndiff\n```', 1, true))
-assert(transcript:find('## Tool: read_file\n\n```text\nfile\n```', 1, true))
-assert(transcript:find('## Tool: unmatched\n\n```text\nother\n```', 1, true), 'unmatched results retain their ID')
-assert(not transcript:find('## Tool: call_hash_', 1, true), 'matched results should not show call hashes')
+assert(transcript:find('**Tool: git_diff**\n\n```text\ndiff\n```', 1, true))
+assert(transcript:find('**Tool: read_file**\n\n```text\nfile\n```', 1, true))
+assert(transcript:find('**Tool: unmatched**\n\n```text\nother\n```', 1, true), 'unmatched results retain their ID')
+assert(not transcript:find('**Tool: call_hash_', 1, true), 'matched results should not show call hashes')
 
 -- Tool output is literal display data, even when it contains unclosed Markdown.
 local output = table.concat({
@@ -108,12 +107,12 @@ ui.render({
 }, 'Ready', 'openrouter', 'model-a', nil)
 local safe_lines = vim.api.nvim_buf_get_lines(chat, 0, -1, false)
 local safe_text = table.concat(safe_lines, '\n')
-assert(safe_text:find('## Tool: read_file\n\n``````text\n' .. output .. '\n``````\n', 1, true),
+assert(safe_text:find('**Tool: read_file**\n\n``````text\n' .. output .. '\n``````\n', 1, true),
   'outer fence must be longer than every backtick run in the tool output')
-assert(safe_text:find('## Tool: parts\n\n```text\npart one\npart two\n```', 1, true),
+assert(safe_text:find('**Tool: parts**\n\n```text\npart one\npart two\n```', 1, true),
   'text-part tool results should also be fenced')
-assert(safe_text:find('## You\n**User formatting**', 1, true))
-assert(safe_text:find('## Assistant\n# After tool output\n**Assistant formatting**', 1, true),
+assert(safe_text:find('**You**\n\n**User formatting**', 1, true))
+assert(safe_text:find('**Assistant**\n\n# After tool output\n**Assistant formatting**', 1, true),
   'assistant Markdown should remain unfenced')
 assert(tool_message.content == output, 'display fencing must not mutate the tool result')
 vim.api.nvim_win_call(win, function()
@@ -129,8 +128,63 @@ vim.api.nvim_win_call(win, function()
   assert(syntax_at('**unfinished emphasis') == 'markdownCodeBlock')
   assert(syntax_at('# After tool output') == syntax_at('# Codeit (openrouter: model-a)'),
     'Markdown heading highlighting must recover after the tool block')
-  assert(syntax_at('## Message') == syntax_at('## Assistant'), 'draft heading must remain outside code blocks')
+  assert(syntax_at('## Message') == 'markdownH2Delimiter',
+    'draft heading must remain outside code blocks')
 end)
+
+local fold_start
+for row, line in ipairs(safe_lines) do
+  if line == '``````text' then fold_start = row; break end
+end
+assert(fold_start)
+vim.api.nvim_win_call(win, function()
+  assert(vim.fn.foldclosed(fold_start) == fold_start, 'long tool output should start collapsed')
+  local preview = vim.fn.foldtextresult(fold_start)
+  assert(preview:find('# Heading inside output', 1, true) and preview:find('10 lines · za: expand', 1, true))
+  vim.api.nvim_win_set_cursor(win, { fold_start, 0 })
+  vim.cmd('normal! za')
+  assert(vim.fn.foldclosed(fold_start) == -1, 'za should reveal the full tool result')
+end)
+local updated_messages = {
+  { role = 'user', content = '**User formatting**' }, tool_message,
+  { role = 'assistant', content = 'Streaming update' },
+}
+ui.render(updated_messages, 'Working', 'openrouter', 'model-a', 'Cache: 50%', nil, false)
+for row, line in ipairs(vim.api.nvim_buf_get_lines(chat, 0, -1, false)) do
+  if line == '``````text' then fold_start = row; break end
+end
+assert(vim.fn.foldlevel(fold_start) == 1, 'tool folds must track header layout changes')
+assert(vim.wo[win].winbar == '%#WinBar#Cache: 50%%', 'billing percentages must be escaped in the winbar')
+assert(vim.fn.foldclosed(fold_start) == -1, 'expanded tool output must survive streamed renders')
+ui.toggle_popup()
+local folded_popup = vim.api.nvim_get_current_win()
+assert(vim.fn.foldclosed(fold_start) == -1, 'expanded state must carry into the popup')
+assert(vim.wo[folded_popup].winbar == '%#WinBar#Cache: 50%%')
+vim.api.nvim_win_set_cursor(folded_popup, { fold_start, 0 })
+vim.cmd('normal! za')
+ui.toggle_popup()
+assert(vim.fn.foldclosed(fold_start) == fold_start, 'popup fold changes must carry back to the sidebar')
+assert(ui.peek_input() == nil, 'fold controls must not change the draft')
+
+local command_output = table.concat({ 'summary', 'one', 'two', 'three', 'four', 'five', 'six' }, '\n')
+ui.render({}, 'Ready', 'copilot', 'model-b', nil,
+  { { after_message = 0, command = '/contextFull', output = command_output } })
+local command_lines = vim.api.nvim_buf_get_lines(chat, 0, -1, false)
+for row, line in ipairs(command_lines) do
+  if line == 'summary' then
+    assert(vim.fn.foldclosed(row) == row, 'long command output should also start collapsed')
+    assert(vim.fn.foldtextresult(row):find('7 lines · za: expand', 1, true))
+  end
+end
+assert(table.concat(ui.chat_lines(), '\n'):find(command_output, 1, true),
+  'folding must retain full output in read-only transcripts')
+local groups = {}
+ui.render(updated_messages, 'Ready', 'copilot', 'model-b', nil)
+for _, mark in ipairs(marks()) do
+  if mark[4].hl_group then groups[mark[4].hl_group] = true end
+end
+assert(groups.CodeitUser and groups.CodeitAssistant and groups.CodeitTool,
+  'speaker roles should have distinct highlight groups')
 ui.close()
 assert(#marks() == 0)
 ui.open(function() sent = ui.take_input() end, ui.close)

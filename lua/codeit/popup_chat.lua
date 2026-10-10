@@ -37,6 +37,7 @@ function M.attach(win)
     })
     vim.wo[chat_win].wrap = true
     vim.wo[chat_win].linebreak = true
+    require('codeit.ui').decorate_chat(chat_win)
     if chat_view then
       vim.api.nvim_win_call(chat_win, function() vim.fn.winrestview(chat_view) end)
     else

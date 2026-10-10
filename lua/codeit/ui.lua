@@ -7,7 +7,13 @@ local sidebar_win
 local chat_lines = {}
 local draft_start = 2 -- zero-based first line of the draft
 local billing_line
-local header_ns = vim.api.nvim_create_namespace('codeit_sticky_header')
+local ui_ns = vim.api.nvim_create_namespace('codeit_chat_ui')
+local tool_folds = {}
+local role_marks = {}
+local can_send_message = true
+for group, link in pairs({ CodeitUser = 'Special', CodeitAssistant = 'Title', CodeitTool = 'Comment' }) do
+  vim.api.nvim_set_hl(0, group, { default = true, link = link })
+end
 local slash_group = vim.api.nvim_create_augroup('codeit_slash_completion', { clear = true })
 local completion
 
@@ -49,27 +55,77 @@ function M.cycle_slash()
 end
 
 local function update_header()
+  for _, win in ipairs({ transcript_win, sidebar_win }) do
+    if vim.api.nvim_win_is_valid(win) then
+      vim.wo[win].winbar = billing_line and ('%#WinBar#' .. billing_line:gsub('%%', '%%%%')) or ''
+    end
+  end
+end
+
+local function draft_hint()
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
-  vim.api.nvim_buf_clear_namespace(transcript, header_ns, 0, -1)
-  if not transcript_win or not vim.api.nvim_win_is_valid(transcript_win) then return end
-  local info = vim.fn.getwininfo(transcript_win)[1]
-  if not billing_line or not info or info.topline <= 2 then return end
-  local width = vim.api.nvim_win_get_width(transcript_win)
-  local count = vim.api.nvim_buf_line_count(transcript)
-  local row = info.topline - 1
-  if row >= count then return end
-  vim.api.nvim_buf_set_extmark(transcript, header_ns, row, 0, {
-    virt_text = { { billing_line .. string.rep(' ', math.max(0, width - vim.fn.strdisplaywidth(billing_line))), 'WinBar' } },
-    virt_text_win_col = 0,
-    priority = 200,
+  local hint = can_send_message and 'Ctrl-S: send · Enter: newline (insert mode) · normal Enter: send'
+    or 'Sending unavailable while busy · Your draft is kept'
+  vim.api.nvim_buf_set_extmark(transcript, ui_ns, draft_start - 2, 0, {
+    virt_lines = { { { hint, 'Comment' } } },
   })
 end
 
-vim.api.nvim_create_autocmd('WinScrolled', {
-  callback = function(args)
-    if tonumber(args.match) == transcript_win then update_header() end
-  end,
-})
+function M.tool_foldtext()
+  local summary = (vim.b.codeit_fold_summaries or {})[tostring(vim.v.foldstart)]
+  if not summary then return vim.fn.getline(vim.v.foldstart) end
+  local suffix = ' … (' .. summary.count .. ' lines · za: expand)'
+  local preview = summary.preview:gsub('\t', ' ')
+  local width = math.max(0, vim.api.nvim_win_get_width(0) - vim.fn.strdisplaywidth(suffix) - 2)
+  preview = vim.fn.strcharpart(preview, 0, width)
+  while vim.fn.strdisplaywidth(preview) > width do
+    preview = vim.fn.strcharpart(preview, 0, vim.fn.strchars(preview) - 1)
+  end
+  return '  ' .. preview .. suffix
+end
+
+--- Configure folds and role styling in both interactive and read-only chat windows.
+function M.decorate_chat(win, expanded)
+  local buf = vim.api.nvim_win_get_buf(win)
+  local summaries = {}
+  for _, fold in ipairs(tool_folds) do
+    summaries[tostring(fold.first)] = { preview = fold.preview, count = fold.count }
+  end
+  vim.b[buf].codeit_fold_summaries = summaries
+  vim.wo[win].foldmethod = 'manual'
+  vim.wo[win].foldenable = true
+  vim.wo[win].foldlevel = 0
+  vim.wo[win].foldminlines = 0
+  vim.wo[win].foldtext = 'v:lua.require("codeit.ui").tool_foldtext()'
+  vim.api.nvim_win_call(win, function()
+    local view = vim.fn.winsaveview()
+    vim.cmd('silent! normal! zE')
+    for _, fold in ipairs(tool_folds) do
+      vim.cmd(fold.first .. ',' .. fold.last .. 'fold')
+      if expanded and expanded[fold.key] then vim.cmd(fold.first .. 'foldopen') end
+    end
+    vim.fn.winrestview(view)
+  end)
+  vim.api.nvim_buf_clear_namespace(buf, ui_ns, 0, -1)
+  for _, mark in ipairs(role_marks) do
+    vim.api.nvim_buf_set_extmark(buf, ui_ns, mark.row, 0, {
+      end_col = #mark.text, hl_group = mark.group, priority = 200,
+    })
+  end
+  if buf == transcript then draft_hint() end
+end
+
+local function expanded_folds(win)
+  local expanded = {}
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_call(win, function()
+      for _, fold in ipairs(tool_folds) do
+        if vim.fn.foldclosed(fold.first) == -1 then expanded[fold.key] = true end
+      end
+    end)
+  end
+  return expanded
+end
 
 local function valid(win)
   return win and vim.api.nvim_win_is_valid(win)
@@ -81,7 +137,11 @@ local function scratch()
   vim.bo[buf].bufhidden = 'hide'
   vim.bo[buf].swapfile = false
   markdown.enable(buf)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '## Message', '', '' })
+  local lines = vim.deepcopy(chat_lines)
+  if #lines > 0 then table.insert(lines, '') end
+  vim.list_extend(lines, { '## Message', '', '' })
+  draft_start = #lines - 1
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   return buf
 end
 
@@ -110,6 +170,7 @@ end
 
 local function restore_sidebar()
   local popup = transcript_win
+  local expanded = expanded_folds(popup)
   local view
   if valid(popup) then
     vim.api.nvim_win_call(popup, function() view = vim.fn.winsaveview() end)
@@ -118,6 +179,7 @@ local function restore_sidebar()
   if valid(popup) then vim.api.nvim_win_close(popup, true) end
   if valid(transcript_win) then
     vim.api.nvim_set_current_win(transcript_win)
+    M.decorate_chat(transcript_win, expanded)
     if view then vim.fn.winrestview(view) end
   end
   update_header()
@@ -132,6 +194,7 @@ function M.toggle_popup()
   sidebar_win, transcript_win = transcript_win, popup
   vim.wo[popup].wrap = true
   vim.wo[popup].linebreak = true
+  M.decorate_chat(popup, expanded_folds(sidebar_win))
   vim.fn.winrestview(view)
   update_header()
 end
@@ -153,13 +216,13 @@ function M.open(on_send, on_close)
   M.close()
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then
     transcript = scratch()
-    draft_start = 2
   end
   vim.cmd('botright 80vsplit')
   transcript_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(transcript_win, transcript)
   vim.bo[transcript].completeopt = 'menuone,noselect'
   vim.wo[transcript_win].wrap = true
+  vim.wo[transcript_win].linebreak = true
   vim.wo[transcript_win].number = false
   vim.wo[transcript_win].relativenumber = false
   vim.keymap.set('n', '<CR>', on_send, { buffer = transcript, desc = 'Send codeit message' })
@@ -217,6 +280,8 @@ function M.open(on_send, on_close)
     if sidebar_win then restore_sidebar() end
   end, { buffer = transcript, silent = true, desc = 'Return from chat popup' })
   vim.keymap.set('n', 'q', on_close, { buffer = transcript, desc = 'Close codeit chat' })
+  M.decorate_chat(transcript_win)
+  update_header()
   focus_draft()
 end
 
@@ -227,7 +292,7 @@ function M.close()
   if valid(active) then vim.api.nvim_win_close(active, true) end
   if valid(sidebar) then vim.api.nvim_win_close(sidebar, true) end
   if transcript and vim.api.nvim_buf_is_valid(transcript) then
-    vim.api.nvim_buf_clear_namespace(transcript, header_ns, 0, -1)
+    vim.api.nvim_buf_clear_namespace(transcript, ui_ns, 0, -1)
   end
 end
 
@@ -264,6 +329,10 @@ end
 
 function M.render(messages, status, provider, model, billing, command_results, can_send)
   require('codeit.assistant_pane').set_messages(messages)
+  local active_expanded = expanded_folds(transcript_win)
+  local sidebar_expanded = expanded_folds(sidebar_win)
+  tool_folds, role_marks = {}, {}
+  can_send_message = can_send ~= false
   local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
   if billing then table.insert(lines, '> ' .. billing) end
   billing_line = billing
@@ -278,7 +347,14 @@ function M.render(messages, status, provider, model, billing, command_results, c
   local function render_results(index)
     for _, result in ipairs(results_by_message[index] or {}) do
       table.insert(lines, '## Command: `' .. result.command .. '`')
-      vim.list_extend(lines, vim.split(result.output, '\n', { plain = true }))
+      table.insert(lines, '')
+      local output_lines = vim.split(result.output, '\n', { plain = true })
+      local first = #lines + 1
+      vim.list_extend(lines, output_lines)
+      if #output_lines > 6 then
+        tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = result,
+          preview = output_lines[1], count = #output_lines }
+      end
       table.insert(lines, '')
     end
   end
@@ -294,7 +370,11 @@ function M.render(messages, status, provider, model, billing, command_results, c
         table.insert(lines, '---')
         table.insert(lines, '')
       end
-      table.insert(lines, '## ' .. label)
+      local label_text = '**' .. label .. '**'
+      role_marks[#role_marks + 1] = { row = #lines, text = label_text,
+        group = ({ user = 'CodeitUser', assistant = 'CodeitAssistant' })[message.role] or 'CodeitTool' }
+      table.insert(lines, label_text)
+      table.insert(lines, '')
       local content = message.content
       if type(content) == 'table' then
         local parts = {}
@@ -305,8 +385,13 @@ function M.render(messages, status, provider, model, billing, command_results, c
       end
       if type(content) == 'string' and content ~= '' then
         if message.role == 'tool' then
-          table.insert(lines, '')
-          vim.list_extend(lines, markdown.fence(content, 'text'))
+          local fenced = markdown.fence(content, 'text')
+          local first = #lines + 1
+          vim.list_extend(lines, fenced)
+          if #fenced > 8 then
+            tool_folds[#tool_folds + 1] = { first = first, last = #lines, key = message,
+              preview = fenced[2], count = #fenced - 2 }
+          end
         else
           vim.list_extend(lines, vim.split(content, '\n', { plain = true }))
         end
@@ -324,10 +409,8 @@ function M.render(messages, status, provider, model, billing, command_results, c
   chat_lines = vim.deepcopy(lines)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   table.insert(lines, '')
-  if can_send ~= false then
-    table.insert(lines, '## Message')
-    table.insert(lines, '')
-  end
+  table.insert(lines, '## Message')
+  table.insert(lines, '')
   local cursor, draft_row
   if valid(transcript_win) then
     cursor = vim.api.nvim_win_get_cursor(transcript_win)
@@ -335,6 +418,8 @@ function M.render(messages, status, provider, model, billing, command_results, c
   end
   vim.api.nvim_buf_set_lines(transcript, 0, draft_start, false, lines)
   draft_start = #lines
+  if valid(transcript_win) then M.decorate_chat(transcript_win, active_expanded) end
+  if valid(sidebar_win) then M.decorate_chat(sidebar_win, sidebar_expanded) end
   if draft_row then
     vim.api.nvim_win_set_cursor(transcript_win, {
       math.min(draft_start + draft_row, vim.api.nvim_buf_line_count(transcript)), cursor[2],

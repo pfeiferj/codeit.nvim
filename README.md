@@ -195,6 +195,10 @@ In tool approval popups, file-edit/save previews, the tool-call reviewer, and to
 
 `:CodeitSend your question` sends a message directly. `:CodeitSend` sends the draft currently at the bottom of the chat.
 
+The sidebar wraps prose at word boundaries, and usage stays in a window header rather than covering messages as you scroll. Speaker labels are separated from content headings and use the `CodeitUser`, `CodeitAssistant`, and `CodeitTool` highlight groups (linked to `Special`, `Title`, and `Comment` by default). The draft heading stays visible while the assistant is busy, with a subdued send hint or an unavailable indicator; your draft is preserved.
+
+Tool and slash-command results longer than six lines start collapsed, showing the first output line, total line count, and an expand hint. Put the cursor on the preview and press `za` to expand or collapse it; standard Vim fold commands also work. Full output remains in the buffer for searching and copying. Expanded tool results stay open during streamed updates, and fold state carries between the sidebar and interactive popup. Read-only chat previews support the same folds.
+
 #### Table previews
 
 With the cursor on any row of a Markdown pipe table (header, separator, or body), press `gT` in normal mode to open an aligned, read-only table popup. This works in the sidebar and Codeit's Markdown preview windows. Columns respect left/right/center alignment and Unicode display widths; escaped pipes (`\|`) stay within their cells. Use normal Vim scrolling/search keys, including `zh`/`zl` for tables wider than the screen; press `q` or `<Esc>` to return. The original text is unchanged. Tables must have a header and a dash separator row; fenced code blocks are ignored.
