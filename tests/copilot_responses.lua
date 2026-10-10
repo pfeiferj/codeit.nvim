@@ -42,8 +42,8 @@ local function chat(model, messages, tools, options)
       done, message, failure, usage = true, value, err, billing
     end)
   assert(vim.wait(2000, function() return done end), 'chat timed out')
-  assert(usage == nil, 'Copilot must not expose OpenRouter billing')
-  return message, failure
+  if failure then assert(usage == nil, 'failed requests must not expose usage') end
+  return message, failure, usage
 end
 local message, err = chat('gpt-6-luna', {
   { role = 'system', content = 'Be helpful' }, { role = 'user', content = 'hello' },
@@ -62,6 +62,21 @@ assert(payload.include[1] == 'reasoning.encrypted_content')
 assert(payload.tools[1].name == require('codeit.tools').specs[1]['function'].name)
 assert(payload.tools[1]['function'] == nil and payload.tools[1].strict == false)
 assert(calls[3].options.stdin:find('"properties":{}', 1, true), 'empty schemas must remain JSON objects')
+assert(vim.tbl_contains(calls[3].args, 'X-GitHub-Api-Version: 2026-08-01'))
+response.usage = { input_tokens = 100, output_tokens = 25, total_tokens = 125 }
+response.copilot_usage = { total_nano_aiu = '360000' }
+local _, _, usage = chat('gpt-6-luna')
+assert(usage.cost == 360000 / 100000000000)
+assert(usage.prompt_tokens == 100 and usage.completion_tokens == 25 and usage.total_tokens == 125)
+response.copilot_usage.total_nano_aiu = 0
+_, _, usage = chat('gpt-6-luna')
+assert(usage.cost == 0, 'a reported zero charge must not be treated as missing')
+response.copilot_usage = nil
+_, _, usage = chat('gpt-6-luna')
+assert(usage.cost == nil and usage.prompt_tokens == 100, 'token usage must survive missing billing')
+response.usage = nil
+_, _, usage = chat('gpt-6-luna')
+assert(usage == nil, 'absent usage must remain unknown')
 
 -- Normalize parallel calls using call_id (not the Responses output item's id).
 local reasoning = { type = 'reasoning', id = 'rs_1', summary = {}, encrypted_content = 'encrypted-data' }

@@ -98,7 +98,7 @@ assert(requests[#requests].config.provider == 'copilot' and requests[#requests].
 reply('{"replacements":[]}')
 local id = history.list(workspace)[1].id
 local chat = history.load(workspace, id)
-assert(chat.cost == 0.25 and chat.missing_cost == 1, 'Copilot feature requests must not create missing OpenRouter usage')
+assert(chat.cost == 0.25 and chat.missing_cost == 3, 'missing Copilot feature usage must also be tracked')
 plugin.compact()
 assert(requests[#requests].config.provider == 'copilot' and requests[#requests].config.model == 'compact-model')
 reply('Summary')
@@ -144,7 +144,7 @@ plugin.setup({ provider = 'copilot', max_context_tokens = false, context_review 
   feature_settings = { compaction = { provider = 'openrouter', model = 'paid-summary' } } })
 plugin.open()
 plugin.send('Copilot main')
-reply('Done')
+reply('Done', { cost = 0, prompt_tokens = 40, completion_tokens = 5, total_tokens = 45 })
 plugin.compact()
 assert(requests[#requests].config.provider == 'openrouter')
 reply('Paid summary', { cost = 0.5, prompt_tokens = 100, completion_tokens = 20 })

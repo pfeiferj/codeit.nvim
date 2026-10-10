@@ -120,7 +120,7 @@ end
 
 local function render()
   local billing
-  if config.provider == 'openrouter' or cost > 0 or missing_cost > 0 then
+  if config.provider == 'openrouter' or config.provider == 'copilot' or cost > 0 or missing_cost > 0 then
     billing = string.format('Cost: $%.3f%s | In: %s%s | Out: %s%s | Context: %s',
       cost, missing_cost > 0 and '+' or '', format_tokens(tokens_in, 1000000, 'm'), missing_in and '+' or '',
       format_tokens(tokens_out, 1000000, 'm'), missing_out and '+' or '',
@@ -135,7 +135,8 @@ local function usage_number(value)
 end
 
 local function record_usage(usage, main_chat, provider)
-  if (provider or config.provider) ~= 'openrouter' then return end
+  provider = provider or config.provider
+  if provider ~= 'openrouter' and provider ~= 'copilot' then return end
   local amount = usage_number(usage and usage.cost)
   if amount then cost = cost + amount else missing_cost = missing_cost + 1 end
   local input_count = usage_number(usage and usage.prompt_tokens)

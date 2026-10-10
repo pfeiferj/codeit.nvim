@@ -211,6 +211,8 @@ function M.models(provider, callback, options)
       if err then return callback(nil, err) end
       get_json(url .. '/models', {
         'Authorization: Bearer ' .. token,
+        -- The versioned catalog exposes billing.token_prices.
+        'X-GitHub-Api-Version: 2026-08-01',
         'Editor-Version: Neovim/0.12.0',
         'Editor-Plugin-Version: codeit.nvim/0.1.0',
         'Copilot-Integration-Id: vscode-chat',
@@ -301,6 +303,22 @@ function M.context_limit(config, callback)
   end, config.options)
 end
 
+-- Normalize Copilot's two token-usage formats and server-reported charge.
+-- Keep cost in USD like OpenRouter: 1e9 nano-AIU = 1 credit = $0.01.
+local function copilot_usage(response)
+  local usage = type(response.usage) == 'table' and response.usage or nil
+  local billing = type(response.copilot_usage) == 'table' and response.copilot_usage or nil
+  if not usage and not billing then return nil end
+  local nano = billing and billing.total_nano_aiu
+  nano = (type(nano) == 'number' or type(nano) == 'string') and tonumber(nano) or nil
+  return {
+    cost = nano and nano >= 0 and nano < math.huge and nano / 100000000000 or nil,
+    prompt_tokens = usage and (usage.prompt_tokens or usage.input_tokens),
+    completion_tokens = usage and (usage.completion_tokens or usage.output_tokens),
+    total_tokens = usage and usage.total_tokens,
+  }
+end
+
 --- Send a chat request, normalizing provider responses. callback(message, error, usage).
 function M.chat(config, messages, tools, callback)
   local on_result = callback
@@ -342,7 +360,8 @@ function M.chat(config, messages, tools, callback)
       if err then return callback(nil, err, nil, detail) end
       if endpoint == '/responses' then
         local message, failure = require('codeit.copilot_responses').message(response)
-        return callback(message, failure, nil, failure and vim.json.encode(response) or nil)
+        return callback(message, failure, not failure and copilot_usage(response) or nil,
+          failure and vim.json.encode(response) or nil)
       end
       local choice = response and response.choices and response.choices[1]
       if not choice or not choice.message then
@@ -357,7 +376,7 @@ function M.chat(config, messages, tools, callback)
           total_tokens = usage and usage.total_tokens,
         })
       else
-        callback(choice.message)
+        callback(choice.message, nil, copilot_usage(response))
       end
     end)
   end
@@ -378,6 +397,7 @@ function M.chat(config, messages, tools, callback)
       copilot_auth(function(token, err)
         if err then return callback(nil, err) end
         send(url .. endpoint, token, {
+          'X-GitHub-Api-Version: 2026-08-01',
           'Editor-Version: Neovim/0.12.0',
           'Editor-Plugin-Version: codeit.nvim/0.1.0',
           'Copilot-Integration-Id: vscode-chat',

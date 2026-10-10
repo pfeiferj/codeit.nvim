@@ -8,7 +8,7 @@ vim.env.OPENROUTER_API_KEY = 'test-openrouter-key'
 vim.env.GH_TOKEN = 'test-github-key'
 local calls = {}
 local catalog_response = '{"data":[{"id":"gpt-4o"}]}\n200'
-local http_response = '{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"cost":0.00042,"prompt_tokens":100,"completion_tokens":25,"total_tokens":125}}\n200'
+local http_response = '{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"cost":0.00042,"prompt_tokens":100,"completion_tokens":25,"total_tokens":125},"copilot_usage":{"total_nano_aiu":360000}}\n200'
 vim.system = function(args, options, callback)
   table.insert(calls, { args = args, options = options })
   local result
@@ -41,7 +41,9 @@ local function wait_for_response(config, specs)
     assert(billing.cost == 0.00042)
     assert(billing.prompt_tokens == 100 and billing.completion_tokens == 25 and billing.total_tokens == 125)
   else
-    assert(billing == nil)
+    assert(billing.cost == 360000 / 100000000000, 'Copilot cost must convert nano-AIU to USD, not use usage.cost')
+    assert(billing.prompt_tokens == 100 and billing.completion_tokens == 25 and billing.total_tokens == 125)
+    assert(vim.tbl_contains(calls[#calls].args, 'X-GitHub-Api-Version: 2026-08-01'))
   end
 end
 wait_for_response({ provider = 'openrouter', model = 'openai/gpt-4o-mini' }, require('codeit.tools').specs)
@@ -89,12 +91,16 @@ for _, backend in ipairs({ 'openrouter', 'copilot' }) do
   assert(not catalog_error and models[1].id == 'a-model' and models[2].id == 'z-model')
   local url = backend == 'openrouter' and 'https://openrouter.ai/api/v1/models' or 'https://api.githubcopilot.com/models'
   assert(vim.tbl_contains(calls[#calls].args, url))
+  assert(vim.tbl_contains(calls[#calls].args, 'X-GitHub-Api-Version: 2026-08-01') == (backend == 'copilot'),
+    'the pricing-enabled API version must be sent only for Copilot catalogs')
 end
 local business_models, business_error
 providers.models('copilot', function(result, err) business_models, business_error = result, err end, business_options)
 assert(vim.wait(2000, function() return business_models ~= nil or business_error ~= nil end))
 assert(not business_error and #business_models == 2)
 assert(vim.tbl_contains(calls[#calls].args, 'https://api.business.githubcopilot.com/models'))
+assert(vim.tbl_contains(calls[#calls].args, 'X-GitHub-Api-Version: 2026-08-01'),
+  'custom Copilot hosts must also use the pricing-enabled API version')
 assert(vim.tbl_contains(calls[2].args, 'https://api.github.com/copilot_internal/v2/token'),
   'token exchange must stay on GitHub, regardless of the API host')
 
