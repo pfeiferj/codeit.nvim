@@ -201,6 +201,7 @@ function M.take_input()
 end
 
 function M.render(messages, status, provider, model, billing, command_results)
+  require('codeit.assistant_pane').set_messages(messages)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
   if billing then table.insert(lines, '> ' .. billing) end

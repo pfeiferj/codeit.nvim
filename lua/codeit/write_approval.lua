@@ -115,7 +115,9 @@ function M.show(diff, options, callback)
   end
   vim.bo[buf].modifiable = false
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
-  local win = vim.api.nvim_open_win(buf, true, geometry(diff.path))
+  local frame = geometry(diff.path)
+  local close_pane = require('codeit.assistant_pane').open(frame)
+  local win = vim.api.nvim_open_win(buf, true, frame)
   vim.wo[win].wrap = false
   vim.wo[win].cursorline = false
   vim.api.nvim_win_set_cursor(win, { hunks[1] or 1, 0 })
@@ -168,6 +170,7 @@ function M.show(diff, options, callback)
   local function finish(choice)
     if finished then return end
     finished = true
+    close_pane()
     vim.api.nvim_del_autocmd(scroll_autocmd)
     -- Buffer-local autocmds may already be gone after bufhidden=wipe.
     pcall(vim.api.nvim_del_autocmd, cursor_autocmd)

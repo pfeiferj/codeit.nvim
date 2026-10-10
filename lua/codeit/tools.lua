@@ -188,7 +188,9 @@ execute_approved = function(name, args, source, done, active, gate, reads, prepa
   if name == 'ask_user' then
     local function input()
       if active and not active() then return end
+      local close_pane = require('codeit.assistant_pane').question()
       vim.ui.input({ prompt = 'Codeit: ' .. args.question .. ' ' }, function(answer)
+        close_pane()
         if answer == nil then return done('Cancelled by user', 'cancel') end
         done(vim.json.encode({ answer = answer }))
       end)
@@ -197,8 +199,10 @@ execute_approved = function(name, args, source, done, active, gate, reads, prepa
     local options = {}
     for _, choice in ipairs(args.choices) do options[#options + 1] = { answer = choice, label = choice } end
     options[#options + 1] = { label = 'Other (type an answer)' }
+    local close_pane = require('codeit.assistant_pane').question()
     vim.ui.select(options, { prompt = 'Codeit: ' .. args.question,
       format_item = function(item) return item.label end }, function(choice)
+      close_pane()
       if active and not active() then return end
       if not choice then return done('Cancelled by user', 'cancel') end
       if choice.answer then return done(vim.json.encode({ answer = choice.answer })) end

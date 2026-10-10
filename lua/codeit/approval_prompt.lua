@@ -43,6 +43,7 @@ function M.show(prompt, options, callback, config)
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local win_config = geometry()
   win_config.title = config.title or ' Approve tool call '
+  local close_pane = require('codeit.assistant_pane').open(win_config)
   local win = vim.api.nvim_open_win(buf, true, win_config)
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
@@ -52,6 +53,7 @@ function M.show(prompt, options, callback, config)
   local function finish(choice)
     if finished then return end
     finished = true
+    close_pane()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     callback(choice)
   end
@@ -92,6 +94,7 @@ function M.ask_reviewer(name, args, on_question, on_back)
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local frame = geometry()
   frame.title = ' Tool-call reviewer '
+  local close_pane = require('codeit.assistant_pane').open(frame)
   local win = vim.api.nvim_open_win(buf, true, frame)
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
@@ -100,6 +103,7 @@ function M.ask_reviewer(name, args, on_question, on_back)
   local function finish()
     if finished then return end
     finished = true
+    close_pane()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     on_back()
   end
