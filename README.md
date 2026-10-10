@@ -57,11 +57,20 @@ resume an earlier one.
 
 The assistant can use `list_windows`, `open_window_file`, `open_window_buffer`,
 `split_window`, `split_window_file`, `split_window_buffer`, `resize_window`,
-`focus_window`, and `close_window` to manage file views in this tab only. Chat
-windows and popups are excluded, and the last file view cannot be closed. Window
-operations never save files. The `_file` tools require an existing workspace
-`path`; the `_buffer` tools require an already-loaded ordinary `buffer_id`.
-`split_window` takes no target and inherits the current buffer.
+`set_window_cursor`, `scroll_window`, `focus_window`, and `close_window` to manage
+file views in this tab only. Chat windows and popups are excluded, and the last
+file view cannot be closed. Window operations never save files. The `_file` tools
+require an existing workspace `path`; the `_buffer` tools require an already-loaded
+ordinary `buffer_id`. `split_window` takes no target and inherits the current buffer.
+
+`set_window_cursor` takes a `window_id`, a 1-based `line`, and an optional 1-based
+byte `column` (default 1, clamped to the line). It reveals folded targets and
+centers them unless `center = false`. `scroll_window` takes a `window_id` and a
+signed `lines` count: positive scrolls down, negative scrolls up, in screen lines.
+Scrolling stops at buffer boundaries and may move the cursor to keep it visible.
+Neither tool changes focus or grants read permission; use `focus_window` when you
+want to interact with the target. Window results, including `list_windows`, report
+`cursor_line`, `cursor_column`, and `top_line` without returning buffer text.
 
 `read_window_buffer` reads a visible file buffer, including unsaved edits. Buffers
 you open or attach in Codeit's file views can be read without approval while

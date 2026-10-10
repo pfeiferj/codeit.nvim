@@ -12,7 +12,7 @@ local path = { type = 'string', minLength = 1, description = 'Existing regular f
 local buffer = { type = 'integer', minimum = 1, description = 'Already-loaded ordinary buffer ID, including unnamed or external buffers' }
 local direction = { type = 'string', description = 'horizontal (default) or vertical' }
 M.specs = {
-  spec('list_windows', 'List ordinary file windows in the managed Codeit tab (IDs, paths, sizes, modified and user_attached flags). Excludes chat and popups. No buffer text is returned.'),
+  spec('list_windows', 'List ordinary file windows in the managed Codeit tab (IDs, paths, sizes, cursor_line, cursor_column, top_line, modified and user_attached flags). Positions are 1-based; columns are byte offsets. Excludes chat and popups. No buffer text is returned.'),
   spec('open_window_file', 'Display an existing workspace file by path in a Codeit file window. Does not read text, save, or discard edits. Assistant attachments do not grant read permission; workspace trust still applies.', { window_id = window, path = path }, { 'window_id', 'path' }),
   spec('open_window_buffer', 'Display an already-loaded ordinary buffer by ID in a Codeit file window. Does not read text, save, or discard edits. Assistant attachments do not grant read permission; workspace trust still applies.', { window_id = window, buffer_id = buffer }, { 'window_id', 'buffer_id' }),
   spec('split_window', 'Split a Codeit file window horizontally or vertically, inheriting its current buffer. Returns its IDs and size. Inherited buffers are assistant-attached; splitting does not grant read permission.', { window_id = window, direction = direction }, { 'window_id' }),
@@ -21,6 +21,13 @@ M.specs = {
   spec('resize_window', 'Resize a Codeit file window. Neovim may constrain the requested dimensions or resize adjacent splits. Returns actual dimensions.', {
     window_id = window, width = { type = 'integer', minimum = 1 }, height = { type = 'integer', minimum = 1 },
   }, { 'window_id' }),
+  spec('set_window_cursor', 'Place the cursor in a Codeit file window without changing focus. Line and byte column are 1-based; column defaults to 1 and is clamped to the line. Opens folds at the target and centers it by default. Returns actual cursor_line, cursor_column and top_line. Does not read text, save files, or grant read permission.', {
+    window_id = window, line = { type = 'integer', minimum = 1 },
+    column = { type = 'integer', minimum = 1 }, center = { type = 'boolean', description = 'Center the target line (default true)' },
+  }, { 'window_id', 'line' }),
+  spec('scroll_window', 'Scroll a Codeit file window by screen lines without changing focus. Positive lines scroll down, negative lines scroll up; zero does nothing. Neovim clamps at buffer boundaries and may move the cursor to keep it visible. Returns actual cursor_line, cursor_column and top_line. Does not read text, save files, or grant read permission.', {
+    window_id = window, lines = { type = 'integer', minimum = -2147483647, maximum = 2147483647 },
+  }, { 'window_id', 'lines' }),
   spec('focus_window', 'Focus a file window in the Codeit tab so the user can interact with it. Cannot focus windows in other tabs or popups.', { window_id = window }, { 'window_id' }),
   spec('close_window', 'Close a Codeit file split without saving or deleting its buffer. Refuses the last file view and buffers with destructive bufhidden settings.', { window_id = window }, { 'window_id' }),
   spec('read_window_buffer', 'Read the ordinary buffer currently visible in a Codeit file window, including unsaved changes. User-attached visible buffers need no approval; assistant-attached buffers follow workspace trust. Same 1-based/inclusive 200-line/20000-byte limits and continuation fields as read_loaded_buffer.', {
@@ -88,6 +95,24 @@ function M.execute(name, args, done, reads)
     if not args.width and not args.height then return done('Error: specify width or height') end
     if args.width then vim.api.nvim_win_set_width(win, args.width) end
     if args.height then vim.api.nvim_win_set_height(win, args.height) end
+  elseif name == 'set_window_cursor' then
+    if args.line > vim.api.nvim_buf_line_count(id) then return done('Error: line is past the end of the buffer') end
+    layout.assistant(function()
+      vim.api.nvim_win_set_cursor(win, { args.line, (args.column or 1) - 1 })
+      vim.api.nvim_win_call(win, function()
+        vim.cmd('normal! zv')
+        if args.center ~= false then vim.cmd('normal! zz') end
+      end)
+    end)
+  elseif name == 'scroll_window' then
+    if args.lines ~= 0 then
+      layout.assistant(function()
+        vim.api.nvim_win_call(win, function()
+          local key = args.lines > 0 and '<C-e>' or '<C-y>'
+          vim.cmd('normal! ' .. math.abs(args.lines) .. vim.api.nvim_replace_termcodes(key, true, false, true))
+        end)
+      end)
+    end
   elseif name == 'focus_window' then
     layout.open()
     vim.api.nvim_set_current_win(win)

@@ -146,12 +146,54 @@ assert(require('codeit.file_buffer').was_read(outside, versions))
 assert(#json('read_window_buffer', { window_id = win, start_line = 201 }).lines == 50)
 error_call('read_window_buffer', { window_id = win, start_line = 4, end_line = 2 })
 json('open_window_buffer', { window_id = win, buffer_id = outside })
+-- Navigation changes only the target view, never focus, text, or read consent.
+vim.api.nvim_set_current_win(chat)
+local other_cursor = vim.api.nvim_win_get_cursor(split.window_id)
+local tick = vim.api.nvim_buf_get_changedtick(outside)
+local positioned = json('set_window_cursor', { window_id = win, line = 120, column = 3 })
+assert(positioned.cursor_line == 120 and positioned.cursor_column == 3)
+assert(positioned.top_line < 120 and positioned.top_line > 1)
+local scrolled = json('scroll_window', { window_id = win, lines = 5 })
+assert(scrolled.top_line == positioned.top_line + 5)
+assert(json('scroll_window', { window_id = win, lines = -5 }).top_line == positioned.top_line)
+assert(json('scroll_window', { window_id = win, lines = 0 }).top_line == positioned.top_line)
+assert(json('set_window_cursor', { window_id = win, line = 120, column = 999 }).cursor_column == #lines[120])
+assert(json('set_window_cursor', { window_id = win, line = 120, center = false }).cursor_column == 1)
+vim.api.nvim_win_call(win, function()
+  vim.wo.foldmethod = 'manual'
+  vim.cmd('110,130fold')
+end)
+json('set_window_cursor', { window_id = win, line = 120 })
+assert(vim.api.nvim_win_call(win, function() return vim.fn.foldclosed(120) end) == -1)
+json('set_window_cursor', { window_id = win, line = 1 })
+assert(json('scroll_window', { window_id = win, lines = -1000 }).top_line == 1)
+json('set_window_cursor', { window_id = win, line = 250 })
+local bottom = json('scroll_window', { window_id = win, lines = 1000 })
+assert(bottom.top_line >= 1 and bottom.top_line <= 250)
+assert(json('scroll_window', { window_id = win, lines = 1000 }).top_line == bottom.top_line)
+for _, args in ipairs({ { window_id = win }, { window_id = win, line = 0 },
+  { window_id = win, line = 251 }, { window_id = win, line = 1, column = 0 },
+  { window_id = win, line = 1.5 }, { window_id = chat, line = 1 },
+  { window_id = original_win, line = 1 } }) do
+  error_call('set_window_cursor', args)
+end
+for _, args in ipairs({ { window_id = win }, { window_id = win, lines = 1.5 },
+  { window_id = chat, lines = 1 }, { window_id = original_win, lines = 1 } }) do
+  error_call('scroll_window', args)
+end
+assert(vim.api.nvim_get_current_win() == chat, 'navigation must not steal focus')
+assert(vim.deep_equal(vim.api.nvim_win_get_cursor(split.window_id), other_cursor))
+assert(vim.api.nvim_buf_get_changedtick(outside) == tick and vim.bo[outside].modified)
+assert(not layout.user_visible(outside), 'navigation must not grant read consent')
+call('read_window_buffer', { window_id = win }, true)
 local resized = json('resize_window', { window_id = split.window_id, width = 20, height = 5 })
 assert(resized.width >= 1 and resized.height >= 1)
 assert(#json('list_windows').windows == 2)
 -- Even auto-approved layout operations honor validators.
 policy(nil, { function() return 'reject' end })
 assert(call('focus_window', { window_id = win }):match('^Rejected'))
+assert(call('set_window_cursor', { window_id = win, line = 1 }):match('^Rejected'))
+assert(call('scroll_window', { window_id = win, lines = 1 }):match('^Rejected'))
 policy(nil, { function() return 'ask' end })
 call('list_windows', {}, true)
 policy(nil)

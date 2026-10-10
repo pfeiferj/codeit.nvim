@@ -124,7 +124,10 @@ end
 function M.describe(win)
   local id = M.buffer(win)
   if not id then return nil end
+  local cursor = vim.api.nvim_win_get_cursor(win)
+  local view = vim.api.nvim_win_call(win, vim.fn.winsaveview)
   return { window_id = win, buffer_id = id, path = vim.api.nvim_buf_get_name(id),
+    cursor_line = cursor[1], cursor_column = cursor[2] + 1, top_line = view.topline,
     modified = vim.bo[id].modified, width = vim.api.nvim_win_get_width(win),
     height = vim.api.nvim_win_get_height(win), user_attached = attachments[win]
       and attachments[win].buffer == id and attachments[win].user or false }
