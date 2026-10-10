@@ -49,10 +49,8 @@ reply({ role = 'assistant', content = vim.NIL, _copilot_reasoning = reasoning, t
   id = 'read_source_buffer', type = 'function',
   ['function'] = { name = 'read_source_buffer', arguments = '{"start_line":1,"end_line":1}' },
 } } })
-assert(read_choice, 'untrusted buffer reads must request approval immediately')
-assert(#requests == 1, 'workspace reads must not request a summary')
-read_choice('once')
-assert(#requests == 2)
+assert(not read_choice, 'user-attached visible buffer reads must not request approval')
+assert(#requests == 2, 'visible reads should immediately continue without a reviewer summary')
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: —')
 assert(vim.deep_equal(requests[2].messages[3]._copilot_reasoning, reasoning),
   'encrypted Copilot reasoning must survive the chat loop for tool follow-ups')

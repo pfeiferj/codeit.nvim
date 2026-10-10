@@ -49,8 +49,25 @@ approval, and resume conversations from local history.
 4. Review tool approvals as they appear. Optionally use `:CodeitTrust` to
    auto-approve workspace reads; edits and commands still require approval.
 
-Closing the sidebar keeps the conversation. Use `:CodeitNew` for a fresh chat or
-`:CodeitHistory` to resume an earlier one.
+Codeit opens a dedicated tab with a chat sidebar and ordinary file views. The
+initial view shows the buffer you were using. Closing the sidebar returns to your
+previous tab, keeping the conversation, file layout, and unsaved buffers; reopening
+Codeit restores its tab. Use `:CodeitNew` for a fresh chat or `:CodeitHistory` to
+resume an earlier one.
+
+The assistant can use `list_windows`, `open_window_buffer`, `split_window`,
+`resize_window`, `focus_window`, and `close_window` to manage file views in this
+tab only. Chat windows and popups are excluded, and the last file view cannot be
+closed. Window operations never save files. `open_window_buffer` accepts an
+existing workspace path or an already-loaded ordinary buffer ID.
+
+`read_window_buffer` reads a visible file buffer, including unsaved edits. Buffers
+you open or attach in Codeit's file views can be read without approval while
+visible, including unnamed and external buffers. This also applies to existing
+buffer-read tools. Buffers the assistant opens, attaches, or inherits in a split
+still follow normal workspace read trust; displaying one does not grant consent.
+Merely focusing an assistant-opened view does not make it user-attached. Approval
+validators can still require a prompt or reject any of these calls.
 
 UI buffers use the `codeit` filetype with built-in Markdown-like highlighting,
 independent of Markdown plugins and Tree-sitter parsers. Language-labelled fenced
@@ -157,7 +174,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 
 | Command | Purpose |
 | --- | --- |
-| `:Codeit` | Toggle the chat sidebar |
+| `:Codeit` | Toggle chat in the managed Codeit tab |
 | `:CodeitSend [message]` | Send a message, or the current draft when omitted |
 | `:CodeitNew` | Start a fresh conversation |
 | `:CodeitHistory` | Browse, resume, or delete saved chats |

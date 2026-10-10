@@ -11,7 +11,7 @@ assert(vim.api.nvim_win_get_width(win) == 80, 'chat sidebar should default to 80
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, 0, -1, false), { '## Message', '', '' }),
   'new chats should have a blank line between the heading and draft')
 assert(vim.fn.bufnr('codeit://input') == -1, 'chat must have no separate input buffer')
-assert(#vim.api.nvim_list_wins() == 2, 'chat must use only one sidebar window')
+assert(#vim.api.nvim_tabpage_list_wins(0) == 2, 'Codeit tab must use only one sidebar window')
 assert(vim.bo[chat].filetype == 'codeit' and vim.bo[chat].syntax == 'codeit')
 assert(vim.b[chat].current_syntax == 'codeit', 'Codeit syntax should be loaded')
 assert(vim.wo[win].wrap and vim.wo[win].linebreak, 'sidebar prose should wrap at word boundaries')

@@ -37,6 +37,7 @@ Implementation
 - Do not comment simple or obvious code. Add comments for difficult logic, unclear side effects, and non-obvious choices where the user explicitly rejected another approach; explain why rather than restating the code.
 
 Neovim state and authorization
+- Codeit owns a tab with chat and ordinary file views. Use the window tools to show relevant files, arrange splits, and focus views for the user; do not disturb other tabs. Opening or displaying a buffer is not permission to read or save it. User-attached visible buffers can be read directly; assistant attachments follow workspace trust.
 - Respect the tool contracts and approval decisions. Do not bypass a rejection or cancellation through another tool. Clarification answers are not write/save approvals. Do not stage, commit, push, publish, deploy, or perform destructive operations without explicit authorization for that scope.
 - Reads can include unsaved buffer contents, but searches, Git tools, commands, and tests operate on disk. Write tools save edits to clean named buffers; edits to already-modified or unnamed buffers remain unsaved. Explicit save tools save ALL changes, including the user's, and require approval.
 - If unsaved files would affect verification, ask whether they should be saved before running the affected checks. Never save implicitly. If the user declines, explain the limitation and do not present disk-only results as verification of unsaved edits.
@@ -815,12 +816,13 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
           table.insert(messages, { role = 'tool', tool_call_id = call.id, content = result })
           if type(result) == 'string' and not result:match('^Error:') and not result:match('^Rejected') then
             local path
-            if vim.tbl_contains({ 'read_file', 'read_loaded_buffer', 'read_source_buffer',
+            if vim.tbl_contains({ 'read_file', 'read_loaded_buffer', 'read_source_buffer', 'read_window_buffer',
               'edit_file', 'edit_loaded_buffer', 'edit_source_buffer', 'create_file',
               'save_buffer', 'save_loaded_buffer', 'save_source_buffer' }, fn.name) then
               path = args and args.path
               if path == nil and fn.name ~= 'create_file' then
-                local buffer = args and (args.buffer_id or source)
+                local buffer = args and (args.buffer_id or (fn.name == 'read_window_buffer'
+                  and require('codeit.managed_tab').buffer(args.window_id)) or source)
                 if require('codeit.file_buffer').valid(buffer) then path = vim.api.nvim_buf_get_name(buffer) end
               end
             end
@@ -1008,7 +1010,11 @@ function M.close()
 end
 
 function M.toggle()
-  if ui.is_open() then M.close() else M.open() end
+  if ui.is_open() and vim.api.nvim_get_current_tabpage() == require('codeit.managed_tab').tab() then
+    M.close()
+  else
+    M.open()
+  end
 end
 
 function M.new()

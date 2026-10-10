@@ -1,5 +1,6 @@
 local M = {}
 local agent_tools = require('codeit.agent_tools')
+local window_tools = require('codeit.window_tools')
 local approval = require('codeit.approval')
 local file_buffer = require('codeit.file_buffer')
 local tool_log = require('codeit.tool_log')
@@ -36,6 +37,7 @@ M.specs[#M.specs + 1] = {
   },
 }
 vim.list_extend(M.specs, agent_tools.specs)
+vim.list_extend(M.specs, window_tools.specs)
 M.specs[#M.specs + 1] = {
   type = 'function', ['function'] = {
     name = 'load_skill',
@@ -149,7 +151,7 @@ function M.execute(name, args, source, done, active, context)
   local function safe(action)
     return function(...)
       if completed or active and not active() then return end
-      local ok, err = pcall(action, ...)
+      local ok, err = pcall(require('codeit.managed_tab').assistant, action, ...)
       if not ok then done('Error: tool execution failed: ' .. tostring(err)) end
     end
   end
@@ -157,6 +159,8 @@ function M.execute(name, args, source, done, active, context)
     -- Validate before approval and editor API calls.
     local invalid = M.validate(name, args)
     if invalid then return done('Error: ' .. invalid) end
+    local visible = name == 'read_window_buffer' and require('codeit.managed_tab').buffer(args.window_id)
+    if name == 'read_window_buffer' and not visible then return done('Error: invalid Codeit file window') end
     if name == 'load_skill' then
       local workspace = require('codeit.history').workspace()
       if not require('codeit.context_files').skill(args.name, workspace, approval.workspace_trust(workspace)) then
@@ -179,6 +183,9 @@ function M.execute(name, args, source, done, active, context)
     end
     if not gated[name] then
       return gate('Allow ' .. tostring(name) .. ' ' .. vim.json.encode(args) .. '?', function()
+        if visible and require('codeit.managed_tab').buffer(args.window_id) ~= visible then
+          return done('Error: window buffer changed while awaiting approval; reissue the read')
+        end
         execute_approved(name, args, source, done, active, gate, reads, prepare, context and context.background_origin)
       end)
     end
@@ -187,6 +194,7 @@ function M.execute(name, args, source, done, active, context)
 end
 
 execute_approved = function(name, args, source, done, active, gate, reads, prepare, origin)
+  if window_tools.names[name] then return window_tools.execute(name, args, done, reads) end
   if name == 'ask_user' then
     require('codeit.question_prompt').show(args.question, args.choices, function(answer)
       if answer == nil then return done('Cancelled by user', 'cancel') end

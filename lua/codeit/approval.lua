@@ -8,6 +8,7 @@ local save_tools = { save_buffer = true, save_loaded_buffer = true, save_source_
 local edit_tools = { edit_file = true, edit_loaded_buffer = true, edit_source_buffer = true }
 
 local read_tools = {
+  read_window_buffer = true,
   list_buffers = true, list_workspace_files = true,
   search_workspace = true, read_file = true, read_loaded_buffer = true,
   read_source_buffer = true, get_diagnostics = true,
@@ -47,6 +48,16 @@ local function buffer_path(id)
 end
 
 local function auto_read(name, args, workspace, source)
+  local layout = require('codeit.managed_tab')
+  if require('codeit.window_tools').names[name] and name ~= 'read_window_buffer' then return true end
+  local id
+  if name == 'read_window_buffer' then id = layout.buffer(args.window_id)
+  elseif name == 'read_loaded_buffer' or name == 'read_source_buffer' then id = args.buffer_id or source
+  elseif name == 'read_file' and type(args.path) == 'string' then
+    local path = args.path:sub(1, 1) == '/' and args.path or workspace .. '/' .. args.path
+    id = vim.fn.bufnr(path)
+  end
+  if id and layout.user_visible(id) then return true end
   local mode = M.workspace_trust(workspace)
   if not mode or not read_tools[name] then return false end
   if name == 'load_skill' then
@@ -57,6 +68,7 @@ local function auto_read(name, args, workspace, source)
     return real and (mode == 'all' or tracked(real, workspace)) or false
   end
   if name == 'read_file' then return allowed(args.path) end
+  if name == 'read_window_buffer' then return allowed(buffer_path(id)) end
   if name == 'read_loaded_buffer' or name == 'read_source_buffer' then
     return allowed(buffer_path(args.buffer_id or source))
   end
@@ -236,6 +248,9 @@ local function workspace_read(name, args, context, workspace)
     local real = vim.uv.fs_realpath(path) or vim.uv.fs_realpath(vim.fn.fnamemodify(path, ':h'))
     return real and within(real, workspace) or false
   end
+  if name == 'read_window_buffer' then
+    return local_buffer(buffer_path(require('codeit.managed_tab').buffer(args.window_id)))
+  end
   if name == 'read_loaded_buffer' or name == 'read_source_buffer' then
     return local_buffer(buffer_path(args.buffer_id or context.source_buffer))
   end
@@ -255,7 +270,7 @@ local assessment_system = 'You are an independent tool-call reviewer. Do not use
 function M.prefetch(name, args, context, active)
   if not context or not context.review then return nil end
   local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
-if name == 'ask_user' or save_tools[name] or workspace_read(name, args, context, workspace)
+if name == 'ask_user' or require('codeit.window_tools').names[name] or save_tools[name] or workspace_read(name, args, context, workspace)
     or edit_tools[name] or name == 'create_file' then return nil end
   load()
   if remembered[vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args }))] then return nil end
@@ -301,7 +316,8 @@ if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (reme
     or auto_read(name, args, workspace, context.source_buffer)))) then return action() end
 
   local function live() return not active or active() end
-  local skip_summary = save_tools[name] or workspace_read(name, args, context, workspace)
+  local skip_summary = save_tools[name] or require('codeit.window_tools').names[name]
+    or workspace_read(name, args, context, workspace)
   local summary, unsafe = context.review and 'Waiting for provider…' or 'Review unavailable (reviewer not configured)', false
   local update_prompt
   local prompt_version = 0

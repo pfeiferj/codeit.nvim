@@ -290,10 +290,12 @@ vim.api.nvim_create_autocmd('WinResized', {
 
 function M.open(on_send, on_close)
   if M.is_open() then
+    require('codeit.managed_tab').open()
     focus_draft()
     return
   end
   M.close()
+  require('codeit.managed_tab').open()
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then
     transcript = scratch()
   end
@@ -374,6 +376,7 @@ function M.close()
   if transcript and vim.api.nvim_buf_is_valid(transcript) then
     vim.api.nvim_buf_clear_namespace(transcript, ui_ns, 0, -1)
   end
+  require('codeit.managed_tab').leave()
 end
 
 -- Ignore close events from an earlier session if the chat has since reopened.
