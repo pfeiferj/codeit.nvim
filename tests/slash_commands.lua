@@ -25,6 +25,8 @@ assert(select(1, slash.parse('What about /compact?')) == nil)
 
 codeit.setup()
 codeit.open()
+vim.api.nvim_feedkeys(vim.keycode('<C-g>'), 'x', false)
+assert(vim.api.nvim_win_get_config(0).relative == 'editor', 'slash commands and LLM turns should work in the chat popup')
 local buf = vim.fn.bufnr('codeit://chat')
 local function draft()
   return ui.peek_input()

@@ -3,6 +3,7 @@ local markdown = require('codeit.markdown')
 local slash_commands = require('codeit.slash_commands')
 
 local transcript, transcript_win
+local sidebar_win
 local chat_lines = {}
 local draft_start = 2 -- zero-based first line of the draft
 local billing_line
@@ -95,6 +96,55 @@ function M.is_open()
   return valid(transcript_win)
 end
 
+local function popup_config()
+  local width = math.max(1, math.min(vim.o.columns - 4, math.floor(vim.o.columns * 0.85)))
+  local height = math.max(1, math.min(vim.o.lines - 4, math.floor(vim.o.lines * 0.8)))
+  return {
+    relative = 'editor', width = width, height = height,
+    row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+    col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+    style = 'minimal', border = 'rounded',
+    title = ' Codeit chat — Ctrl-G / Esc: back ', title_pos = 'center',
+  }
+end
+
+local function restore_sidebar()
+  local popup = transcript_win
+  local view
+  if valid(popup) then
+    vim.api.nvim_win_call(popup, function() view = vim.fn.winsaveview() end)
+  end
+  transcript_win, sidebar_win = sidebar_win, nil
+  if valid(popup) then vim.api.nvim_win_close(popup, true) end
+  if valid(transcript_win) then
+    vim.api.nvim_set_current_win(transcript_win)
+    if view then vim.fn.winrestview(view) end
+  end
+  update_header()
+end
+
+function M.toggle_popup()
+  if not M.is_open() then return end
+  if sidebar_win then return restore_sidebar() end
+  local view
+  vim.api.nvim_win_call(transcript_win, function() view = vim.fn.winsaveview() end)
+  local popup = vim.api.nvim_open_win(transcript, true, popup_config())
+  sidebar_win, transcript_win = transcript_win, popup
+  vim.wo[popup].wrap = true
+  vim.wo[popup].linebreak = true
+  vim.fn.winrestview(view)
+  update_header()
+end
+
+vim.api.nvim_create_autocmd('VimResized', {
+  callback = function()
+    if sidebar_win and valid(transcript_win) then
+      vim.api.nvim_win_set_config(transcript_win, popup_config())
+      update_header()
+    end
+  end,
+})
+
 function M.open(on_send, on_close)
   if M.is_open() then
     focus_draft()
@@ -161,14 +211,21 @@ function M.open(on_send, on_close)
   })
   vim.keymap.set('i', '<Tab>', tab_complete,
     { buffer = transcript, expr = true, desc = 'Complete or cycle slash commands' })
+  vim.keymap.set({ 'n', 'i' }, '<C-g>', M.toggle_popup,
+    { buffer = transcript, silent = true, desc = 'Toggle interactive chat popup' })
+  vim.keymap.set('n', '<Esc>', function()
+    if sidebar_win then restore_sidebar() end
+  end, { buffer = transcript, silent = true, desc = 'Return from chat popup' })
   vim.keymap.set('n', 'q', on_close, { buffer = transcript, desc = 'Close codeit chat' })
   focus_draft()
 end
 
 function M.close()
   completion = nil
-  if valid(transcript_win) then vim.api.nvim_win_close(transcript_win, true) end
-  transcript_win = nil
+  local active, sidebar = transcript_win, sidebar_win
+  transcript_win, sidebar_win = nil, nil
+  if valid(active) then vim.api.nvim_win_close(active, true) end
+  if valid(sidebar) then vim.api.nvim_win_close(sidebar, true) end
   if transcript and vim.api.nvim_buf_is_valid(transcript) then
     vim.api.nvim_buf_clear_namespace(transcript, header_ns, 0, -1)
   end
@@ -178,9 +235,13 @@ end
 vim.api.nvim_create_autocmd('WinClosed', {
   callback = function(args)
     local closed = tonumber(args.match)
-    if closed ~= transcript_win then return end
+    if closed ~= transcript_win and closed ~= sidebar_win then return end
     vim.schedule(function()
-      if closed == transcript_win then M.close() end
+      if closed == sidebar_win then
+        M.close()
+      elseif closed == transcript_win then
+        if valid(sidebar_win) then restore_sidebar() else M.close() end
+      end
     end)
   end,
 })
