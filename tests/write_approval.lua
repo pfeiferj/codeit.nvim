@@ -153,7 +153,7 @@ maps['{'](); assert(vim.api.nvim_win_get_cursor(win)[1] == hunks[2])
 assert_hunk_labels(buf, { 'line 4', 'line 35' })
 close('5', 'review')
 
--- Opening and navigation center distant hunks and immediately repin the header.
+-- Opening and navigation keep ten lines above distant hunks and immediately repin the header.
 original, updated = {}, {}
 for i = 1, 200 do original[i] = 'line ' .. i; updated[i] = original[i] end
 updated[60], updated[140] = 'first centered change', 'second centered change'
@@ -162,22 +162,21 @@ hunks = {}
 for i, line in ipairs(lines) do
   if line == 'line 60' or line == 'line 140' then hunks[#hunks + 1] = i end
 end
-local function assert_centered(line)
+local function assert_positioned(line)
   assert(vim.api.nvim_win_get_cursor(win)[1] == line)
   local top = vim.fn.getwininfo(win)[1].topline
-  local screen_row = line - top + 1
-  local center = math.floor(vim.api.nvim_win_get_height(win) / 2) + 1
-  assert(math.abs(screen_row - center) <= 1, 'selected hunk should be centered in the pane')
+  local context = math.min(10, vim.api.nvim_win_get_height(win) - 1)
+  assert(top == math.max(1, line - context), 'selected hunk should have ten lines above it when possible')
   local pinned = header_marks(buf)
-  assert(#pinned > 0 and pinned[1][2] == top - 1, 'centering must immediately repin the header')
+  assert(#pinned > 0 and pinned[1][2] == top - 1, 'positioning must immediately repin the header')
   for _, mark in ipairs(pinned) do assert_full_header(win, mark) end
 end
 assert_hunk_counter(buf, 1, 2)
-assert_centered(hunks[1])
-maps['}'](); assert_centered(hunks[2]); assert_hunk_counter(buf, 2, 2)
-maps['}'](); assert_centered(hunks[1]); assert_hunk_counter(buf, 1, 2)
-maps['{'](); assert_centered(hunks[2]); assert_hunk_counter(buf, 2, 2)
-maps['{'](); assert_centered(hunks[1]); assert_hunk_counter(buf, 1, 2)
+assert_positioned(hunks[1])
+maps['}'](); assert_positioned(hunks[2]); assert_hunk_counter(buf, 2, 2)
+maps['}'](); assert_positioned(hunks[1]); assert_hunk_counter(buf, 1, 2)
+maps['{'](); assert_positioned(hunks[2]); assert_hunk_counter(buf, 2, 2)
+maps['{'](); assert_positioned(hunks[1]); assert_hunk_counter(buf, 1, 2)
 vim.api.nvim_win_set_cursor(win, { hunks[2] + 1, 0 })
 vim.api.nvim_exec_autocmds('CursorMoved', { buffer = buf })
 assert_hunk_counter(buf, 2, 2)

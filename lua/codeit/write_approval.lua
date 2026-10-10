@@ -157,7 +157,10 @@ function M.show(diff, options, callback)
   end
   local function focus_hunk(line)
     vim.api.nvim_win_set_cursor(win, { line, 0 })
-    vim.api.nvim_win_call(win, function() vim.cmd('normal! zz') end)
+    vim.api.nvim_win_call(win, function()
+      local context = math.min(10, vim.api.nvim_win_get_height(win) - 1)
+      vim.fn.winrestview({ topline = math.max(1, line - context), topfill = 0 })
+    end)
     update_header()
   end
   if hunks[1] then focus_hunk(hunks[1]) else update_header() end
