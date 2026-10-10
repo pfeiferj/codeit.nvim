@@ -11,6 +11,7 @@ local ui_ns = vim.api.nvim_create_namespace('codeit_chat_ui')
 local tool_folds = {}
 local role_marks = {}
 local can_send_message = true
+local draft_status
 for group, link in pairs({ CodeitUser = 'Special', CodeitAssistant = 'Title', CodeitTool = 'Comment' }) do
   vim.api.nvim_set_hl(0, group, { default = true, link = link })
 end
@@ -66,6 +67,7 @@ local function draft_hint()
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   local hint = can_send_message and 'Ctrl-S: send · Enter: newline (insert mode) · normal Enter: send'
     or 'Sending unavailable while busy · Your draft is kept'
+  if draft_status and draft_status ~= '' then hint = draft_status .. ' · ' .. hint end
   vim.api.nvim_buf_set_extmark(transcript, ui_ns, draft_start - 2, 0, {
     virt_lines = { { { hint, 'Comment' } } },
   })
@@ -355,6 +357,7 @@ function M.render(messages, status, provider, model, billing, command_results, c
   local sidebar_expanded = expanded_folds(sidebar_win)
   tool_folds, role_marks = {}, {}
   can_send_message = can_send ~= false
+  draft_status = status
   local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
   if billing then table.insert(lines, '> ' .. billing) end
   billing_line = billing
@@ -427,7 +430,6 @@ function M.render(messages, status, provider, model, billing, command_results, c
     end
     render_results(index)
   end
-  if status and status ~= '' then table.insert(lines, '* ' .. status) end
   chat_lines = vim.deepcopy(lines)
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   table.insert(lines, '')

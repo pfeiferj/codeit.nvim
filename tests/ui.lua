@@ -107,7 +107,19 @@ end
 ui.render(messages, 'Ready', 'copilot', 'model-b', nil)
 assert(vim.wo[win].winbar == '', 'providers without usage must not display a usage header')
 scroll(1)
-assert(hint():find('Ctrl-S: send', 1, true))
+assert(hint():find('Ready · Ctrl-S: send', 1, true) == 1,
+  'status should appear alongside the virtual send instructions')
+assert(not vim.tbl_contains(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '* Ready'),
+  'status should not be a transcript line')
+assert(not vim.tbl_contains(ui.chat_lines(), '* Ready'),
+  'status should not be included in read-only transcripts')
+for _, mark in ipairs(marks()) do
+  if mark[4].virt_lines then
+    assert(vim.api.nvim_buf_get_lines(chat, mark[2], mark[2] + 1, false)[1] == '## Message',
+      'status and send instructions should be anchored below the message heading')
+    assert(not mark[4].virt_lines_above, 'draft information should appear below the heading')
+  end
+end
 
 local count = vim.api.nvim_buf_line_count(chat)
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, count - 3, count, false), { '## Message', '', '' }),
@@ -118,7 +130,8 @@ ui.render(messages, 'Waiting', 'copilot', 'model-b', nil, nil, false)
 assert(vim.api.nvim_win_get_cursor(win)[2] == 4)
 assert(vim.tbl_contains(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '## Message'),
   'the draft heading should remain visible while sending is blocked')
-assert(hint():find('Sending unavailable', 1, true))
+assert(hint():find('Waiting · Sending unavailable', 1, true) == 1,
+  'virtual status should update while sending is blocked')
 assert(ui.peek_input() == 'first line\nsecond line', 'blocked sending must preserve the draft')
 ui.render(messages, 'Ready', 'copilot', 'model-b', nil, nil, true)
 assert(vim.api.nvim_win_get_cursor(win)[2] == 4)
@@ -127,6 +140,11 @@ assert(ui.take_input() == 'first line\nsecond line')
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, -4, -1, false), { '## Message', '', '' }),
   'sending should preserve the separator')
 assert(ui.take_input() == nil, 'empty drafts should not send')
+for _, status in ipairs({ '', false }) do
+  ui.render(messages, status or nil, 'copilot', 'model-b')
+  assert(hint():find('Ctrl-S: send', 1, true) == 1,
+    'absent status should leave only the send instructions')
+end
 ui.render({
   { role = 'assistant', content = vim.NIL, tool_calls = {
     { id = 'call_hash_1', ['function'] = { name = 'read_file', arguments = '{}' } },
