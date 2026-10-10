@@ -119,7 +119,7 @@ questions = { 'What will happen?', 'Do not run it' }
 tool_reply('run_command', { argv = { 'echo', 'test' } })
 assert(#requests[#requests - 1].specs == 0, 'automatic assessments must not receive tools')
 assert(requests[#requests - 1].config.model == 'review-model', 'tool assessments use the fast preset')
-reply({ role = 'assistant', content = '{"summary":"Prints test.","safe":true}' })
+reply({ role = 'assistant', content = '{"summary":"Prints test.","safety_score":1}' })
 assert(#requests[#requests].specs == 2, 'interactive reviewer must receive only history tools')
 assert(requests[#requests].specs[1]['function'].name == 'read_chat_history')
 assert(requests[#requests].specs[2]['function'].name == 'search_chat_history')
@@ -158,7 +158,7 @@ plugin.send('Cancel this task')
 selections = { 'cancel' }
 tool_reply('run_command', { argv = { 'echo', 'cancel' } })
 assert(#responses == 1, 'cancelled review response may still be in flight')
-reply({ role = 'assistant', content = '{"summary":"Prints cancel.","safe":true}' })
+reply({ role = 'assistant', content = '{"summary":"Prints cancel.","safety_score":1}' })
 
 local status_lines = {}
 local ui_ns = vim.api.nvim_get_namespaces().codeit_chat_ui
@@ -203,9 +203,9 @@ reply({ role = 'assistant', tool_calls = {
 assert(#responses == 2 and #batch_prompts == 1, 'both summaries must start before the first approval is decided')
 assert(batch_prompts[1]:find('Waiting for provider…', 1, true))
 assert(requests[#requests].messages[2].content:find('second', 1, true), 'second call review must start immediately')
-reply({ role = 'assistant', content = '{"summary":"First command.","safe":true}' })
+reply({ role = 'assistant', content = '{"summary":"First command.","safety_score":1}' })
 assert(batch_prompts[1]:find('Summary: First command.', 1, true))
-reply({ role = 'assistant', content = '{"summary":"Second command.","safe":true}' })
+reply({ role = 'assistant', content = '{"summary":"Second command.","safety_score":1}' })
 batch_choices[1]('reject')
 assert(#batch_prompts == 2 and batch_prompts[2]:find('Summary: Second command.', 1, true))
 batch_choices[2]('reject')

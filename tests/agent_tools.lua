@@ -15,7 +15,9 @@ local function run(name, args, choice)
     preview = diff
     callback(choice or 'once')
   end
-  vim.ui.input = function(_, callback) callback(nil) end
+  vim.ui.input = function(config, callback)
+    callback(config.prompt:find('Type APPROVE ', 1, true) and ('APPROVE ' .. name) or nil)
+  end
   tools.execute(name, args, nil, function(value) result = value end, function() return true end)
   assert(vim.wait(5000, function() return result ~= nil end), 'timed out: ' .. name)
   return result

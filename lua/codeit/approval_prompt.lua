@@ -1,5 +1,6 @@
 local M = {}
 local markdown = require('codeit.markdown')
+local risk_namespace = vim.api.nvim_create_namespace('codeit_approval_risk')
 
 local function geometry()
   local width = math.max(1, vim.o.columns - 4)
@@ -40,6 +41,18 @@ function M.show(prompt, options, callback, config)
   vim.bo[buf].bufhidden = 'wipe'
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   markdown.enable(buf)
+  local function highlight_risk()
+    vim.api.nvim_buf_clear_namespace(buf, risk_namespace, 0, -1)
+    if not config.risk_unknown and (not config.safety_score or config.safety_score <= 2) then return end
+    for row, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
+      if line:match('^Summary: ') or line:match('^%*%*Safety score:%*%* ') then
+        vim.api.nvim_buf_set_extmark(buf, risk_namespace, row - 1, 0, {
+          end_col = #line, hl_group = 'CodeitApprovalRisk', priority = 200,
+        })
+      end
+    end
+  end
+  highlight_risk()
   vim.bo[buf].modifiable = false
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local win_config = geometry()
@@ -71,13 +84,24 @@ function M.show(prompt, options, callback, config)
   end
   vim.keymap.set('n', '<Esc>', function() finish(nil) end,
     { buffer = buf, nowait = true, silent = true, desc = config.dismiss or 'Reject tool call' })
-  return function(updated_prompt)
+  return function(updated_prompt, updated_config)
     if finished or not vim.api.nvim_buf_is_valid(buf) then return end
     local replacement = vim.split(updated_prompt, '\n', { plain = true })
+    local old_length = #vim.split(prompt, '\n', { plain = true })
+    local shift = #replacement - old_length
+    local cursor = vim.api.nvim_win_get_cursor(win)
+    local shifted_choices = {}
+    for line, id in pairs(choice_lines) do shifted_choices[line + shift] = id end
+    choice_lines = shifted_choices
     vim.bo[buf].modifiable = true
-    vim.api.nvim_buf_set_lines(buf, 0, #vim.split(prompt, '\n', { plain = true }), false, replacement)
+    vim.api.nvim_buf_set_lines(buf, 0, old_length, false, replacement)
     vim.bo[buf].modifiable = false
+    if cursor[1] > old_length then
+      vim.api.nvim_win_set_cursor(win, { cursor[1] + shift, cursor[2] })
+    end
     prompt = updated_prompt
+    config = updated_config or config
+    highlight_risk()
   end
 end
 

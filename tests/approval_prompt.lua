@@ -98,6 +98,40 @@ end)
 vim.api.nvim_win_close(vim.api.nvim_get_current_win(), true)
 assert(vim.wait(1000, function() return closed == 1 end), 'closing the window should reject')
 
+-- Risk highlighting must follow the numeric threshold and refresh with async scores.
+local risk_ns = vim.api.nvim_get_namespaces().codeit_approval_risk
+local function risk_marks(buf)
+  return vim.api.nvim_buf_get_extmarks(buf, risk_ns, 0, -1, { details = true })
+end
+local score_prompt = '# run_command\n\nSummary: Prints text.\n\n**Safety score:** '
+for score = 0, 10 do
+  local update_risk = prompt.show(score_prompt .. score .. '/10', options, function() end, { safety_score = score })
+  local buf = vim.api.nvim_get_current_buf()
+  assert(#risk_marks(buf) == (score > 2 and 2 or 0), 'wrong risk highlighting at score ' .. score)
+  for _, mark in ipairs(risk_marks(buf)) do
+    assert(mark[4].hl_group == 'CodeitApprovalRisk' and mark[4].priority == 200)
+  end
+  update_risk(score_prompt .. '2/10', { safety_score = 2 })
+  assert(#risk_marks(buf) == 0, 'updating a score must clear stale red highlights')
+  update_risk(score_prompt .. 'Unavailable', { risk_unknown = true })
+  assert(#risk_marks(buf) == 2, 'unknown risk must be highlighted')
+  vim.api.nvim_win_close(vim.api.nvim_get_current_win(), true)
+end
+local risk_hl = vim.api.nvim_get_hl(0, { name = 'CodeitApprovalRisk', link = false })
+assert(risk_hl.fg == (vim.o.background == 'light' and 0xaf0000 or 0xff5f5f))
+-- Extra warning lines must not move the selected choice or break Enter mappings.
+local shifted_result
+local shift_prompt = prompt.show(score_prompt .. 'Pending', options, function(choice) shifted_result = choice end)
+local shift_win, shift_buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+local original_row = vim.api.nvim_win_get_cursor(shift_win)[1]
+vim.api.nvim_win_set_cursor(shift_win, { original_row + 1, 0 })
+shift_prompt(score_prompt .. '6/10\n\nType APPROVE run_command to confirm.', { safety_score = 6 })
+assert(vim.api.nvim_win_get_cursor(shift_win)[1] == original_row + 3)
+for _, item in ipairs(vim.api.nvim_buf_get_keymap(shift_buf, 'n')) do
+  if item.lhs == '<CR>' then item.callback(); break end
+end
+assert(shifted_result == 'tracked', 'Enter must still select the intended option after a longer summary')
+
 local function mapping(buf, key, mode)
   for _, item in ipairs(vim.api.nvim_buf_get_keymap(buf, mode or 'n')) do
     if item.lhs == key then return item.callback end

@@ -175,7 +175,7 @@ callbacks[#callbacks]({ role = 'assistant', tool_calls = {
 } })
 assert(requests[#requests].config.model == 'fast-model')
 assert(requests[#requests].config.options.effort == 'low' and #requests[#requests].specs == 0)
-reply('{"summary":"Print hello","safe":true}')
+reply('{"summary":"Print hello","safety_score":1}')
 choose('review')
 ask('Is it safe?', function(answer) assert(answer == 'Yes') end)
 assert(requests[#requests].config.model == 'reasoning-model')

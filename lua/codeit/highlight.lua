@@ -21,6 +21,9 @@ function M.setup_roles()
     default = true, fg = light and '#875f00' or '#e5c07b', ctermfg = light and 94 or 180, bold = true,
   })
   vim.api.nvim_set_hl(0, 'CodeitTool', { default = true, link = 'Comment' })
+  vim.api.nvim_set_hl(0, 'CodeitApprovalRisk', {
+    default = true, fg = light and '#af0000' or '#ff5f5f', ctermfg = light and 124 or 203, bold = true,
+  })
 end
 
 vim.api.nvim_create_autocmd('ColorScheme', {
