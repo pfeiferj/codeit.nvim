@@ -11,6 +11,11 @@ for suite in headless tool_limits providers rate_limits streaming copilot_auth c
   if [ "$suite" = context_files ]; then
     mkdir -p "$data_dir/home"
     HOME="$data_dir/home" nvim --headless -u NONE -l "tests/$suite.lua"
+  elif [ "$suite" = ui ]; then
+    # Script mode (-l) does not apply screen resizing to the window layout.
+    nvim --headless -u NONE \
+      -c "lua local ok, err = pcall(dofile, 'tests/ui.lua'); if not ok then io.stderr:write(tostring(err) .. '\\n'); vim.cmd('cquit 1') end" \
+      -c 'qa!'
   else
     nvim --headless -u NONE -l "tests/$suite.lua"
   fi
