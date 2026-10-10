@@ -34,6 +34,7 @@ function M.show(prompt, options, callback, config)
   end
   lines[#lines + 1] = '- **[Esc]** ' .. (config.dismiss or 'Reject')
   lines[#lines + 1] = ''
+  lines[#lines + 1] = '*<C-g>: view chat context; press again to return.*'
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = 'wipe'
@@ -49,10 +50,12 @@ function M.show(prompt, options, callback, config)
   vim.wo[win].linebreak = true
   vim.wo[win].cursorline = true
   vim.api.nvim_win_set_cursor(win, { first_choice_line or #lines, 0 })
+  local close_chat = require('codeit.popup_chat').attach(win)
   local finished = false
   local function finish(choice)
     if finished then return end
     finished = true
+    close_chat()
     close_pane()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     callback(choice)
@@ -82,7 +85,7 @@ end
 function M.ask_reviewer(name, args, on_question, on_back)
   local header = { '# Review tool call', '', '**Tool:** `' .. tostring(name) .. '`', '', '## Arguments', '' }
   vim.list_extend(header, markdown.fence(args, 'json'))
-  vim.list_extend(header, { '', '## Conversation', '', 'Type below; <C-s> or normal-mode <Enter> to send. <Esc> to go back.', '' })
+  vim.list_extend(header, { '', '## Conversation', '', 'Type below; <C-s> or normal-mode <Enter> to send. <Esc> to go back. <C-g> to view chat context.', '' })
   local turns = {}
   local lines = vim.deepcopy(header)
   vim.list_extend(lines, { '## Question', '', '' })
@@ -99,10 +102,12 @@ function M.ask_reviewer(name, args, on_question, on_back)
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
   vim.api.nvim_win_set_cursor(win, { draft_start + 1, 0 })
+  local close_chat = require('codeit.popup_chat').attach(win)
   local finished, waiting = false, false
   local function finish()
     if finished then return end
     finished = true
+    close_chat()
     close_pane()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
     on_back()

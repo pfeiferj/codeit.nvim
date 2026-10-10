@@ -3,6 +3,7 @@ local markdown = require('codeit.markdown')
 local slash_commands = require('codeit.slash_commands')
 
 local transcript, transcript_win
+local chat_lines = {}
 local draft_start = 2 -- zero-based first line of the draft
 local billing_line
 local header_ns = vim.api.nvim_create_namespace('codeit_sticky_header')
@@ -202,7 +203,6 @@ end
 
 function M.render(messages, status, provider, model, billing, command_results)
   require('codeit.assistant_pane').set_messages(messages)
-  if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   local lines = { '# Codeit (' .. provider .. ': ' .. model .. ')' }
   if billing then table.insert(lines, '> ' .. billing) end
   billing_line = billing
@@ -256,6 +256,8 @@ function M.render(messages, status, provider, model, billing, command_results)
     render_results(index)
   end
   if status and status ~= '' then table.insert(lines, '* ' .. status) end
+  chat_lines = vim.deepcopy(lines)
+  if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   table.insert(lines, '')
   table.insert(lines, '## Message')
   table.insert(lines, '')
@@ -272,6 +274,11 @@ function M.render(messages, status, provider, model, billing, command_results)
     })
   end
   update_header()
+end
+
+--- A read-only chat preview excludes the editable message draft.
+function M.chat_lines()
+  return vim.deepcopy(chat_lines)
 end
 
 function M.show_context(request, summary, on_save)

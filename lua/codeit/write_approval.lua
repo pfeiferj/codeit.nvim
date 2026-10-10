@@ -60,6 +60,7 @@ function M.show(diff, options, callback)
   end
   if diff.warning then table.insert(labels, 1, diff.warning) end
   labels[#labels + 1] = 'Esc Reject'
+  labels[#labels + 1] = 'Ctrl-G Chat / Back'
   local body, highlights, hunks = preview_lines(diff)
   local counter_width = #tostring(#hunks)
   local hunk_label = '{ / } Hunks ' .. #hunks .. '/' .. #hunks
@@ -166,10 +167,12 @@ function M.show(diff, options, callback)
   local cursor_autocmd = vim.api.nvim_create_autocmd('CursorMoved', {
     buffer = buf, callback = update_header,
   })
+  local close_chat = require('codeit.popup_chat').attach(win)
   local finished = false
   local function finish(choice)
     if finished then return end
     finished = true
+    close_chat()
     close_pane()
     vim.api.nvim_del_autocmd(scroll_autocmd)
     -- Buffer-local autocmds may already be gone after bufhidden=wipe.
