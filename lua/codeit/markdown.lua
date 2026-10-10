@@ -3,6 +3,8 @@ local M = {}
 --- Load Markdown highlighting in this buffer even when the user's global syntax is off.
 --- Do not change the syntax setting for unrelated buffers.
 function M.enable(buf)
+  vim.keymap.set('n', 'gT', function() require('codeit.table_popup').show() end,
+    { buffer = buf, silent = true, desc = 'View formatted Markdown table' })
   vim.bo[buf].filetype = 'markdown'
   vim.bo[buf].syntax = 'markdown'
   if not vim.b[buf].current_syntax then
