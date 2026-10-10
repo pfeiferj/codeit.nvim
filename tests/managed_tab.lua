@@ -177,6 +177,42 @@ plugin.toggle()
 assert(vim.api.nvim_get_current_tabpage() == managed and ui.is_open(), 'toggle from another tab must focus Codeit')
 plugin.toggle()
 assert(not ui.is_open() and vim.api.nvim_get_current_tabpage() == original_tab)
+-- Startup screens must leave an ordinary file pane for the window tools.
+for _, startup in ipairs({ 'empty', 'dashboard', 'dashboard_autocmd' }) do
+  vim.cmd('tabclose! ' .. vim.api.nvim_tabpage_get_number(layout.tab()))
+  local initial = vim.api.nvim_create_buf(true, startup ~= 'empty')
+  vim.api.nvim_win_set_buf(original_win, initial)
+  local entered = false
+  if startup == 'dashboard_autocmd' then
+    vim.api.nvim_create_autocmd('TabEnter', {
+      once = true,
+      callback = function()
+        entered = true
+        vim.api.nvim_win_set_buf(0, initial)
+      end,
+    })
+  end
+  ui.open(function() end, ui.close)
+  assert(startup ~= 'dashboard_autocmd' or entered)
+  local windows = json('list_windows').windows
+  assert(#windows == 1, startup .. ': missing ordinary file pane')
+  local pane = windows[1]
+  assert(vim.bo[pane.buffer_id].buftype == '' and vim.bo[pane.buffer_id].buflisted)
+  assert(vim.api.nvim_buf_get_name(pane.buffer_id) == '')
+  assert(vim.api.nvim_buf_get_lines(pane.buffer_id, 0, -1, false)[1] == '')
+  assert((pane.buffer_id == initial) == (startup == 'empty'))
+  assert(vim.api.nvim_win_get_buf(original_win) == initial)
+  assert(#vim.api.nvim_tabpage_list_wins(original_tab) == 1)
+  local file = json('open_window_buffer', { window_id = pane.window_id, path = 'private.txt' })
+  assert(layout.buffer(pane.window_id) == file.buffer_id and not file.user_attached)
+  assert(not layout.user_visible(file.buffer_id))
+  call('read_window_buffer', { window_id = pane.window_id }, true)
+  ui.close()
+  assert(vim.api.nvim_get_current_tabpage() == original_tab)
+  assert(vim.api.nvim_win_get_buf(original_win) == initial)
+end
+vim.api.nvim_win_set_buf(original_win, source)
+assert(vim.bo[source].modified and vim.api.nvim_buf_get_lines(source, 0, -1, false)[1] == 'unsaved user text')
 vim.cmd.cd(root)
 vim.fn.delete(dir, 'rf')
 print('codeit managed tab tests passed')

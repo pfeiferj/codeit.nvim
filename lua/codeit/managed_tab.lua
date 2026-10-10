@@ -81,6 +81,8 @@ function M.open()
   vim.t[tab].codeit = true
   if buffers.valid(source) and vim.bo[source].buftype == '' then
     vim.api.nvim_win_set_buf(0, source)
+  else
+    vim.api.nvim_win_set_buf(0, vim.api.nvim_create_buf(true, false))
   end
   local win = vim.api.nvim_get_current_win()
   attachments[win] = { buffer = vim.api.nvim_win_get_buf(win), user = true }
