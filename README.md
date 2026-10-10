@@ -87,6 +87,9 @@ and `python`/`py`); new blocks are recognized while responses stream. Unlabelled
 or unknown-language blocks and raw tool output stay literal. Highlight groups
 such as `CodeitHeading`, `CodeitFence`, `CodeitInlineCode`, and `CodeitCodeBlock`
 can be customized with `nvim_set_hl`; they link to standard theme groups by default.
+Chat headers use bold blue for `CodeitUser` and bold amber for `CodeitAssistant`,
+with defaults suited to dark or light backgrounds. Both groups can also be
+customized with `nvim_set_hl`.
 
 <details>
 <summary>Optional setup settings</summary>

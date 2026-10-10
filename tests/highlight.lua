@@ -71,4 +71,22 @@ vim.bo[fresh].filetype = 'codeit'
 assert(vim.b[fresh].current_syntax == 'codeit')
 vim.api.nvim_buf_delete(buf, { force = true })
 vim.wait(10)
+-- Role colors remain distinct after changing themes, without overriding customization.
+for _, background in ipairs({ 'dark', 'light' }) do
+  vim.o.background = background
+  vim.cmd('colorscheme default')
+  local user = vim.api.nvim_get_hl(0, { name = 'CodeitUser', link = false })
+  local assistant = vim.api.nvim_get_hl(0, { name = 'CodeitAssistant', link = false })
+  assert(user.fg and assistant.fg and user.fg ~= assistant.fg, 'role headers need distinct colors')
+  assert(user.ctermfg ~= assistant.ctermfg, 'terminal role colors should also differ')
+  assert(user.bold and assistant.bold, 'role headers should be bold')
+  assert(user.fg == tonumber(background == 'light' and '005faf' or '61afef', 16))
+  assert(assistant.fg == tonumber(background == 'light' and '875f00' or 'e5c07b', 16))
+end
+vim.api.nvim_set_hl(0, 'CodeitUser', { fg = '#123456' })
+vim.api.nvim_set_hl(0, 'CodeitAssistant', { link = 'Special' })
+require('codeit.highlight').load(fresh)
+require('codeit.ui')
+assert(vim.api.nvim_get_hl(0, { name = 'CodeitUser', link = false }).fg == 0x123456)
+assert(vim.api.nvim_get_hl(0, { name = 'CodeitAssistant' }).link == 'Special')
 print('Codeit highlighting tests passed')

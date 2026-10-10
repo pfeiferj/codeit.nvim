@@ -21,9 +21,7 @@ local role_marks = {}
 local can_send_message = true
 local draft_status
 local draft_hint_id
-for group, link in pairs({ CodeitUser = 'Special', CodeitAssistant = 'Title', CodeitTool = 'Comment' }) do
-  vim.api.nvim_set_hl(0, group, { default = true, link = link })
-end
+require('codeit.highlight').setup_roles()
 local slash_group = vim.api.nvim_create_augroup('codeit_chat_' .. next_instance, { clear = true })
 local completion
 

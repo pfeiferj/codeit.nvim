@@ -9,8 +9,24 @@ local links = {
   CodeitHeading = 'Title', CodeitBold = 'Bold', CodeitItalic = 'Italic',
   CodeitInlineCode = 'String', CodeitLink = 'Underlined', CodeitList = 'Special',
   CodeitQuote = 'Comment', CodeitRule = 'Delimiter', CodeitFence = 'Delimiter',
-  CodeitCodeBlock = 'Normal', CodeitUser = 'Special', CodeitAssistant = 'Title', CodeitTool = 'Comment',
+  CodeitCodeBlock = 'Normal', CodeitTool = 'Comment',
 }
+
+function M.setup_roles()
+  local light = vim.o.background == 'light'
+  vim.api.nvim_set_hl(0, 'CodeitUser', {
+    default = true, fg = light and '#005faf' or '#61afef', ctermfg = light and 25 or 75, bold = true,
+  })
+  vim.api.nvim_set_hl(0, 'CodeitAssistant', {
+    default = true, fg = light and '#875f00' or '#e5c07b', ctermfg = light and 94 or 180, bold = true,
+  })
+  vim.api.nvim_set_hl(0, 'CodeitTool', { default = true, link = 'Comment' })
+end
+
+vim.api.nvim_create_autocmd('ColorScheme', {
+  group = vim.api.nvim_create_augroup('codeit_role_highlights', { clear = true }),
+  callback = M.setup_roles,
+})
 
 local function region(group, fence, language, cluster)
   local char = fence == '`' and '`' or '\\~'
@@ -57,6 +73,7 @@ end
 
 function M.load(buf)
   buf = buf == 0 and vim.api.nvim_get_current_buf() or buf
+  M.setup_roles()
   for group, link in pairs(links) do vim.api.nvim_set_hl(0, group, { default = true, link = link }) end
   local state = { languages = {}, clusters = {}, next_cluster = 1 }
   states[buf] = state
