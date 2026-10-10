@@ -12,6 +12,7 @@ local transcript, transcript_win
 local sidebar_win
 local chat_lines = {}
 local draft_start = 2 -- zero-based first line of the draft
+local latest_prompt_row, latest_prompt_index
 local billing_line
 local ui_ns = vim.api.nvim_create_namespace('codeit_chat_ui')
 local tool_folds = {}
@@ -459,7 +460,42 @@ local function tool_output_language(name, content)
   return 'text'
 end
 
+local function follow_prompt(win, view, prompt, previous_prompt, new_turn)
+  vim.api.nvim_win_call(win, function()
+    local cursor = vim.api.nvim_win_get_cursor(win)
+    local height = vim.api.nvim_win_text_height(win, {
+      start_row = prompt - 1, end_row = cursor[1] - 1,
+    }).all
+    local scrolloff = vim.wo[win].scrolloff
+    vim.wo[win].scrolloff = 0
+    -- Let Neovim account for wrapped rows and virtual lines when the turn overflows.
+    vim.cmd('normal! zb')
+    if height <= vim.api.nvim_win_get_height(win) then
+      local topline = prompt
+      if not new_turn and previous_prompt then
+        topline = math.max(1, math.min(prompt, view.topline + prompt - previous_prompt))
+      end
+      local bottom = vim.fn.winsaveview()
+      bottom.topline, bottom.topfill, bottom.skipcol = topline, 0, 0
+      vim.fn.winrestview(bottom)
+    end
+    vim.wo[win].scrolloff = scrolloff
+  end)
+end
+
 function M.render(messages, status, provider, model, billing, command_results, can_send)
+  local views = {}
+  for _, win in ipairs({ transcript_win, sidebar_win }) do
+    if valid(win) then
+      local cursor = vim.api.nvim_win_get_cursor(win)
+      vim.api.nvim_win_call(win, function()
+        views[win] = { view = vim.fn.winsaveview(), cursor = cursor,
+          draft_row = cursor[1] > draft_start and cursor[1] - draft_start or nil }
+      end)
+    end
+  end
+  local previous_prompt, previous_index = latest_prompt_row, latest_prompt_index
+  latest_prompt_row, latest_prompt_index = nil, nil
   if not options.floating then require('codeit.assistant_pane').set_messages(messages) end
   local active_expanded = expanded_folds(transcript_win)
   local sidebar_expanded = expanded_folds(sidebar_win)
@@ -548,6 +584,9 @@ function M.render(messages, status, provider, model, billing, command_results, c
           table.insert(lines, '---')
           table.insert(lines, '')
         end
+        if message.role == 'user' then
+          latest_prompt_row, latest_prompt_index = #lines + 1, index
+        end
         local label = message.role == 'user' and '**You**' or ('**' .. (options.assistant_label or 'Assistant') .. '**')
         role_marks[#role_marks + 1] = { row = #lines, text = label,
           group = message.role == 'user' and 'CodeitUser' or 'CodeitAssistant' }
@@ -589,21 +628,23 @@ function M.render(messages, status, provider, model, billing, command_results, c
   table.insert(lines, '')
   table.insert(lines, '## ' .. (options.draft_label or 'Message'))
   table.insert(lines, '')
-  local cursor, draft_row
-  if valid(transcript_win) then
-    cursor = vim.api.nvim_win_get_cursor(transcript_win)
-    if cursor[1] > draft_start then draft_row = cursor[1] - draft_start end
-  end
   vim.api.nvim_buf_set_lines(transcript, 0, draft_start, false, lines)
   draft_start = #lines
   if valid(transcript_win) then M.decorate_chat(transcript_win, active_expanded) end
   if valid(sidebar_win) then M.decorate_chat(sidebar_win, sidebar_expanded) end
-  if draft_row then
-    vim.api.nvim_win_set_cursor(transcript_win, {
-      math.min(draft_start + draft_row, vim.api.nvim_buf_line_count(transcript)), cursor[2],
-    })
-  end
   update_header()
+  for win, state in pairs(views) do
+    if state.draft_row then
+      vim.api.nvim_win_set_cursor(win, {
+        math.min(draft_start + state.draft_row, vim.api.nvim_buf_line_count(transcript)), state.cursor[2],
+      })
+      if latest_prompt_row then
+        follow_prompt(win, state.view, latest_prompt_row, previous_prompt, latest_prompt_index ~= previous_index)
+      end
+    else
+      vim.api.nvim_win_call(win, function() vim.fn.winrestview(state.view) end)
+    end
+  end
 end
 
 --- A read-only chat preview excludes the editable message draft.
