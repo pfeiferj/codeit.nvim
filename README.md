@@ -55,11 +55,13 @@ previous tab, keeping the conversation, file layout, and unsaved buffers; reopen
 Codeit restores its tab. Use `:CodeitNew` for a fresh chat or `:CodeitHistory` to
 resume an earlier one.
 
-The assistant can use `list_windows`, `open_window_buffer`, `split_window`,
-`resize_window`, `focus_window`, and `close_window` to manage file views in this
-tab only. Chat windows and popups are excluded, and the last file view cannot be
-closed. Window operations never save files. `open_window_buffer` accepts an
-existing workspace path or an already-loaded ordinary buffer ID.
+The assistant can use `list_windows`, `open_window_file`, `open_window_buffer`,
+`split_window`, `split_window_file`, `split_window_buffer`, `resize_window`,
+`focus_window`, and `close_window` to manage file views in this tab only. Chat
+windows and popups are excluded, and the last file view cannot be closed. Window
+operations never save files. The `_file` tools require an existing workspace
+`path`; the `_buffer` tools require an already-loaded ordinary `buffer_id`.
+`split_window` takes no target and inherits the current buffer.
 
 `read_window_buffer` reads a visible file buffer, including unsaved edits. Buffers
 you open or attach in Codeit's file views can be read without approval while
