@@ -16,7 +16,7 @@ M.specs = {
   }, { 'query' }),
 }
 
-function M.new(messages, turn_costs)
+function M.new(messages, turn_costs, cost_by_function)
   local costs_by_message = {}
   for _, turn in ipairs(turn_costs or {}) do costs_by_message[turn.first] = turn end
   local turn_number = 0
@@ -32,6 +32,11 @@ function M.new(messages, turn_costs)
       end
     end
   end
+  if cost_by_function then
+    add('Chat costs by function (USD): ' .. (next(cost_by_function) and vim.json.encode(cost_by_function)
+      or 'unknown (not recorded)'))
+    add('')
+  end
   for index, message in ipairs(messages) do
     add(('Message %d [%s]%s'):format(index, message.role,
       message.tool_call_id and (' tool_call_id=' .. message.tool_call_id) or ''))
@@ -39,7 +44,7 @@ function M.new(messages, turn_costs)
       turn_number = turn_number + 1
       local turn = costs_by_message[index]
       add(('Turn %d cost (USD): %s'):format(turn_number, turn and vim.json.encode({
-        cost = turn.cost, missing_cost = turn.missing_cost,
+        cost = turn.cost, missing_cost = turn.missing_cost, cost_by_function = turn.cost_by_function,
       }) or 'unknown (not recorded)'))
     end
     if type(message.content) == 'string' then add(message.content)

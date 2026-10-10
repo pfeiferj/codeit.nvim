@@ -6,6 +6,19 @@ vim.fn.stdpath = function(kind) return kind == 'data' and temp or original_stdpa
 local history = require('codeit.history')
 local costs = require('codeit.cost_tools')
 local usage_format = require('codeit.usage_format')
+local breakdown = require('codeit.cost_breakdown')
+local buckets = {}
+breakdown.add(buckets, 'main_chat', 0)
+breakdown.add(buckets, 'main_chat', nil)
+assert(buckets.main_chat.requests == 2 and buckets.main_chat.cost == 0 and buckets.main_chat.missing_cost == 1)
+assert(vim.deep_equal(breakdown.restore(buckets), buckets))
+for _, bad_bucket in ipairs({ { cost = -1, requests = 1, missing_cost = 0 },
+  { cost = math.huge, requests = 1, missing_cost = 0 }, { cost = 0 / 0, requests = 1, missing_cost = 0 },
+  { cost = 1, requests = 0, missing_cost = 1 }, { cost = 1, requests = 0.5, missing_cost = 0 } }) do
+  assert(next(breakdown.restore({ main_chat = bad_bucket })) == nil)
+end
+assert(next(breakdown.restore(vim.NIL)) == nil)
+assert(next(breakdown.restore({ unknown = buckets.main_chat })) == nil)
 assert(usage_format.cost(1.2346) == '$1.235')
 assert(usage_format.cost(0, true) == '$0.000+')
 assert(usage_format.tokens(0) == '0m')
@@ -18,8 +31,13 @@ local function save(ws, id, day, amount, missing)
   assert(history.save(ws, id, { provider = 'openrouter', model = 'test-model', updated_at = stamp(day),
     cost = amount, missing_cost = missing, tokens_in = 1234567, tokens_out = 120000,
     missing_in = missing > 0, missing_out = missing > 0,
-    turn_costs = id == 'one' and { { first = 1, cost = 0.123456, missing_cost = 0 },
-      { first = 5, cost = 1.126544, missing_cost = 0 } } or nil,
+    cost_by_function = id == 'one' and {
+      main_chat = { cost = 0.123456, requests = 1, missing_cost = 0 },
+      context_review = { cost = 1.126544, requests = 1, missing_cost = 0 } } or nil,
+    turn_costs = id == 'one' and { { first = 1, cost = 0.123456, missing_cost = 0,
+        cost_by_function = { main_chat = { cost = 0.123456, requests = 1, missing_cost = 0 } } },
+      { first = 5, cost = 1.126544, missing_cost = 0,
+        cost_by_function = { context_review = { cost = 1.126544, requests = 1, missing_cost = 0 } } } } or nil,
     messages = { { role = 'user', content = 'Investigate expensive tests' },
       { role = 'assistant', content = 'Read the logs',
         _copilot_reasoning = { { summary = { { text = 'private-secret' } } } },
@@ -42,6 +60,10 @@ end
 local result = execute('get_costs')
 assert(result.totals.chats == 3 and result.totals.cost == 3.75 and result.totals.missing_cost == 1)
 assert(result.totals.tokens_in == 3703701 and #result.groups == 2)
+assert(result.totals.cost_by_function.main_chat.cost == 0.123456)
+assert(result.totals.cost_by_function.context_review.cost == 1.126544)
+assert(result.totals.unattributed_cost == 2.5 and result.totals.unattributed_missing_cost == 1)
+assert(result.groups[2].cost_by_function.context_review.requests == 1)
 assert(result.groups[1].day == '2026-06-02' and result.groups[1].chats == 2)
 result = execute('get_costs', { group_by = 'workspace', workspace = workspace })
 assert(#result.groups == 1 and result.totals.cost == 1.25)
@@ -58,6 +80,12 @@ assert(#result.matches == 2)
 local first_turn = vim.json.decode(result.matches[1].text:match('cost %(USD%): (.*)'))
 local second_turn = vim.json.decode(result.matches[2].text:match('cost %(USD%): (.*)'))
 assert(first_turn.cost == 0.123456 and second_turn.cost == 1.126544)
+assert(first_turn.cost_by_function.main_chat.cost == 0.123456)
+assert(second_turn.cost_by_function.context_review.cost == 1.126544)
+local chat_functions = execute('search_cost_chat', { workspace = workspace, chat_id = 'one', query = 'Chat costs by function' })
+assert(#chat_functions.matches == 1 and chat_functions.matches[1].text:find('context_review', 1, true))
+local chat_list = execute('list_cost_chats', { workspace = workspace, from_day = '2026-06-01', to_day = '2026-06-01' })
+assert(chat_list.chats[1].cost_by_function.main_chat.requests == 1)
 assert(result.matches[2].text:find('Turn 2', 1, true))
 result = execute('search_cost_chat', { workspace = workspace, chat_id = 'two', query = 'cost (USD)' })
 assert(result.matches[1].text:find('unknown (not recorded)', 1, true))
@@ -86,6 +114,11 @@ assert(second.chats[1].chat_id ~= first.chats[#first.chats].chat_id)
 local unknown = costs.new({ { workspace = workspace, id = 'old', messages = {}, updated_at = stamp(1) } })
 result = vim.json.decode(unknown.execute('get_costs', {}))
 assert(result.totals.missing_cost == 1 and result.totals.missing_in)
+assert(result.totals.unattributed_missing_cost == 1 and next(result.totals.cost_by_function) == nil)
+local rounding = costs.new({ { workspace = workspace, id = 'rounding', messages = {}, cost = 0.1 + 0.2,
+  cost_by_function = { main_chat = { cost = 0.3, requests = 2, missing_cost = 0 } } } })
+assert(vim.json.decode(rounding.execute('get_costs', {})).totals.unattributed_cost == 0,
+  'floating-point addition residue is not an unattributed charge')
 
 local requests, pending = {}, nil
 package.loaded['codeit.providers'] = { chat = function(config, messages, specs, callback)
@@ -143,6 +176,9 @@ local saved = history.list(history.workspace())
 assert(#saved == 1 and saved[1].kind == 'cost_review' and math.abs(saved[1].cost - 0.15) < 0.000001)
 assert(#saved[1].turn_costs == 1 and saved[1].turn_costs[1].first == 2)
 assert(math.abs(saved[1].turn_costs[1].cost - 0.15) < 0.000001)
+assert(saved[1].cost_by_function.cost_review.requests == 2)
+assert(math.abs(saved[1].cost_by_function.cost_review.cost - 0.15) < 0.000001)
+assert(saved[1].turn_costs[1].cost_by_function.cost_review.requests == 2)
 assert(text():find('**You** · Turn cost: $0.150', 1, true))
 ask('More details')
 pending(nil, 'offline')
@@ -157,6 +193,8 @@ saved = history.list(history.workspace())
 assert(math.abs(saved[1].cost - 0.35) < 0.000001 and saved[1].missing_in)
 assert(#saved[1].turn_costs == 3 and saved[1].turn_costs[2].first == 6 and saved[1].turn_costs[3].first == 7)
 assert(saved[1].turn_costs[3].cost == 0.2, 'late review-session usage must persist on the question that incurred it')
+assert(saved[1].cost_by_function.cost_review.requests == 3)
+assert(saved[1].turn_costs[3].cost_by_function.cost_review.cost == 0.2)
 vim.wait(20)
 local empty_win = plugin.costs()
 assert(vim.api.nvim_win_is_valid(empty_win))

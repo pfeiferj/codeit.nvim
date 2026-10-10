@@ -47,6 +47,7 @@ assert(vim.fn.getfperm(stored) == 'rw-------')
 responses[#responses]({ role = 'assistant', content = 'first answer' }, nil,
   { cost = 0.123456, prompt_tokens = 200, completion_tokens = 10, total_tokens = 210 })
 assert(history.load(workspace, first_id).turn_costs[1].cost == 0.123456)
+assert(history.load(workspace, first_id).cost_by_function.main_chat.cost == 0.123456)
 plugin.open()
 assert(table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
   :find('**You** · Turn cost: $0.123', 1, true))
@@ -66,8 +67,11 @@ local chat = history.load(workspace, first_id)
 assert(chat.cost == 0.123456 and chat.context_tokens == nil)
 assert(#chat.turn_costs == 2 and chat.turn_costs[1].first == 2 and chat.turn_costs[1].cost == 0.123456)
 assert(chat.turn_costs[2].first == 4 and chat.turn_costs[2].cost == 0 and chat.turn_costs[2].missing_cost == 1)
+assert(chat.cost_by_function.main_chat.requests == 2 and chat.cost_by_function.main_chat.missing_cost == 1)
+assert(chat.turn_costs[1].cost_by_function.main_chat.cost == 0.123456)
+assert(chat.turn_costs[2].cost_by_function.main_chat.missing_cost == 1)
 for _, message in ipairs(requests[#requests].messages) do
-  assert(not message.turn_costs, 'cost metadata must stay out of provider messages')
+  assert(not message.turn_costs and not message.cost_by_function, 'cost metadata must stay out of provider messages')
 end
 
 -- Legacy and malformed turn costs must not become fabricated zero-cost turns.
@@ -75,6 +79,7 @@ local legacy = { provider = 'openrouter', model = 'test-model', cost = 1,
   messages = { { role = 'user', content = 'old question' }, { role = 'assistant', content = 'old answer' } } }
 assert(history.save(workspace, 'legacy', legacy))
 assert(#history.load(workspace, 'legacy').turn_costs == 0)
+assert(next(history.load(workspace, 'legacy').cost_by_function) == nil)
 plugin.resume('legacy')
 assert(table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
   :find('Turn cost: unknown', 1, true))
@@ -118,7 +123,15 @@ assert(requests[#requests].config.model == 'openai/gpt-4o-mini')
 assert(#requests[#requests].messages == 2 and #requests[#requests].messages[2].content > 0)
 plugin.history()
 assert(#requests == count + 1, 'concurrent history views must share a summary request')
-responses[#responses]({ role = 'assistant', content = 'Implemented the first request and follow-up.' })
+responses[#responses]({ role = 'assistant', content = 'Implemented the first request and follow-up.' }, nil,
+  { cost = 0.05, prompt_tokens = 50, completion_tokens = 5 })
+local summarized_chat = history.load(workspace, first_id)
+assert(summarized_chat.cost_by_function.history_summary.cost == 0.05)
+assert(summarized_chat.cost_by_function.history_summary.requests == 1)
+assert(math.abs(summarized_chat.cost - 0.173456) < 0.000000001)
+assert(summarized_chat.turn_costs[1].cost == 0.123456 and not summarized_chat.turn_costs[1].cost_by_function.history_summary,
+  'history summaries belong to their source chat, not to the active chat or its turns')
+assert(not history.load(workspace, second_id).cost_by_function.history_summary)
 assert(selections == 1)
 assert(history.load(workspace, first_id).summary == 'Implemented the first request and follow-up.')
 plugin.history()
@@ -135,7 +148,10 @@ assert(history.load(workspace, first_id).summary == nil, 'ordinary saves must no
 plugin.history()
 assert(#requests == count + 3, 'finished follow-ups need an updated summary')
 assert(requests[#requests].messages[2].content:find('a new follow up', 1, true))
-responses[#responses]({ role = 'assistant', content = 'Implemented the first request and the new follow-up.' })
+responses[#responses]({ role = 'assistant', content = 'Implemented the first request and the new follow-up.' }, nil,
+  { cost = 0.02, prompt_tokens = 20, completion_tokens = 5 })
+assert(math.abs(history.load(workspace, first_id).cost_by_function.history_summary.cost - 0.07) < 0.000000001)
+assert(history.load(workspace, first_id).cost_by_function.history_summary.requests == 2)
 assert(history.load(workspace, first_id).summary == 'Implemented the first request and the new follow-up.')
 plugin.history()
 assert(#requests == count + 3, 'updated summaries are cached until the next question')
@@ -161,7 +177,11 @@ local stale_summary = responses[#responses]
 plugin.send('fourth question')
 local fourth_answer = responses[#responses]
 assert(history.load(workspace, first_id).summary == nil)
-stale_summary({ role = 'assistant', content = 'Outdated summary.' })
+local before_summary_cost = history.load(workspace, first_id).cost
+stale_summary({ role = 'assistant', content = 'Outdated summary.' }, nil, { cost = 0.03 })
+assert(math.abs(history.load(workspace, first_id).cost - before_summary_cost - 0.03) < 0.000000001,
+  'an obsolete summary still incurs a charge on its original chat')
+assert(not history.load(workspace, first_id).turn_costs[#history.load(workspace, first_id).turn_costs].cost_by_function.history_summary)
 assert(history.load(workspace, first_id).summary == nil, 'stale in-flight summaries must be discarded')
 fourth_answer({ role = 'assistant', content = 'fourth answer' })
 plugin.history()

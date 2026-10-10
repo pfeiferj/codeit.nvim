@@ -1,4 +1,5 @@
 local M = {}
+local cost_breakdown = require('codeit.cost_breakdown')
 
 local function directory(workspace)
   return vim.fn.stdpath('data') .. '/codeit/chats/' .. vim.fn.sha256(workspace)
@@ -120,13 +121,15 @@ function M.load(workspace, id)
           and first <= #chat.messages and chat.messages[first].role == 'user'
           and type(amount) == 'number' and amount >= 0 and amount < math.huge
           and type(missing) == 'number' and missing >= 0 and missing < math.huge and missing == math.floor(missing) then
-          turn_costs[#turn_costs + 1] = { first = first, cost = amount, missing_cost = missing }
+          turn_costs[#turn_costs + 1] = { first = first, cost = amount, missing_cost = missing,
+            cost_by_function = cost_breakdown.restore(turn.cost_by_function) }
           previous = first
         end
       end
     end
   end
   chat.turn_costs = turn_costs
+  chat.cost_by_function = cost_breakdown.restore(chat.cost_by_function)
   return chat
 end
 

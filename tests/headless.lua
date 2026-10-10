@@ -154,6 +154,14 @@ local reviewed_turn = reviewed_chat.turn_costs[#reviewed_chat.turn_costs]
 assert(reviewed_chat.messages[reviewed_turn.first].content == 'Check command')
 assert(reviewed_turn.cost == 0.000321 and reviewed_turn.missing_cost == 5,
   'a turn must include its main requests, assessment, and all interactive reviewer requests')
+assert(reviewed_turn.cost_by_function.main_chat.requests == 2)
+assert(reviewed_turn.cost_by_function.main_chat.missing_cost == 1)
+assert(reviewed_turn.cost_by_function.tool_assessment.requests == 1)
+assert(reviewed_turn.cost_by_function.tool_assessment.missing_cost == 1)
+assert(reviewed_turn.cost_by_function.tool_review.requests == 4)
+assert(reviewed_turn.cost_by_function.tool_review.missing_cost == 3)
+assert(reviewed_turn.cost_by_function.tool_review.cost == 0.000321)
+assert(reviewed_chat.cost_by_function.tool_review.cost == 0.000321)
 assert(requests[#requests].messages[#requests[#requests].messages].content:find('Do not run it', 1, true))
 for _, message in ipairs(requests[#requests].messages) do
   for _, call in ipairs(type(message.tool_calls) == 'table' and message.tool_calls or {}) do
