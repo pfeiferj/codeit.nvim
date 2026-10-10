@@ -2,16 +2,23 @@ local M = {}
 local markdown = require('codeit.markdown')
 
 --- Show saved chats in a wide, scrollable picker so summaries remain readable.
-function M.show(entries, workspace, callback)
+function M.show(entries, workspace, callback, delete_chat)
+  entries = vim.list_extend({}, entries)
   local width = math.max(1, math.min(vim.o.columns - 4, math.floor(vim.o.columns * 0.85)))
   local max_height = math.max(1, math.min(vim.o.lines - 4, math.floor(vim.o.lines * 0.8)))
-  local lines = { '# Resume chat for ' .. workspace, '*Enter: resume  Esc/q: close*' }
-  local choices = {}
-  for _, chat in ipairs(entries) do
-    local summary = type(chat.summary) == 'string' and chat.summary ~= '' and '  ' .. chat.summary or ''
-    lines[#lines + 1] = '- **' .. os.date('%Y-%m-%d %H:%M', tonumber(chat.updated_at) or 0) .. '**' .. summary
-    choices[#lines] = chat
+  local lines, choices
+  local function render()
+    lines = { '# Resume chat for ' .. workspace,
+      delete_chat and '*Enter: resume  d: delete  Esc/q: close*' or '*Enter: resume  Esc/q: close*' }
+    choices = {}
+    for _, chat in ipairs(entries) do
+      local summary = type(chat.summary) == 'string' and chat.summary ~= '' and '  ' .. chat.summary or ''
+      lines[#lines + 1] = '- **' .. os.date('%Y-%m-%d %H:%M', tonumber(chat.updated_at) or 0) .. '**' .. summary
+      choices[#lines] = chat
+    end
+    if #entries == 0 then lines[#lines + 1] = 'No saved chats.' end
   end
+  render()
 
   local needed_height = 0
   for _, line in ipairs(lines) do
@@ -46,8 +53,38 @@ function M.show(entries, workspace, callback)
     callback = function() vim.schedule(function() finish(nil) end) end,
   })
   vim.keymap.set('n', '<CR>', function()
-    finish(choices[vim.api.nvim_win_get_cursor(win)[1]])
+    local chat = choices[vim.api.nvim_win_get_cursor(win)[1]]
+    if chat then finish(chat) end
   end, { buffer = buf, silent = true, desc = 'Resume selected chat' })
+  if delete_chat then
+    local deleting = false
+    vim.keymap.set('n', 'd', function()
+      if finished or deleting then return end
+      local row = vim.api.nvim_win_get_cursor(win)[1]
+      local chat = choices[row]
+      if not chat then return end
+      deleting = true
+      vim.ui.select({ 'Cancel', 'Delete' }, {
+        prompt = 'Permanently delete chat ' .. chat.id .. '?',
+      }, function(choice)
+        deleting = false
+        if choice ~= 'Delete' or finished or not vim.api.nvim_win_is_valid(win) then return end
+        local ok, err = delete_chat(chat)
+        if not ok then
+          vim.notify('codeit: could not delete chat: ' .. tostring(err), vim.log.levels.ERROR)
+          return
+        end
+        for index, entry in ipairs(entries) do
+          if entry == chat then table.remove(entries, index); break end
+        end
+        render()
+        vim.bo[buf].modifiable = true
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.bo[buf].modifiable = false
+        vim.api.nvim_win_set_cursor(win, { math.min(row, #lines), 0 })
+      end)
+    end, { buffer = buf, silent = true, desc = 'Delete selected chat' })
+  end
   for _, key in ipairs({ '<Esc>', 'q' }) do
     vim.keymap.set('n', key, function() finish(nil) end,
       { buffer = buf, silent = true, desc = 'Close chat history' })

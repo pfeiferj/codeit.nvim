@@ -58,4 +58,52 @@ for i = 1, 100 do many[i] = { id = tostring(i), updated_at = 1000000000 - i, sum
 win = show(many)
 assert(vim.api.nvim_win_get_config(win).height < #many, 'long histories should scroll inside the picker')
 vim.api.nvim_win_close(win, true)
+-- Deletion is confirmed, refreshes the picker, and never resumes a chat.
+vim.wait(20)
+local select = vim.ui.select
+local confirmation, deleted, fail_delete
+vim.ui.select = function(options, _, callback)
+  assert(options[1] == 'Cancel' and options[2] == 'Delete')
+  confirmation = callback
+end
+calls, deleted = 0, 0
+picker.show(entries, '/a/workspace', function() calls = calls + 1 end, function(chat)
+  if fail_delete then return false, 'test deletion failure' end
+  deleted = deleted + 1
+  assert(chat.id == (deleted == 1 and 'first' or 'second'))
+  return true
+end)
+win = vim.api.nvim_get_current_win()
+buf = vim.api.nvim_win_get_buf(win)
+local function press(key)
+  vim.api.nvim_buf_call(buf, function() vim.cmd.normal(key) end)
+end
+assert(vim.api.nvim_buf_get_lines(buf, 1, 2, false)[1]:find('d: delete', 1, true))
+press('d')
+confirmation('Cancel')
+assert(deleted == 0 and vim.api.nvim_buf_line_count(buf) == 4)
+press('d')
+confirmation(nil)
+assert(deleted == 0)
+local notify = vim.notify
+local error_message
+vim.notify = function(message) error_message = message end
+fail_delete = true
+press('d')
+confirmation('Delete')
+assert(deleted == 0 and vim.api.nvim_buf_line_count(buf) == 4 and error_message:find('test deletion failure', 1, true))
+vim.notify = notify
+fail_delete = false
+press('d')
+confirmation('Delete')
+assert(deleted == 1 and calls == 0 and vim.api.nvim_win_is_valid(win))
+assert(vim.api.nvim_buf_line_count(buf) == 3 and #entries == 2, 'deleting must not mutate the caller list')
+press('d')
+confirmation('Delete')
+assert(deleted == 2 and vim.api.nvim_buf_get_lines(buf, 2, 3, false)[1] == 'No saved chats.')
+press('\r')
+assert(calls == 0, 'Enter on the empty list must not resume or close')
+press('q')
+assert(calls == 1)
+vim.ui.select = select
 print('codeit history picker tests passed')

@@ -252,5 +252,41 @@ assert(restored.command_results[2].after_message == 2,
   'results from a removed tool batch should remain at the end of the surviving transcript')
 assert(plugin.resume('with-commands'), 'valid command results should resume alongside older chat formats')
 
+-- Delete only the selected workspace's file; active chats detach from their old ID.
+local delete_workspace = temp .. '/delete'
+local delete_chat = { provider = 'openrouter', model = 'test', messages = {}, summary = 'Saved chat.' }
+assert(history.save(workspace, 'delete-me', delete_chat))
+assert(history.save(delete_workspace, 'delete-me', delete_chat))
+assert(not history.delete(workspace, '../escape'))
+assert(history.delete(workspace, 'delete-me'))
+assert(not history.load(workspace, 'delete-me') and history.load(delete_workspace, 'delete-me'))
+assert(not history.delete(workspace, 'delete-me'), 'missing files should report a deletion failure')
+
+plugin.new()
+plugin.send('chat to delete')
+responses[#responses]({ role = 'assistant', content = 'saved answer' })
+local active_id = history.list(workspace)[1].id
+local delete_active
+require('codeit.history_picker').show = function(items, _, _, delete)
+  for _, item in ipairs(items) do
+    if item.id == active_id then delete_active = function() return delete(item) end end
+  end
+end
+for _, item in ipairs(history.list(workspace)) do
+  assert(history.set_summary(workspace, item.id, 'Saved chat.'))
+end
+plugin.history()
+assert(delete_active)
+plugin.send('pending answer')
+local ok, err = delete_active()
+assert(not ok and err:find('current response', 1, true) and history.load(workspace, active_id))
+responses[#responses]({ role = 'assistant', content = 'finished answer' })
+assert(delete_active() and not history.load(workspace, active_id))
+plugin.send('continue as a new chat')
+assert(not history.load(workspace, active_id), 'continued chats must not recreate deleted IDs')
+local continued = history.list(workspace)[1]
+assert(continued.id ~= active_id and continued.messages[2].content == 'chat to delete')
+responses[#responses]({ role = 'assistant', content = 'new answer' })
+
 vim.fn.delete(temp, 'rf')
 print('codeit history tests passed')

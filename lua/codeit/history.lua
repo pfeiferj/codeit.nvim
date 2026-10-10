@@ -114,6 +114,12 @@ function M.load(workspace, id)
   return chat
 end
 
+function M.delete(workspace, id)
+  local filename = path(workspace, id)
+  if not filename then return false, 'invalid chat id' end
+  return vim.uv.fs_unlink(filename)
+end
+
 function M.set_summary(workspace, id, summary)
   local chat, err = M.load(workspace, id)
   if not chat then return false, err end
