@@ -8,10 +8,28 @@ local costs = require('codeit.cost_tools')
 local usage_format = require('codeit.usage_format')
 local breakdown = require('codeit.cost_breakdown')
 local buckets = {}
-breakdown.add(buckets, 'main_chat', 0)
-breakdown.add(buckets, 'main_chat', nil)
+breakdown.add(buckets, 'main_chat', 0, 20, 0)
+breakdown.add(buckets, 'main_chat', nil, nil, 5)
 assert(buckets.main_chat.requests == 2 and buckets.main_chat.cost == 0 and buckets.main_chat.missing_cost == 1)
+assert(buckets.main_chat.tokens_in == 20 and buckets.main_chat.tokens_out == 5)
+assert(buckets.main_chat.missing_in and not buckets.main_chat.missing_out)
 assert(vim.deep_equal(breakdown.restore(buckets), buckets))
+local legacy_bucket = { cost = 1, requests = 1, missing_cost = 0 }
+local restored = breakdown.restore({ main_chat = legacy_bucket }).main_chat
+assert(restored.cost == 1 and restored.tokens_in == 0 and restored.tokens_out == 0)
+assert(restored.missing_in and restored.missing_out, 'legacy token totals are unknown, not zero')
+breakdown.add({ main_chat = restored }, 'main_chat', 0, 10, 2)
+assert(restored.tokens_in == 10 and restored.tokens_out == 2 and restored.missing_in and restored.missing_out)
+local merged = {}
+breakdown.merge(merged, buckets)
+breakdown.merge(merged, { main_chat = legacy_bucket })
+assert(merged.main_chat.tokens_in == 20 and merged.main_chat.tokens_out == 5)
+assert(merged.main_chat.missing_in and merged.main_chat.missing_out)
+for _, invalid in ipairs({ -1, math.huge, 0 / 0, 'bad', vim.NIL }) do
+  local restored_bad = breakdown.restore({ main_chat = vim.tbl_extend('force', legacy_bucket,
+    { tokens_in = invalid, tokens_out = 0 }) }).main_chat
+  assert(restored_bad.tokens_in == 0 and restored_bad.missing_in and not restored_bad.missing_out)
+end
 for _, bad_bucket in ipairs({ { cost = -1, requests = 1, missing_cost = 0 },
   { cost = math.huge, requests = 1, missing_cost = 0 }, { cost = 0 / 0, requests = 1, missing_cost = 0 },
   { cost = 1, requests = 0, missing_cost = 1 }, { cost = 1, requests = 0.5, missing_cost = 0 } }) do
@@ -32,7 +50,8 @@ local function save(ws, id, day, amount, missing)
     cost = amount, missing_cost = missing, tokens_in = 1234567, tokens_out = 120000,
     missing_in = missing > 0, missing_out = missing > 0,
     cost_by_function = id == 'one' and {
-      main_chat = { cost = 0.123456, requests = 1, missing_cost = 0 },
+      main_chat = { cost = 0.123456, requests = 1, missing_cost = 0,
+        tokens_in = 1234567, tokens_out = 120000, missing_in = false, missing_out = false },
       context_review = { cost = 1.126544, requests = 1, missing_cost = 0 } } or nil,
     turn_costs = id == 'one' and { { first = 1, cost = 0.123456, missing_cost = 0,
         cost_by_function = { main_chat = { cost = 0.123456, requests = 1, missing_cost = 0 } } },
@@ -61,6 +80,10 @@ local result = execute('get_costs')
 assert(result.totals.chats == 3 and result.totals.cost == 3.75 and result.totals.missing_cost == 1)
 assert(result.totals.tokens_in == 3703701 and #result.groups == 2)
 assert(result.totals.cost_by_function.main_chat.cost == 0.123456)
+assert(result.totals.cost_by_function.main_chat.tokens_in == 1234567)
+assert(result.totals.cost_by_function.main_chat.tokens_out == 120000)
+assert(not result.totals.cost_by_function.main_chat.missing_in)
+assert(result.totals.cost_by_function.context_review.missing_in)
 assert(result.totals.cost_by_function.context_review.cost == 1.126544)
 assert(result.totals.unattributed_cost == 2.5 and result.totals.unattributed_missing_cost == 1)
 assert(result.groups[2].cost_by_function.context_review.requests == 1)
@@ -137,11 +160,13 @@ local function key(lhs)
 end
 assert(text():find('Saved total: $3.750+ · 3 chats · In: 3.704m+ · Out: 0.36m+', 1, true) and #requests == 0)
 local function assert_table(rows)
-  local expected = require('codeit.table_popup').format({ rows = rows,
-    alignment = { 'left', 'right', 'right', 'right', 'right' } })
+  local alignment = { 'left' }
+  for column = 2, #rows[1] do alignment[column] = 'right' end
+  local expected = require('codeit.table_popup').format({ rows = rows, alignment = alignment })
   assert(text():find(table.concat(expected, '\n'), 1, true), 'cost table must use popup formatting')
   for _, line in ipairs(expected) do
-    assert(vim.fn.strdisplaywidth(line) == vim.fn.strdisplaywidth(expected[1]))
+    -- strdisplaywidth includes wrapped-window break indentation for wide tables.
+    assert(vim.fn.strwidth(line) == vim.fn.strwidth(expected[1]))
   end
 end
 assert_table({
@@ -149,12 +174,64 @@ assert_table({
   { '2026-06-02', '2', '$2.500+', '2.469m+', '0.24m+' },
   { '2026-06-01', '1', '$1.250', '1.235m', '0.12m' },
 })
+local cost_ns = vim.api.nvim_get_namespaces().codeit_cost_review
+local function assert_highlights()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local marks = vim.api.nvim_buf_get_extmarks(buf, cost_ns, 0, -1, { details = true })
+  local groups, striped = {}, false
+  for _, mark in ipairs(marks) do
+    local row, col, details = mark[2], mark[3], mark[4]
+    assert(row < #lines, 'cost highlights must stay within the rendered header')
+    if details.hl_group then
+      groups[details.hl_group] = true
+      local highlighted = lines[row + 1]:sub(col + 1, details.end_col)
+      if details.hl_group == 'CodeitCostAmount' then
+        assert(highlighted:find('$', 1, true), 'amount highlighting must align with the USD cell')
+      elseif details.hl_group == 'CodeitCostIncomplete' and row > 8 then
+        assert(highlighted == '+', 'incomplete markers must be highlighted precisely')
+      end
+    elseif details.line_hl_group == 'CodeitCostRow' then
+      striped = true
+      assert(lines[row + 1]:sub(1, 1) == '|', 'stripe must highlight a table data row')
+    end
+  end
+  assert(groups.CodeitTableHeader and groups.CodeitTableBorder and groups.CodeitCostTotal)
+  assert(groups.CodeitCostGroup and groups.CodeitCostAmount and groups.CodeitCostIncomplete and striped)
+  return #marks
+end
+assert_highlights()
 key('w')
+local workspace_marks = assert_highlights()
+key('w')
+assert(assert_highlights() == workspace_marks, 'rerendering must not accumulate highlights')
 assert(text():find(workspace, 1, true) and text():find(other, 1, true))
 key('s')
 assert(text():find('No saved chats in this scope.', 1, true))
 key('s')
 assert(text():find('Saved total: $3.750+', 1, true))
+assert_highlights()
+key('f')
+assert(text():find('f: functions', 1, true) and #requests == 0)
+assert_table({
+  { 'Function', 'Requests', 'USD', 'Input tokens', 'Output tokens', 'Missing cost reports' },
+  { 'Unattributed', '—', '$2.500+', '—', '—', '1' },
+  { 'context_review', '1', '$1.127', '0m+', '0m+', '0' },
+  { 'main_chat', '1', '$0.123', '1.235m', '0.12m', '0' },
+})
+assert(text():find('Groups 1–3 of 3', 1, true))
+local function_marks = assert_highlights()
+key('n')
+key('p')
+assert(assert_highlights() == function_marks, 'function view must stay on its single page')
+key('s')
+assert(text():find('No saved chats in this scope.', 1, true))
+key('s')
+key('d')
+assert_table({
+  { 'Group', 'Chats', 'USD', 'Input tokens', 'Output tokens' },
+  { '2026-06-02', '2', '$2.500+', '2.469m+', '0.24m+' },
+  { '2026-06-01', '1', '$1.250', '1.235m', '0.12m' },
+})
 local function ask(question)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   -- The draft is the final editable line in the shared chat UI.
@@ -172,6 +249,7 @@ assert(#requests == 2 and requests[2].messages[#requests[2].messages].role == 't
 pending({ role = 'assistant', content = 'One chat accounted for $2.50.' }, nil,
   { cost = 0.1, prompt_tokens = 30, completion_tokens = 10 })
 assert(text():find('One chat accounted', 1, true) and text():find('This review: $0.150', 1, true))
+assert_highlights()
 local saved = history.list(history.workspace())
 assert(#saved == 1 and saved[1].kind == 'cost_review' and math.abs(saved[1].cost - 0.15) < 0.000001)
 assert(#saved[1].turn_costs == 1 and saved[1].turn_costs[1].first == 2)
@@ -179,6 +257,10 @@ assert(math.abs(saved[1].turn_costs[1].cost - 0.15) < 0.000001)
 assert(saved[1].cost_by_function.cost_review.requests == 2)
 assert(math.abs(saved[1].cost_by_function.cost_review.cost - 0.15) < 0.000001)
 assert(saved[1].turn_costs[1].cost_by_function.cost_review.requests == 2)
+assert(saved[1].cost_by_function.cost_review.tokens_in == 50 and saved[1].cost_by_function.cost_review.tokens_out == 15)
+assert(not saved[1].cost_by_function.cost_review.missing_in and not saved[1].cost_by_function.cost_review.missing_out)
+assert(saved[1].turn_costs[1].cost_by_function.cost_review.tokens_in == 50)
+assert(saved[1].turn_costs[1].cost_by_function.cost_review.tokens_out == 15)
 assert(text():find('**You** · Turn cost: $0.150', 1, true))
 ask('More details')
 pending(nil, 'offline')
@@ -195,10 +277,39 @@ assert(#saved[1].turn_costs == 3 and saved[1].turn_costs[2].first == 6 and saved
 assert(saved[1].turn_costs[3].cost == 0.2, 'late review-session usage must persist on the question that incurred it')
 assert(saved[1].cost_by_function.cost_review.requests == 3)
 assert(saved[1].turn_costs[3].cost_by_function.cost_review.cost == 0.2)
+assert(saved[1].cost_by_function.cost_review.tokens_in == 50 and saved[1].cost_by_function.cost_review.missing_in)
+assert(saved[1].cost_by_function.cost_review.tokens_out == 15 and saved[1].cost_by_function.cost_review.missing_out)
+assert(saved[1].turn_costs[3].cost_by_function.cost_review.missing_in)
 vim.wait(20)
 local empty_win = plugin.costs()
 assert(vim.api.nvim_win_is_valid(empty_win))
 vim.api.nvim_win_close(empty_win, true)
+vim.wait(20)
+assert(history.save(workspace, 'missing-function', { provider = 'openrouter', model = 'test-model',
+  updated_at = stamp(3), cost = 0, missing_cost = 1, tokens_in = 0, tokens_out = 0, messages = {},
+  cost_by_function = { context_review = { cost = 0, requests = 2, missing_cost = 1 } } }))
+win, buf = require('codeit.cost_review').show({ provider = 'openrouter', model = 'test-model' }, workspace)
+key('f')
+key('s')
+assert_table({
+  { 'Function', 'Requests', 'USD', 'Input tokens', 'Output tokens', 'Missing cost reports' },
+  { 'context_review', '3', '$1.127+', '0m+', '0m+', '1' },
+  { 'main_chat', '1', '$0.123', '1.235m', '0.12m', '0' },
+  { 'Unattributed', '—', '$0.000+', '—', '—', '1' },
+})
+assert_highlights()
+assert(text():find('Saved total: $1.250+ · 3 chats', 1, true))
+vim.api.nvim_win_close(win, true)
+vim.wait(20)
+local zero_workspace = '/test/zero'
+save(zero_workspace, 'zero', 1, 0, 0)
+win, buf = require('codeit.cost_review').show({ provider = 'openrouter', model = 'test-model' }, zero_workspace)
+key('f')
+key('s')
+assert(text():find('No recorded function costs in this scope.', 1, true))
+assert(not text():find('No saved chats in this scope.', 1, true))
+assert_table({ { 'Function', 'Requests', 'USD', 'Input tokens', 'Output tokens', 'Missing cost reports' } })
+vim.api.nvim_win_close(win, true)
 vim.wait(20)
 save(history.workspace(), 'active', 1, 0, 0)
 assert(plugin.resume('active'))

@@ -186,14 +186,14 @@ local function record_usage(usage, feature, provider, turn)
   if provider ~= 'openrouter' and provider ~= 'copilot' then return end
   local amount = usage_number(usage and usage.cost)
   if amount then cost = cost + amount else missing_cost = missing_cost + 1 end
-  cost_breakdown.add(cost_by_function, feature, amount)
+  local input_count = usage_number(usage and usage.prompt_tokens)
+  local output_count = usage_number(usage and usage.completion_tokens)
+  cost_breakdown.add(cost_by_function, feature, amount, input_count, output_count)
   if turn then
     if amount then turn.cost = turn.cost + amount else turn.missing_cost = turn.missing_cost + 1 end
     turn.cost_by_function = turn.cost_by_function or {}
-    cost_breakdown.add(turn.cost_by_function, feature, amount)
+    cost_breakdown.add(turn.cost_by_function, feature, amount, input_count, output_count)
   end
-  local input_count = usage_number(usage and usage.prompt_tokens)
-  local output_count = usage_number(usage and usage.completion_tokens)
   if input_count then tokens_in = tokens_in + input_count else missing_in = true end
   if output_count then tokens_out = tokens_out + output_count else missing_out = true end
   if feature == 'main_chat' then
@@ -1267,7 +1267,8 @@ local function summarize_chat(selected_workspace, chat, summary_config, callback
         current.missing_cost = usage_number(current.missing_cost) or (usage_number(current.cost) and 0 or 1)
         current.cost = (usage_number(current.cost) or 0) + (amount or 0)
         if not amount then current.missing_cost = current.missing_cost + 1 end
-        cost_breakdown.add(current.cost_by_function, 'history_summary', amount)
+        cost_breakdown.add(current.cost_by_function, 'history_summary', amount,
+          usage_number(usage and usage.prompt_tokens), usage_number(usage and usage.completion_tokens))
         for _, pair in ipairs({ { 'tokens_in', 'prompt_tokens', 'missing_in' }, { 'tokens_out', 'completion_tokens', 'missing_out' } }) do
           local count = usage_number(usage and usage[pair[2]])
           current[pair[3]] = current[pair[3]] == true or not usage_number(current[pair[1]]) or not count

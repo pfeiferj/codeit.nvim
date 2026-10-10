@@ -5,9 +5,26 @@ local costs = require('codeit.cost_tools')
 local usage_format = require('codeit.usage_format')
 local table_popup = require('codeit.table_popup')
 local cost_breakdown = require('codeit.cost_breakdown')
+local highlight_ns = vim.api.nvim_create_namespace('codeit_cost_review')
+
+local function setup_highlights()
+  for group, link in pairs({
+    CodeitTableHeader = 'Title', CodeitTableBorder = 'Delimiter',
+    CodeitCostTotal = 'Title', CodeitCostMeta = 'Comment', CodeitCostGroup = 'Directory',
+    CodeitCostAmount = 'Number', CodeitCostIncomplete = 'DiagnosticWarn', CodeitCostRow = 'CursorLine',
+  }) do
+    vim.api.nvim_set_hl(0, group, { default = true, link = link })
+  end
+end
+
+vim.api.nvim_create_autocmd('ColorScheme', {
+  group = vim.api.nvim_create_augroup('codeit_cost_highlights', { clear = true }),
+  callback = setup_highlights,
+})
 
 function M.show(config, workspace)
   if current then current(); return end
+  setup_highlights()
   local tools = costs.new(history.list_all())
   local snapshot_at = os.date('%Y-%m-%d %H:%M')
   local header, messages = {}, {}
@@ -19,31 +36,98 @@ function M.show(config, workspace)
   local grouping, offset, scope = 'day', 0, nil
   local previous_pages = {}
   local waiting, finished, chat = false, false, nil
+  local buf
   local function render()
     if finished then return end
-    local result = vim.json.decode(tools.execute('get_costs', { group_by = grouping, offset = offset, workspace = scope }))
+    local by_function = grouping == 'function'
+    local result = vim.json.decode(tools.execute('get_costs', {
+      group_by = by_function and 'day' or grouping, offset = by_function and 0 or offset, workspace = scope,
+    }))
+    if by_function then
+      result.groups = {}
+      for name, bucket in pairs(result.totals.cost_by_function) do
+        result.groups[#result.groups + 1] = vim.tbl_extend('force', bucket, { name = name })
+      end
+      if result.totals.unattributed_cost > 0 or result.totals.unattributed_missing_cost > 0 then
+        result.groups[#result.groups + 1] = { name = 'Unattributed', cost = result.totals.unattributed_cost,
+          missing_cost = result.totals.unattributed_missing_cost }
+      end
+      table.sort(result.groups, function(a, b)
+        if a.cost ~= b.cost then return a.cost > b.cost end
+        return a.name < b.name
+      end)
+      -- The fixed function buckets fit on one page, regardless of the day groups returned above.
+      result.total_entries, result.truncated, result.next_offset = #result.groups, false, nil
+    end
     for i = #header, 1, -1 do header[i] = nil end
     vim.list_extend(header, { '# Cost review', '', costs.note, '',
       'Snapshot: ' .. snapshot_at .. '. Reopen to refresh. Scope: ' .. (scope or 'all saved workspaces'),
-      'd: days · w: workspaces · g: days/workspaces · s: scope · n/p: pages · q/Esc: close', '',
+      'd: days · w: workspaces · g: days/workspaces · f: functions · s: scope · n/p: pages · q/Esc: close', '',
       string.format('**Saved total: %s · %d chats · In: %s%s · Out: %s%s**',
         usage_format.cost(result.totals.cost, result.totals.missing_cost > 0), result.totals.chats,
         usage_format.tokens(result.totals.tokens_in), result.totals.missing_in and '+' or '',
         usage_format.tokens(result.totals.tokens_out), result.totals.missing_out and '+' or ''),
       string.format('Missing cost reports: %d. + means incomplete usage.', result.totals.missing_cost), '' })
-    local rows = { { 'Group', 'Chats', 'USD', 'Input tokens', 'Output tokens' } }
+    local rows = { by_function and { 'Function', 'Requests', 'USD', 'Input tokens', 'Output tokens', 'Missing cost reports' }
+      or { 'Group', 'Chats', 'USD', 'Input tokens', 'Output tokens' } }
     for _, group in ipairs(result.groups) do
-      local label = table.concat(vim.tbl_filter(function(v) return v ~= '' end, { group.day or '', group.workspace or '' }), ' / ')
-      label = label:gsub('[\r\n]', ' ')
-      rows[#rows + 1] = { label, tostring(group.chats), usage_format.cost(group.cost, group.missing_cost > 0),
-        usage_format.tokens(group.tokens_in) .. (group.missing_in and '+' or ''),
-        usage_format.tokens(group.tokens_out) .. (group.missing_out and '+' or '') }
+      if by_function then
+        rows[#rows + 1] = { group.name, group.requests and tostring(group.requests) or '—',
+          usage_format.cost(group.cost, group.missing_cost > 0),
+          group.tokens_in and (usage_format.tokens(group.tokens_in) .. (group.missing_in and '+' or '')) or '—',
+          group.tokens_out and (usage_format.tokens(group.tokens_out) .. (group.missing_out and '+' or '')) or '—',
+          tostring(group.missing_cost) }
+      else
+        local label = table.concat(vim.tbl_filter(function(v) return v ~= '' end, { group.day or '', group.workspace or '' }), ' / ')
+        label = label:gsub('[\r\n]', ' ')
+        rows[#rows + 1] = { label, tostring(group.chats), usage_format.cost(group.cost, group.missing_cost > 0),
+          usage_format.tokens(group.tokens_in) .. (group.missing_in and '+' or ''),
+          usage_format.tokens(group.tokens_out) .. (group.missing_out and '+' or '') }
+      end
     end
-    local table_lines = table_popup.format({ rows = rows, alignment = { 'left', 'right', 'right', 'right', 'right' } })
+    local alignment = { 'left' }
+    for column = 2, #rows[1] do alignment[column] = 'right' end
+    local table_lines, table_highlights = table_popup.format({ rows = rows, alignment = alignment })
+    local table_start = #header
+    local highlights = {
+      { 2, 0, #header[3], 'CodeitCostMeta' },
+      { 4, 0, #header[5], 'CodeitCostMeta' },
+      { 5, 0, #header[6], 'CodeitCostMeta' },
+      { 7, 0, #header[8], 'CodeitCostTotal' },
+      { 8, 0, #header[9], result.totals.missing_cost > 0 and 'CodeitCostIncomplete' or 'CodeitCostMeta' },
+    }
+    local previous, column = 0, 0
+    for _, span in ipairs(table_highlights) do
+      highlights[#highlights + 1] = { table_start + span[1], span[2], span[3], span[4] }
+      if span[1] >= 2 and span[4] == 'CodeitTableBorder' then
+        if span[2] == 0 then
+          previous, column = 0, 0
+        else
+          column = column + 1
+          local first, last = previous + 2, span[2] - 1
+          local cell = table_lines[span[1] + 1]:sub(first + 1, last)
+          local group = column == 1 and 'CodeitCostGroup' or (column == 3 and 'CodeitCostAmount' or nil)
+          if group then highlights[#highlights + 1] = { table_start + span[1], first, last, group } end
+          local incomplete = cell:find('+', 1, true)
+          if column > 1 and incomplete then
+            highlights[#highlights + 1] = { table_start + span[1], first + incomplete - 1,
+              first + incomplete, 'CodeitCostIncomplete' }
+          end
+          previous = span[2]
+        end
+      end
+    end
     vim.list_extend(header, table_lines)
-    if result.total_entries == 0 then header[#header + 1] = 'No saved chats in this scope.' end
+    if by_function then
+      header[#header + 1] = 'Recorded function usage only. Older token totals may be incomplete (+); — means attribution unavailable.'
+      if result.total_entries == 0 and result.totals.chats > 0 then
+        header[#header + 1] = 'No recorded function costs in this scope.'
+      end
+    end
+    if result.totals.chats == 0 then header[#header + 1] = 'No saved chats in this scope.' end
     header[#header + 1] = string.format('Groups %d–%d of %d', math.min(offset + 1, result.total_entries),
       math.min(offset + #result.groups, result.total_entries), result.total_entries)
+    highlights[#highlights + 1] = { #header - 1, 0, #header[#header], 'CodeitCostMeta' }
     vim.list_extend(header, { '', '## Ask about costs', '',
       'Questions send requested history to ' .. config.provider .. ' / ' .. config.model .. '. Ctrl-S / normal Enter: send.', '' })
     local display_costs, turn_index = {}, 0
@@ -56,6 +140,17 @@ function M.show(config, workspace)
     end
     chat.render(messages, waiting and 'Reviewing costs…' or 'Ready', config.provider, config.model,
       'This review: ' .. usage_format.cost(session.cost, session.missing_cost > 0), nil, not waiting, display_costs)
+    vim.api.nvim_buf_clear_namespace(buf, highlight_ns, 0, -1)
+    for row = 2, #table_lines - 1, 2 do
+      vim.api.nvim_buf_set_extmark(buf, highlight_ns, table_start + row, 0, {
+        line_hl_group = 'CodeitCostRow', priority = 90,
+      })
+    end
+    for _, span in ipairs(highlights) do
+      vim.api.nvim_buf_set_extmark(buf, highlight_ns, span[1], span[2], {
+        end_col = span[3], hl_group = span[4], priority = 110,
+      })
+    end
     return result
   end
   local function persist()
@@ -70,8 +165,10 @@ function M.show(config, workspace)
     else
       session.missing_cost, turn_cost.missing_cost = session.missing_cost + 1, turn_cost.missing_cost + 1
     end
-    cost_breakdown.add(session.cost_by_function, 'cost_review', amount)
-    cost_breakdown.add(turn_cost.cost_by_function, 'cost_review', amount)
+    local input_count = costs.number(usage and usage.prompt_tokens)
+    local output_count = costs.number(usage and usage.completion_tokens)
+    cost_breakdown.add(session.cost_by_function, 'cost_review', amount, input_count, output_count)
+    cost_breakdown.add(turn_cost.cost_by_function, 'cost_review', amount, input_count, output_count)
     for _, pair in ipairs({ { 'tokens_in', 'prompt_tokens', 'missing_in' }, { 'tokens_out', 'completion_tokens', 'missing_out' } }) do
       local count = costs.number(usage and usage[pair[2]])
       if count then session[pair[1]] = session[pair[1]] + count else session[pair[3]] = true end
@@ -117,11 +214,12 @@ function M.show(config, workspace)
       row = 1, col = 1, style = 'minimal', border = 'rounded', title = ' Cost review ' } end,
     header = header, assistant_label = 'Cost reviewer', draft_label = 'Question', slash_commands = false })
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
-  local win, buf = chat.open(submit, finish)
+  local win
+  win, buf = chat.open(submit, finish)
   current = function() if vim.api.nvim_win_is_valid(win) then vim.api.nvim_set_current_win(win) end end
   vim.api.nvim_create_autocmd('WinClosed', { pattern = tostring(win), once = true,
     callback = function() vim.schedule(finish) end })
-  for key, value in pairs({ d = 'day', w = 'workspace', g = 'day_workspace' }) do
+  for key, value in pairs({ d = 'day', w = 'workspace', g = 'day_workspace', f = 'function' }) do
     vim.keymap.set('n', key, function()
       grouping, offset, previous_pages = value, 0, {}
       render()

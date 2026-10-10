@@ -337,8 +337,14 @@ The chat's cost/token usage line stays visible at the top of the transcript as y
 
 Open `:CodeitCosts` (or `/costs`) to review saved history across workspaces without
 making an LLM request. Use `d` for days, `w` for workspaces, `g` for day/workspace
-pairs, `s` to toggle all/current workspace, and `n`/`p` to page through groups.
+pairs, `f` for functions, `s` to toggle all/current workspace, and `n`/`p` to page through groups.
 The window shows USD, chat counts, input/output tokens, and incomplete-usage flags.
+The function view shows recorded USD costs, request counts, input/output tokens,
+and missing-cost reports, sorted by highest cost and filtered by the selected workspace
+scope. New requests store token usage by function in both chat and turn breakdowns.
+Older function buckets retain their costs but show incomplete token totals (`+`);
+these tokens cannot be backfilled. Costs without function attribution appear as
+**Unattributed**, with `—` for unavailable request and per-function token counts.
 It uses a snapshot; close and reopen it to refresh.
 
 **Daily groups attribute a chat's entire cumulative total to its last-updated local
