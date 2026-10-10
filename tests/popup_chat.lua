@@ -34,6 +34,18 @@ for _, expected in ipairs({ 'Earlier request', 'Earlier explanation', 'Tool outp
   assert(text:find(expected, 1, true), expected)
 end
 assert(not text:find('## Message', 1, true))
+local turns = {}
+for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(chat_buf,
+  vim.api.nvim_get_namespaces().codeit_chat_ui, 0, -1, { details = true })) do
+  if mark[4].hl_group == 'CodeitUser' then turns[#turns + 1] = mark[2] + 1 end
+end
+vim.api.nvim_win_set_cursor(chat, { 1, 0 })
+press(chat, '}')
+assert(vim.api.nvim_win_get_cursor(chat)[1] == turns[1])
+press(chat, '}')
+assert(vim.api.nvim_win_get_cursor(chat)[1] == turns[2], 'read-only preview should skip assistant and tools')
+press(chat, '{')
+assert(vim.api.nvim_win_get_cursor(chat)[1] == turns[1])
 assert(vim.wo[chat].linebreak and vim.wo[chat].foldmethod == 'manual')
 local tool_row
 for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do

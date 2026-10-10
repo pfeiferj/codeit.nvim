@@ -18,6 +18,55 @@ assert(vim.wo[win].wrap and vim.wo[win].linebreak, 'sidebar prose should wrap at
 local ns = vim.api.nvim_get_namespaces().codeit_chat_ui
 assert(ns)
 
+local function turn_key(key)
+  vim.cmd('normal ' .. key)
+  return vim.api.nvim_win_get_cursor(0)[1]
+end
+ui.render({}, 'Ready', 'test', 'test')
+local empty_cursor = vim.api.nvim_win_get_cursor(win)
+turn_key('{')
+turn_key('}')
+assert(vim.deep_equal(vim.api.nvim_win_get_cursor(win), empty_cursor), 'empty chats should not move')
+local turn_messages = {
+  { role = 'user', content = 'First request\n**You**' },
+  { role = 'assistant', content = 'First response' },
+  { role = 'tool', content = '**You**\nTool result' },
+  { role = 'user', content = 'Second request' },
+  { role = 'assistant', content = 'Second response' },
+  { role = 'user', content = 'Third request' },
+}
+local function turn_rows()
+  local rows = {}
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(chat, ns, 0, -1, { details = true })) do
+    if mark[4].hl_group == 'CodeitUser' then rows[#rows + 1] = mark[2] + 1 end
+  end
+  return rows
+end
+ui.render(turn_messages, 'Ready', 'test', 'test')
+local rows = turn_rows()
+vim.api.nvim_win_set_cursor(win, { 1, 0 })
+assert(turn_key('}') == rows[1])
+assert(turn_key('{') == rows[1], 'previous turn should not wrap')
+assert(turn_key('}') == rows[2], 'navigation should skip assistant, tool, and fake speaker labels')
+vim.api.nvim_win_set_cursor(win, { rows[2] + 2, 3 })
+assert(turn_key('{') == rows[2], 'previous from inside a turn should go to its start')
+assert(turn_key('}') == rows[3])
+assert(turn_key('}') == rows[3], 'next turn should not wrap')
+vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(chat), 0 })
+assert(turn_key('{') == rows[3], 'previous from the draft should go to the latest turn')
+assert(turn_key('2{') == rows[1], 'navigation should support counts')
+assert(turn_key('9}') == rows[3], 'large counts should stop at the last turn')
+ui.render(turn_messages, 'Working', 'test', 'test', 'Usage changed')
+rows = turn_rows()
+vim.api.nvim_win_set_cursor(win, { 1, 0 })
+assert(turn_key('}') == rows[1], 'turn positions should track renders and header changes')
+ui.toggle_popup()
+assert(turn_key('}') == rows[2], 'interactive popup should share turn navigation')
+ui.toggle_popup()
+for _, map in ipairs(vim.api.nvim_buf_get_keymap(chat, 'i')) do
+  assert(map.lhs ~= '{' and map.lhs ~= '}', 'turn mappings should be normal-mode only')
+end
+
 local function marks()
   return vim.api.nvim_buf_get_extmarks(chat, ns, 0, -1, { details = true })
 end

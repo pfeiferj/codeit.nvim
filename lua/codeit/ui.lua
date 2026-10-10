@@ -112,6 +112,28 @@ function M.decorate_chat(win, expanded)
       end_col = #mark.text, hl_group = mark.group, priority = 200,
     })
   end
+  local turns = {}
+  for _, mark in ipairs(role_marks) do
+    if mark.group == 'CodeitUser' then turns[#turns + 1] = mark.row + 1 end
+  end
+  local function move_turn(direction)
+    local row = vim.api.nvim_win_get_cursor(0)[1]
+    local target, remaining = nil, vim.v.count1
+    local first = direction == 1 and 1 or #turns
+    local last = direction == 1 and #turns or 1
+    for index = first, last, direction do
+      if (turns[index] - row) * direction > 0 then
+        target = turns[index]
+        remaining = remaining - 1
+        if remaining == 0 then break end
+      end
+    end
+    if target then vim.api.nvim_win_set_cursor(0, { target, 0 }) end
+  end
+  vim.keymap.set('n', '{', function() move_turn(-1) end,
+    { buffer = buf, silent = true, desc = 'Previous chat turn' })
+  vim.keymap.set('n', '}', function() move_turn(1) end,
+    { buffer = buf, silent = true, desc = 'Next chat turn' })
   if buf == transcript then draft_hint() end
 end
 
