@@ -139,6 +139,17 @@ function M.delete(workspace, id)
   return vim.uv.fs_unlink(filename)
 end
 
+function M.archive(workspace, id)
+  local filename = path(workspace, id)
+  if not filename then return false, 'invalid chat id' end
+  local dir = vim.fn.stdpath('data') .. '/codeit/archive/' .. vim.fn.sha256(workspace)
+  local destination = dir .. '/' .. id .. '.json'
+  if vim.uv.fs_lstat(destination) then return false, 'archived chat already exists' end
+  if vim.fn.mkdir(dir, 'p') == 0 and vim.fn.isdirectory(dir) == 0 then return false, 'cannot create archive directory' end
+  vim.uv.fs_chmod(dir, 448) -- 0700
+  return vim.uv.fs_rename(filename, destination)
+end
+
 function M.set_summary(workspace, id, summary)
   local chat, err = M.load(workspace, id)
   if not chat then return false, err end

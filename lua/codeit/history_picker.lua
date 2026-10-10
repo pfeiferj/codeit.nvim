@@ -2,14 +2,15 @@ local M = {}
 local markdown = require('codeit.markdown')
 
 --- Show saved chats in a wide, scrollable picker so summaries remain readable.
-function M.show(entries, workspace, callback, delete_chat)
+function M.show(entries, workspace, callback, delete_chat, archive_chat)
   entries = vim.list_extend({}, entries)
   local width = math.max(1, vim.o.columns - 4)
   local max_height = math.max(1, vim.o.lines - 6)
   local lines, choices
   local function render()
+    local actions = (delete_chat and '  d: delete' or '') .. (archive_chat and '  a: archive' or '')
     lines = { '# Resume chat for ' .. workspace,
-      delete_chat and '*Enter: resume  d: delete  Esc/q: close*' or '*Enter: resume  Esc/q: close*' }
+      '*Enter: resume' .. actions .. (actions ~= '' and '  V: select multiple chats' or '') .. '  Esc/q: close*' }
     choices = {}
     for _, chat in ipairs(entries) do
       local summary = type(chat.summary) == 'string' and chat.summary ~= '' and '  ' .. chat.summary or ''
@@ -56,34 +57,57 @@ function M.show(entries, workspace, callback, delete_chat)
     local chat = choices[vim.api.nvim_win_get_cursor(win)[1]]
     if chat then finish(chat) end
   end, { buffer = buf, silent = true, desc = 'Resume selected chat' })
-  if delete_chat then
-    local deleting = false
-    vim.keymap.set('n', 'd', function()
-      if finished or deleting then return end
-      local row = vim.api.nvim_win_get_cursor(win)[1]
-      local chat = choices[row]
-      if not chat then return end
-      deleting = true
-      vim.ui.select({ 'Cancel', 'Delete' }, {
-        prompt = 'Permanently delete chat ' .. chat.id .. '?',
+  if delete_chat or archive_chat then
+    local pending = false
+    local function remove_selected(action, first, last)
+      if finished or pending then return end
+      local selected = {}
+      for row = first, last do
+        if choices[row] then selected[#selected + 1] = choices[row] end
+      end
+      if #selected == 0 then return end
+      pending = true
+      local prefix = action.key == 'd' and 'Permanently delete ' or 'Archive '
+      vim.ui.select({ 'Cancel', action.label }, {
+        prompt = #selected == 1 and prefix .. 'chat ' .. selected[1].id .. '?'
+          or prefix .. #selected .. ' chats?',
       }, function(choice)
-        deleting = false
-        if choice ~= 'Delete' or finished or not vim.api.nvim_win_is_valid(win) then return end
-        local ok, err = delete_chat(chat)
-        if not ok then
-          vim.notify('codeit: could not delete chat: ' .. tostring(err), vim.log.levels.ERROR)
-          return
-        end
-        for index, entry in ipairs(entries) do
-          if entry == chat then table.remove(entries, index); break end
+        pending = false
+        if choice ~= action.label or finished or not vim.api.nvim_win_is_valid(win) then return end
+        for _, chat in ipairs(selected) do
+          local ok, err = action.handler(chat)
+          if not ok then
+            vim.notify('codeit: could not ' .. action.verb .. ' chat: ' .. tostring(err), vim.log.levels.ERROR)
+          else
+            for index, entry in ipairs(entries) do
+              if entry == chat then table.remove(entries, index); break end
+            end
+          end
         end
         render()
         vim.bo[buf].modifiable = true
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
         vim.bo[buf].modifiable = false
-        vim.api.nvim_win_set_cursor(win, { math.min(row, #lines), 0 })
+        vim.api.nvim_win_set_cursor(win, { math.min(first, #lines), 0 })
       end)
-    end, { buffer = buf, silent = true, desc = 'Delete selected chat' })
+    end
+    for _, action in ipairs({
+      { key = 'd', label = 'Delete', verb = 'delete', handler = delete_chat },
+      { key = 'a', label = 'Archive', verb = 'archive', handler = archive_chat },
+    }) do
+      if action.handler then
+        vim.keymap.set('n', action.key, function()
+          local row = vim.api.nvim_win_get_cursor(win)[1]
+          remove_selected(action, row, row)
+        end, { buffer = buf, silent = true, desc = action.label .. ' selected chat' })
+        vim.keymap.set('x', action.key, function()
+          local anchor = vim.fn.line('v')
+          local row = vim.api.nvim_win_get_cursor(win)[1]
+          vim.cmd.normal({ args = { vim.api.nvim_replace_termcodes('<Esc>', true, false, true) }, bang = true })
+          remove_selected(action, math.min(anchor, row), math.max(anchor, row))
+        end, { buffer = buf, silent = true, desc = action.label .. ' selected chats' })
+      end
+    end
   end
   for _, key in ipairs({ '<Esc>', 'q' }) do
     vim.keymap.set('n', key, function() finish(nil) end,

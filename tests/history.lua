@@ -343,5 +343,66 @@ local continued = history.list(workspace)[1]
 assert(continued.id ~= active_id and continued.messages[2].content == 'chat to delete')
 responses[#responses]({ role = 'assistant', content = 'new answer' })
 
+-- Archives are unchanged files outside every history reader's search path.
+local archive_workspace = temp .. '/archive'
+local archive_dir = vim.fn.stdpath('data') .. '/codeit/archive/' .. vim.fn.sha256(archive_workspace)
+local source = vim.fn.stdpath('data') .. '/codeit/chats/' .. vim.fn.sha256(archive_workspace) .. '/archive-me.json'
+local destination = archive_dir .. '/archive-me.json'
+assert(history.save(archive_workspace, 'archive-me', delete_chat))
+assert(history.save(delete_workspace, 'archive-me', delete_chat))
+local original = vim.fn.readfile(source, 'b')
+assert(not history.archive(archive_workspace, '../escape'))
+assert(history.archive(archive_workspace, 'archive-me'))
+assert(vim.deep_equal(vim.fn.readfile(destination, 'b'), original), 'archiving must preserve the entire saved file')
+assert(vim.fn.getfperm(archive_dir) == 'rwx------' and vim.fn.getfperm(destination) == 'rw-------')
+assert(not history.load(archive_workspace, 'archive-me') and #history.list(archive_workspace) == 0)
+assert(history.load(delete_workspace, 'archive-me'), 'archiving must affect only the selected workspace')
+for _, item in ipairs(history.list_all()) do
+  assert(item.workspace ~= archive_workspace, 'all-workspace tools must not discover archived chats')
+end
+assert(not history.archive(archive_workspace, 'missing'), 'missing files should report an archive failure')
+assert(history.save(archive_workspace, 'archive-me', delete_chat))
+local archived, archive_err = history.archive(archive_workspace, 'archive-me')
+assert(not archived and archive_err == 'archived chat already exists', 'never overwrite an existing archive')
+assert(history.load(archive_workspace, 'archive-me') and vim.deep_equal(vim.fn.readfile(destination, 'b'), original))
+
+-- A failed move must leave the original file available.
+assert(history.save(archive_workspace, 'move-failure', delete_chat))
+local rename = vim.uv.fs_rename
+vim.uv.fs_rename = function() return nil, 'test rename failure' end
+archived, archive_err = history.archive(archive_workspace, 'move-failure')
+vim.uv.fs_rename = rename
+assert(not archived and archive_err == 'test rename failure' and history.load(archive_workspace, 'move-failure'))
+assert(vim.fn.filereadable(archive_dir .. '/move-failure.json') == 0)
+
+-- Archiving an active chat detaches it and prevents in-flight responses from recreating it.
+active_id = continued.id
+local archive_active
+require('codeit.history_picker').show = function(items, _, _, _, archive)
+  for _, item in ipairs(items) do
+    if item.id == active_id then archive_active = function() return archive(item) end end
+  end
+end
+for _, item in ipairs(history.list(workspace)) do
+  assert(history.set_summary(workspace, item.id, 'Saved chat.'))
+end
+plugin.history()
+assert(archive_active)
+plugin.send('pending archived answer')
+ok, err = archive_active()
+assert(not ok and err:find('archiving', 1, true) and history.load(workspace, active_id))
+responses[#responses]({ role = 'assistant', content = 'answer before archive' })
+assert(archive_active() and not history.load(workspace, active_id))
+assert(vim.fn.filereadable(vim.fn.stdpath('data') .. '/codeit/archive/' .. vim.fn.sha256(workspace) .. '/' .. active_id .. '.json') == 1)
+plugin.send('continue after archive')
+assert(not history.load(workspace, active_id), 'continued chats must not recreate archived IDs')
+continued = history.list(workspace)[1]
+assert(continued.id ~= active_id and continued.messages[2].content == 'chat to delete')
+responses[#responses]({ role = 'assistant', content = 'new answer after archive' })
+vim.fn.chdir(temp .. '/two')
+ok, err = archive_active()
+assert(not ok and err:find('out of date', 1, true), 'stale history views must not archive chats')
+vim.fn.chdir(temp .. '/one')
+
 vim.fn.delete(temp, 'rf')
 print('codeit history tests passed')

@@ -1314,20 +1314,25 @@ function M.history()
         return M.history() -- Refresh entries that changed while a summary was in flight.
       end
     end
-    history_picker.show(entries, selected_workspace, function(chat)
-      if chat and history.workspace() == selected_workspace then M.resume(chat.id) end
-    end, function(chat)
+    local function remove_chat(chat, action)
       if view ~= history_view or history.workspace() ~= selected_workspace then
         return false, 'history view is out of date; reopen it'
       end
       if workspace == selected_workspace and chat_id == chat.id and busy then
-        return false, 'wait for the current response before deleting this chat'
+        return false, 'wait for the current response before ' .. (action == 'delete' and 'deleting' or 'archiving') .. ' this chat'
       end
-      local ok, err = history.delete(selected_workspace, chat.id)
+      local ok, err = history[action](selected_workspace, chat.id)
       if ok and workspace == selected_workspace and chat_id == chat.id then
-        chat_id = nil -- Keep the transcript, but never recreate the deleted history entry.
+        chat_id = nil -- Keep the transcript, but never recreate the removed history entry.
       end
       return ok, err
+    end
+    history_picker.show(entries, selected_workspace, function(chat)
+      if chat and history.workspace() == selected_workspace then M.resume(chat.id) end
+    end, function(chat)
+      return remove_chat(chat, 'delete')
+    end, function(chat)
+      return remove_chat(chat, 'archive')
     end)
   end
   local remaining = 0
