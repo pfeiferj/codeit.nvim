@@ -66,6 +66,12 @@ M.specs = {
   spec('run_command', 'Run a command against workspace DISK files after confirmation; unsaved edits are not included. No implicit shell. argv has 1-40 strings, each at most 4096 bytes; empty arguments allowed. Output limited to 20000 bytes, timeout 60 seconds. Cancellation terminates the process group on Unix.', {
     argv = { type = 'array', items = { type = 'string' }, description = 'Executable and arguments' },
   }, { 'argv' }),
+  spec('start_background_task', 'Start an asynchronous command against workspace DISK files after approval; returns a task ID immediately so chat can continue. No implicit shell; argv follows run_command limits. View live logs and cancel in :CodeitTasks. Logs retain at most 20000 bytes. No timeout by default. Set notify_on_completion=true to request results be sent to the originating chat once idle, only after separate user approval. Tasks last for this Neovim session.', {
+    argv = { type = 'array', minItems = 1, maxItems = 40, items = { type = 'string', maxLength = 4096 } },
+    title = { type = 'string', minLength = 1, maxLength = 200 },
+    notify_on_completion = { type = 'boolean', description = 'Request a user-approved assistant follow-up when finished (default false)' },
+    timeout_ms = { type = 'integer', minimum = 1, maximum = 2147483647, description = 'Optional time limit in milliseconds; omitted means no timeout' },
+  }, { 'argv', 'title' }),
   spec('get_diagnostics', 'Get existing LSP/linter diagnostics for loaded workspace files (max 200). Omit path/empty path for all. wait_ms (0-5000) optionally waits for a matching DiagnosticChanged event, not a guaranteed complete/fresh check. With wait_ms>0 returns diagnostics, updated, timed_out, waited_ms; otherwise returns the existing array. Never runs tests or starts a linter; empty results are not proof of success.', {
     path = { type = 'string', description = 'Optional workspace path; empty returns workspace diagnostics' },
     wait_ms = { type = 'integer', minimum = 0, maximum = 5000, description = 'Wait for a diagnostic update, at most this many milliseconds; default 0' },
@@ -156,7 +162,7 @@ local function git_path(path, base)
   return absolute
 end
 
-function M.execute(name, args, done, active, approve, reads, prepare, source)
+function M.execute(name, args, done, active, approve, reads, prepare, source, origin)
   local base = root()
   if not base then return done('Error: workspace does not exist') end
   if name == 'list_workspace_files' then
@@ -323,7 +329,7 @@ if not buffers.valid(id) then return done('Error: saving requires an already-loa
       buffers.remember(id, reads)
       done(result)
     end, preview)
-  elseif name == 'run_command' then
+  elseif name == 'run_command' or name == 'start_background_task' then
     if type(args.argv) ~= 'table' or not vim.islist(args.argv) or #args.argv == 0 or #args.argv > 40 then
       return done('Error: argv must be an array of 1-40 strings')
     end
@@ -333,7 +339,12 @@ if not buffers.valid(id) then return done('Error: saving requires an already-loa
       end
     end
     return approve('Run in ' .. base .. ': ' .. table.concat(args.argv, ' ') .. '?',
-      function() process(args.argv, base, done, active) end)
+      function()
+        if name == 'run_command' then return process(args.argv, base, done, active) end
+        local task = require('codeit.background_tasks').start(args, base, origin)
+        done(vim.json.encode({ task_id = task.id, status = task.status,
+          notify_on_completion = task.notify_on_completion }))
+      end)
   elseif name == 'get_diagnostics' then
     local filter
     if args.path ~= nil and args.path ~= '' then

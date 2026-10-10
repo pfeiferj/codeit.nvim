@@ -6,7 +6,7 @@ local tool_log = require('codeit.tool_log')
 
 local gated = { edit_file = true, edit_loaded_buffer = true, edit_source_buffer = true,
   create_file = true, save_buffer = true, save_loaded_buffer = true, save_source_buffer = true,
-  run_command = true, fetch_url = true }
+  run_command = true, start_background_task = true, fetch_url = true }
 
 function M.configure(opts)
   approval.setup(opts)
@@ -179,14 +179,14 @@ function M.execute(name, args, source, done, active, context)
     end
     if not gated[name] then
       return gate('Allow ' .. tostring(name) .. ' ' .. vim.json.encode(args) .. '?', function()
-        execute_approved(name, args, source, done, active, gate, reads, prepare)
+        execute_approved(name, args, source, done, active, gate, reads, prepare, context and context.background_origin)
       end)
     end
-    return execute_approved(name, args, source, done, active, gate, reads, prepare)
+    return execute_approved(name, args, source, done, active, gate, reads, prepare, context and context.background_origin)
   end)()
 end
 
-execute_approved = function(name, args, source, done, active, gate, reads, prepare)
+execute_approved = function(name, args, source, done, active, gate, reads, prepare, origin)
   if name == 'ask_user' then
     require('codeit.question_prompt').show(args.question, args.choices, function(answer)
       if answer == nil then return done('Cancelled by user', 'cancel') end
@@ -204,7 +204,7 @@ execute_approved = function(name, args, source, done, active, gate, reads, prepa
     return done(skill and ('Skill ' .. args.name .. ' (' .. skill.path .. '):\n' .. skill.content)
       or 'Error: skill is not available or workspace is not trusted')
   end
-  return agent_tools.execute(name, args, done, active, gate, reads, prepare, source)
+  return agent_tools.execute(name, args, done, active, gate, reads, prepare, source, origin)
 end
 
 return M

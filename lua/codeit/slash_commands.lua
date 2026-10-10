@@ -12,6 +12,7 @@ local commands = {
   { name = 'contextFiles', command = 'CodeitContextFiles' },
   { name = 'systemPrompt', command = 'CodeitSystemPrompt' },
   { name = 'history', command = 'CodeitHistory' },
+  { name = 'tasks', command = 'CodeitTasks' },
   { name = 'trust', command = 'CodeitTrust', args = true },
   { name = 'untrust', command = 'CodeitUntrust' },
   { name = 'trustStatus', command = 'CodeitTrustStatus' },

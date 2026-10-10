@@ -40,7 +40,7 @@ end
 function M.call(name, args)
   local language, input = 'json', pretty_json(args, 0)
   local extras
-  if name == 'run_command' and type(args.argv) == 'table' and #args.argv > 0 then
+  if (name == 'run_command' or name == 'start_background_task') and type(args.argv) == 'table' and #args.argv > 0 then
     local valid = true
     for _, arg in ipairs(args.argv) do
       if type(arg) ~= 'string' then valid = false; break end

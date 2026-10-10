@@ -9,6 +9,12 @@ function M.run(argv, cwd, done, active, opts)
   local handle, timer, deliver
   local function collect(target, chunk)
     if not chunk then return end
+    if opts.on_output then
+      local output = chunk
+      vim.schedule(function()
+        if not finished then opts.on_output(output, target == stderr and 'stderr' or 'stdout') end
+      end)
+    end
     local remaining = math.max(0, (opts.max_bytes or 20000) - bytes)
     if #chunk > remaining then truncated = true end
     chunk = chunk:sub(1, remaining)
@@ -22,7 +28,8 @@ function M.run(argv, cwd, done, active, opts)
     end
     pcall(handle.kill, handle, number)
   end
-  local function stop(reason)
+  local function stop(reason, immediate)
+    if immediate then signal(9); return end
     if finished or stopping then return end
     stopping = reason
     signal(15)
@@ -89,8 +96,9 @@ function M.run(argv, cwd, done, active, opts)
   timer:start(opts.poll_ms or 50, opts.poll_ms or 50, vim.schedule_wrap(function()
     if finished then return end
     if active and not active() then stop('cancel')
-    elseif vim.uv.now() - started >= (opts.timeout_ms or 60000) then stop('timeout') end
+    elseif opts.timeout_ms ~= false and vim.uv.now() - started >= (opts.timeout_ms or 60000) then stop('timeout') end
   end))
+  return function(immediate) stop('cancel', immediate) end
 end
 
 function M.format(result)

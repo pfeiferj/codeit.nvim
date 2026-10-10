@@ -153,6 +153,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitSend [message]` | Send a message, or the current draft when omitted |
 | `:CodeitNew` | Start a fresh conversation |
 | `:CodeitHistory` | Browse, resume, or delete saved chats |
+| `:CodeitTasks` | View background tasks and logs, or cancel a running task |
 | `:CodeitCompact` | Summarize completed turns for future requests |
 | `:CodeitContext` | Inspect effective context and edit its summary |
 | `:CodeitContextFull` | Edit the full effective request context as JSON |
@@ -163,6 +164,28 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitTrust`, `:CodeitTrust all`, `:CodeitTrust tracked` | Trust workspace reads, interactively or directly |
 | `:CodeitTrustStatus` | Show the workspace's trust mode |
 | `:CodeitUntrust` | Revoke workspace trust |
+
+### Background tasks
+
+The assistant can use `start_background_task` for long-running commands. Starting
+one uses the normal command approval flow and returns a task ID immediately;
+you can continue chatting while the command runs. Commands operate on disk,
+without implicitly saving buffers or invoking a shell. There is no timeout unless
+the assistant supplies `timeout_ms`.
+
+Open `:CodeitTasks` (or `/tasks`) to see this workspace's tasks. Select a task and
+press `<CR>` to view its live stdout/stderr logs; press `<CR>` again to return.
+Press `c` to cancel the selected task (including ordinary descendants on Unix),
+and `q` or `<Esc>` to close the view. Logs retain the first 20000 bytes, with an
+explicit truncation marker. Tasks and logs are session-only, survive closing or
+switching chats, and running commands are stopped when Neovim exits.
+
+The assistant can set `notify_on_completion = true` to request a follow-up.
+After the task ends, the integration waits for the originating chat to be active
+and idle, then asks whether to send its results to the assistant. Declining or
+dismissing sends nothing. Approval never interrupts an active response or sends
+results to a different chat. With this option omitted or false, no assistant
+follow-up is requested; results remain available in the task view.
 
 ### Chat and navigation
 

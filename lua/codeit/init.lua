@@ -842,6 +842,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
           next_call(index + 1)
         end, function() return id == generation and workspace == history.workspace() end, {
           user_request = user_request,
+          background_origin = { workspace = workspace, chat_id = chat_id },
           tool_log_entry = tool_log_entries[index],
           review = review,
           assessment = assessments[index],
@@ -1290,6 +1291,15 @@ function M.setup(opts)
     error('codeit: context_review must be a boolean')
   end
   tools.configure(config.approval)
+  local background_tasks = require('codeit.background_tasks')
+  background_tasks.configure(function(task)
+    return not busy and task.origin and task.origin.chat_id == chat_id
+      and task.origin.workspace == workspace and workspace == history.workspace()
+  end, function(_, text) M.send(text) end)
+  local task_group = vim.api.nvim_create_augroup('codeit_background_tasks', { clear = true })
+  vim.api.nvim_create_autocmd('VimLeavePre', { group = task_group, callback = background_tasks.shutdown })
+  vim.api.nvim_create_user_command('CodeitTasks', background_tasks.show,
+    { desc = 'View background tasks, live logs, and cancel running tasks', force = true })
   if not vim.tbl_contains({ 'openrouter', 'copilot' }, config.provider) then
     error('codeit: provider must be openrouter or copilot')
   end
