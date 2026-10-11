@@ -652,7 +652,7 @@ local function compact_through(checkpoint, id, done, main_limit)
         review_revision = review_revision + 1
         estimate_context()
         finish()
-      end)
+      end, nil, active)
     end
     step()
   end
@@ -682,6 +682,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
     if workspace ~= history.workspace() then sync_workspace(); render(); return false end
     return true
   end
+  if not active() then return end
   if not skip_auto and not budget.long_context and config.max_context_tokens == nil and not limit_checked
     and type(providers.context_limit) == 'function' then
     return providers.context_limit(request_config(), function(limit, err)
@@ -791,7 +792,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
             if id ~= generation then return end
             if not err then usage(result) end
             respond(message, err)
-          end)
+          end, nil, active_review)
         else
           require('codeit.reviewer_tools').chat(selected_config, history, messages, respond, active_review, usage)
         end
@@ -922,7 +923,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
       stream_render_pending = false
       if active() then render() end
     end, 50)
-  end)
+  end, active)
 end
 
 function M.compact(all)
@@ -1032,6 +1033,35 @@ function M.open()
   end
   ui.open(M.send, M.close)
   render()
+end
+
+function M.stop()
+  sync_workspace()
+  if not busy then return false end
+  generation = generation + 1
+  busy = false
+  -- Balance unfinished tool batches without discarding results or completed edits.
+  local answered, calls = {}
+  for i = #messages, 1, -1 do
+    local message = messages[i]
+    if message.role == 'assistant' then calls = message.tool_calls; break end
+    if message.role ~= 'tool' then break end
+    answered[message.tool_call_id] = true
+  end
+  for _, call in ipairs(type(calls) == 'table' and calls or {}) do
+    if not answered[call.id] then
+      messages[#messages + 1] = { role = 'tool', tool_call_id = call.id,
+        content = 'Interrupted by user. This call did not complete; any side effects already performed are not undone.' }
+    end
+  end
+  if type(stream_preview) == 'string' and stream_preview ~= '' then
+    messages[#messages + 1] = { role = 'assistant', content = stream_preview }
+  end
+  stream_preview = nil
+  turn_reviews, current_turn = nil, nil
+  save()
+  set_status('Turn interrupted')
+  return true
 end
 
 function M.close()
@@ -1408,6 +1438,8 @@ function M.setup(opts)
     M.open()
     M.send(args.args ~= '' and args.args or nil)
   end, { nargs = '*', desc = 'Send a message to codeit', force = true })
+  vim.api.nvim_create_user_command('CodeitStop', M.stop,
+    { desc = 'Interrupt the current assistant turn', force = true })
   vim.api.nvim_create_user_command('CodeitNew', M.new, { desc = 'Start a new conversation', force = true })
   vim.api.nvim_create_user_command('CodeitCompact', function(args) M.compact(args.bang) end,
     { bang = true, desc = 'Summarize older turns (! includes the recent tail)', force = true })

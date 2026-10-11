@@ -110,5 +110,22 @@ for _, endpoint in ipairs({ '/chat/completions', '/responses' }) do
   assert(vim.wait(2000, function() return done > 0 end))
   assert(done == 1)
 end
+-- Cancelling an active chat kills its curl process and ignores queued output/results.
+local active, killed, finished, stdout = true, false, nil, nil
+local completions, cancelled_previews = 0, 0
+vim.system = function(_, options, callback)
+  finished, stdout = callback, options.stdout
+  return { kill = function(_, signal) assert(signal == 9); killed = true end }
+end
+require('codeit.providers').chat({ provider = 'openrouter', model = 'test' }, {}, {},
+  function() completions = completions + 1 end,
+  function() cancelled_previews = cancelled_previews + 1 end,
+  function() return active end)
+active = false
+assert(vim.wait(1000, function() return killed end), 'cancelled requests must terminate curl')
+stdout(nil, header .. chat({ content = 'Stale' }) .. chat({}, 'stop') .. event('[DONE]'))
+finished({ code = 0 })
+vim.wait(100, function() return false end)
+assert(completions == 0 and cancelled_previews == 0)
 vim.system, vim.defer_fn = system, defer
 print('codeit streaming tests passed')

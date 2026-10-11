@@ -41,9 +41,14 @@ local function retry_after(headers)
   return date and math.max(0, date + offset - now) or nil
 end
 
-local function http_json(args, options, callback, metadata, streaming)
+local function http_json(args, options, callback, metadata, streaming, active)
   local retries = 0
   local function send()
+    if active and not active() then return end
+    local timer
+    local function cleanup()
+      if timer then timer:stop(); timer:close(); timer = nil end
+    end
     local output, parser
     local attempt_options = vim.tbl_extend('force', {}, options)
     if streaming then
@@ -52,11 +57,15 @@ local function http_json(args, options, callback, metadata, streaming)
       attempt_options.stdout = function(err, chunk)
         if err or not chunk then return end
         output[#output + 1] = chunk
-        vim.schedule(function() parser.push(chunk) end)
+        vim.schedule(function()
+          if not active or active() then parser.push(chunk) end
+        end)
       end
     end
-    vim.system(args, attempt_options, function(result)
+    local process = vim.system(args, attempt_options, function(result)
       vim.schedule(function()
+        cleanup()
+        if active and not active() then return end
         if output then result.stdout = table.concat(output) end
         if result.code ~= 0 then
           return callback(nil, (result.stderr or '') ~= '' and result.stderr or 'curl exited with code ' .. result.code)
@@ -96,18 +105,27 @@ local function http_json(args, options, callback, metadata, streaming)
         callback(decoded)
       end)
     end)
+    if active then
+      timer = vim.uv.new_timer()
+      timer:start(50, 50, vim.schedule_wrap(function()
+        if not active() then
+          cleanup()
+          if process then process:kill(9) end
+        end
+      end))
+    end
   end
   send()
 end
 
-local function request(url, headers, body, callback, streaming)
+local function request(url, headers, body, callback, streaming, active)
   local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '120', '--request', 'POST', '--write-out', '\n%{http_code}' }
   if streaming then args[#args + 1] = '--no-buffer' end
   for _, header in ipairs(headers) do
     vim.list_extend(args, { '--header', header })
   end
   vim.list_extend(args, { '--data-binary', '@-', url })
-  http_json(args, { stdin = vim.json.encode(body), text = true }, callback, false, streaming)
+  http_json(args, { stdin = vim.json.encode(body), text = true }, callback, false, streaming, active)
 end
 
 local function get_json(url, headers, callback)
@@ -371,13 +389,15 @@ local function copilot_usage(response)
 end
 
 --- Send a chat request, normalizing provider responses. callback(message, error, usage).
-function M.chat(config, messages, tools, callback, on_text)
+function M.chat(config, messages, tools, callback, on_text, active)
   local on_result = callback
   callback = function(message, err, usage, detail)
+    if active and not active() then return end
     if err then log_error(config, err, detail) end
     on_result(message, err, usage)
   end
   local function send(url, token, extra_headers, endpoint)
+    if active and not active() then return end
     local headers = { 'Content-Type: application/json', 'Authorization: Bearer ' .. token }
     vim.list_extend(headers, extra_headers or {})
     local body = { model = config.model }
@@ -449,7 +469,7 @@ function M.chat(config, messages, tools, callback, on_text)
       else
         callback(message, nil, copilot_usage(response))
       end
-    end, on_text and { responses = endpoint == '/responses', on_text = on_text } or nil)
+    end, on_text and { responses = endpoint == '/responses', on_text = on_text } or nil, active)
   end
 
   if config.provider == 'openrouter' then

@@ -5,6 +5,7 @@ local M = {}
 local commands = {
   { name = 'toggle', command = 'Codeit' },
   { name = 'send', command = 'CodeitSend', args = true },
+  { name = 'stop', command = 'CodeitStop' },
   { name = 'new', command = 'CodeitNew' },
   { name = 'compact', command = 'CodeitCompact' },
   { name = 'context', command = 'CodeitContext' },

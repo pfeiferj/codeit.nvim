@@ -191,6 +191,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | --- | --- |
 | `:Codeit` | Toggle chat in the managed Codeit tab |
 | `:CodeitSend [message]` | Send a message, or the current draft when omitted |
+| `:CodeitStop` | Interrupt the current assistant turn without clearing the chat |
 | `:CodeitNew` | Start a fresh conversation |
 | `:CodeitHistory` | Browse, resume, or delete saved chats |
 | `:CodeitTasks` | View background tasks and logs, or cancel a running task |
@@ -236,6 +237,8 @@ In tool approval popups, file-edit/save previews, the tool-call reviewer, and to
 `:Codeit` toggles the single chat sidebar. The transcript and the multiline draft under `## Message` share a Markdown buffer; assistant replies retain Markdown formatting. Type below the heading and press `<CR>` in normal mode or `<C-s>` in insert mode to send; `<CR>` in insert mode inserts a newline. Press `<C-g>` in normal or insert mode to toggle a large interactive chat popup (85% of the editor width, 80% of its height). It shares the sidebar's draft and live transcript, so sending messages and using slash commands works as usual. Press `<C-g>` again, or `<Esc>` in normal mode, to return to the sidebar. Press `q` in normal mode to close the chat, including its popup.
 
 `:CodeitSend your question` sends a message directly. `:CodeitSend` sends the draft currently at the bottom of the chat.
+
+Use `:CodeitStop` from any buffer, or `/stop` in the chat draft, to interrupt the active turn and send a new message. Streamed text and completed tool results are kept; pending approvals and remaining calls cannot continue the stopped turn. Foreground commands are cancelled, but completed edits are not undone. Separately started background tasks keep running; cancel them with `:CodeitTasks`. An interrupted provider request may still be billed without returning usage data.
 
 The sidebar wraps prose at word boundaries, and usage stays in a window header rather than covering messages as you scroll. Speaker labels are separated from content headings and use the `CodeitUser`, `CodeitAssistant`, and `CodeitTool` highlight groups (linked to `Special`, `Title`, and `Comment` by default). The draft heading stays visible while the assistant is busy, with a subdued send hint or an unavailable indicator; your draft is preserved.
 
