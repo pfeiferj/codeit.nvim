@@ -26,7 +26,7 @@ assert(vim.uv.fs_symlink(temp .. '/outside-skill', home .. '/.agents/skills/esca
 vim.fn.writefile({ 'root instruction' }, workspace .. '/AGENTS.md')
 vim.fn.writefile({ 'nested instruction' }, workspace .. '/src/CLAUDE.md')
 vim.fn.writefile({ 'deep instruction' }, workspace .. '/src/inner/AGENTS.md')
-vim.fn.writefile({ '---', 'name: review', 'description: Check changes carefully', '---', 'review secret' },
+vim.fn.writefile({ '---', 'name: review', 'description: "Check changes carefully" # advertised description', '---', 'review secret' },
   workspace .. '/.agents/skills/review/SKILL.md')
 vim.fn.writefile({ 'source' }, workspace .. '/src/inner/main.lua')
 vim.fn.system({ 'git', '-C', workspace, 'init', '-q' })
@@ -70,6 +70,20 @@ assert(text(files.messages(history.workspace(), 'tracked', {}, { 'review' })):fi
 local skill = files.skill('review', history.workspace(), 'tracked')
 assert(skill and skill.path == workspace .. '/.agents/skills/review/SKILL.md'
   and skill.content:find('review secret', 1, true))
+for _, case in ipairs({
+  { { 'description: >-', '  Check changes', '  carefully' }, 'Check changes carefully' },
+  { { 'description: |-', '  Check changes', '  carefully' }, 'Check changes\ncarefully' },
+  { { 'description: "unterminated' }, 'review' },
+  { { 'description: # empty' }, 'review' },
+}) do
+  local lines = { '---' }
+  vim.list_extend(lines, case[1])
+  vim.list_extend(lines, { '---', 'review secret' })
+  vim.fn.writefile(lines, skill.path)
+  assert(files.skill('review', workspace, 'tracked').description == case[2])
+  assert(text(files.messages(workspace, 'tracked')):find('review: ' .. case[2], 1, true))
+end
+vim.fn.writefile(vim.split(skill.content, '\n', { plain = true }), skill.path)
 vim.fn.writefile({ 'untracked secret' }, workspace .. '/src/inner/CLAUDE.md')
 assert(not text(files.messages(history.workspace(), 'tracked', { 'src/inner/main.lua' })):find('untracked secret', 1, true))
 assert(text(files.messages(history.workspace(), 'all', { 'src/inner/main.lua' })):find('untracked secret', 1, true))
@@ -213,6 +227,61 @@ for _, global in ipairs(global_skills) do
   assert(files.skill(global.name, workspace, 'tracked'), 'new chats must reset global skill toggles')
 end
 assert(text(files.messages(workspace, 'tracked')):find('updated root instruction', 1, true))
+local manual_skills = { { name = 'review', path = skill.path } }
+vim.list_extend(manual_skills, global_skills)
+for _, manual in ipairs(manual_skills) do
+  vim.fn.writefile({ '---', 'description: Manual ' .. manual.name,
+    'disable-model-invocation: true', '---', 'Manual instructions for ' .. manual.name }, manual.path)
+  assert(not files.skill(manual.name, workspace, 'tracked'))
+end
+local entries = files.entries(workspace, 'tracked')
+for _, entry in ipairs(entries) do
+  if entry.kind == 'skill' then
+    assert(entry.manual_only and entry.available and not entry.included and entry.state == 'on')
+  end
+end
+assert(not text(files.messages(workspace, 'tracked')):find('Available skills', 1, true))
+local tools = require('codeit.tools')
+for _, spec in ipairs(tools.request_specs(workspace, 'tracked')) do
+  assert(spec['function'].name ~= 'load_skill', 'manual-only skills must not advertise load_skill')
+end
+local request = approval.request
+approval.request = function() error('manual-only skill loading must not prompt for approval') end
+local rejected
+tools.execute('load_skill', { name = 'review' }, vim.api.nvim_get_current_buf(), function(result) rejected = result end)
+approval.request = request
+assert(rejected and rejected:find('manual-only', 1, true))
+local activated = toggle_path(skill.path)
+assert(activated:find('[active]', 1, true) and activated:find('(manual-only)', 1, true))
+plugin.send('manually selected skill')
+assert(not toolsets[9].load_skill)
+assert(text(requests[9]):find('Manual instructions for review', 1, true))
+assert(not text(requests[9]):find('Available skills', 1, true))
+callbacks[9]({ role = 'assistant', content = 'done' })
+local manual_chat = history.list(workspace)[1].id
+plugin.new()
+plugin.resume(manual_chat)
+plugin.send('continue manual skill')
+assert(text(requests[10]):find('Manual instructions for review', 1, true))
+assert(not toolsets[10].load_skill)
+callbacks[10]({ role = 'assistant', content = 'done' })
+assert(toggle_path(skill.path):find('[off]', 1, true))
+assert(not text(files.messages(workspace, 'tracked', {}, { 'review' })):find('Manual instructions for review', 1, true))
+assert(toggle_path(skill.path):find('[on]', 1, true))
+assert(not text(files.messages(workspace, 'tracked')):find('Manual review', 1, true))
+vim.fn.writefile({ '---', 'description: Normal review', 'disable-model-invocation: false', '---', 'Normal instructions' }, skill.path)
+assert(files.skill('review', workspace, 'tracked'))
+assert(text(files.messages(workspace, 'tracked')):find('review: Normal review', 1, true))
+local has_loader = false
+for _, spec in ipairs(tools.request_specs(workspace, 'tracked')) do
+  has_loader = has_loader or spec['function'].name == 'load_skill'
+end
+assert(has_loader, 'an invocable skill must restore load_skill')
+approval.request = function() error('manual-only skills must remain blocked when load_skill is advertised') end
+rejected = nil
+tools.execute('load_skill', { name = global_skills[1].name }, vim.api.nvim_get_current_buf(), function(result) rejected = result end)
+approval.request = request
+assert(rejected and rejected:find('manual-only', 1, true))
 vim.fn.chdir(root)
 vim.fn.delete(temp, 'rf')
 print('codeit context file tests passed')

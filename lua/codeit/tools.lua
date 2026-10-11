@@ -52,7 +52,7 @@ end
 
 function M.request_specs(workspace, mode)
   for _, entry in ipairs(require('codeit.context_files').entries(workspace, mode)) do
-    if entry.kind == 'skill' and entry.available then return M.specs end
+    if entry.kind == 'skill' and entry.available and not entry.manual_only then return M.specs end
   end
   local specs = {}
   for _, definition in ipairs(M.specs) do
@@ -181,7 +181,7 @@ function M.execute(name, args, source, done, active, context)
     if name == 'load_skill' then
       local workspace = require('codeit.history').workspace()
       if not require('codeit.context_files').skill(args.name, workspace, approval.workspace_trust(workspace)) then
-        return done('Error: skill is not available, is disabled, or workspace is not trusted')
+        return done('Error: skill is not available, is disabled or manual-only, or workspace is not trusted')
       end
     end
     local reads = context and context.read_versions
@@ -227,7 +227,7 @@ execute_approved = function(name, args, source, done, active, gate, reads, prepa
     local skill = require('codeit.context_files').skill(args.name, workspace,
       approval.workspace_trust(workspace))
     return done(skill and ('Skill ' .. args.name .. ' (' .. skill.path .. '):\n' .. skill.content)
-      or 'Error: skill is not available or workspace is not trusted')
+      or 'Error: skill is not available, is disabled or manual-only, or workspace is not trusted')
   end
   return agent_tools.execute(name, args, done, active, gate, reads, prepare, source, origin)
 end

@@ -114,10 +114,9 @@ local function skills(workspace, mode)
           for _, path in ipairs(matching_files(root.path .. '/' .. name, { ['skill.md'] = true })) do
             local content = read(path, root.base, workspace, mode)
             if content then
-              local frontmatter = content:match('^%-%-%-\r?\n(.-)\n%-%-%-')
-              local description = frontmatter and frontmatter:match('^description:%s*([^\n]+)')
-                or frontmatter and frontmatter:match('\ndescription:%s*([^\n]+)') or name
-              result[name] = { path = path, content = content, description = vim.trim(description) }
+              local frontmatter = require('codeit.skill_frontmatter')
+              result[name] = { path = path, content = content, description = frontmatter.description(content) or name,
+                manual_only = frontmatter.disable_model_invocation(content) }
               break
             end
           end
@@ -131,7 +130,7 @@ end
 function M.skill(name, workspace, mode)
   if type(name) ~= 'string' or not name:match('^[%w_%-]+$') or not mode then return nil end
   local skill = skills(workspace, mode)[name]
-  return skill and not excluded(workspace, skill.path) and skill or nil
+  return skill and not skill.manual_only and not excluded(workspace, skill.path) and skill or nil
 end
 
 function M.entries(workspace, mode, paths, selected)
@@ -155,7 +154,7 @@ function M.entries(workspace, mode, paths, selected)
     local active = available and vim.tbl_contains(selected or {}, name)
     entries[#entries + 1] = { kind = 'skill', name = name, path = skill.path,
       description = skill.description, content = skill.content,
-      included = active, available = available,
+      included = active, available = available, manual_only = skill.manual_only,
       state = not available and 'off' or (active and 'active' or 'on') }
   end
   return entries
@@ -167,7 +166,7 @@ function M.messages(workspace, mode, paths, selected)
   for _, entry in ipairs(entries) do
     if entry.kind == 'instruction' and entry.included then
       result[#result + 1] = { role = 'system', content = 'Instructions from ' .. entry.path .. ':\n' .. entry.content }
-    elseif entry.kind == 'skill' and entry.available then
+    elseif entry.kind == 'skill' and entry.available and not entry.manual_only then
       names[#names + 1] = entry.name .. ': ' .. entry.description
     end
   end
