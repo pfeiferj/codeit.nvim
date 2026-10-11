@@ -21,9 +21,9 @@ M.specs = {
   spec('resize_window', 'Resize a Codeit file window. Neovim may constrain the requested dimensions or resize adjacent splits. Returns actual dimensions.', {
     window_id = window, width = { type = 'integer', minimum = 1 }, height = { type = 'integer', minimum = 1 },
   }, { 'window_id' }),
-  spec('set_window_cursor', 'Place the cursor in a Codeit file window without changing focus. Line and byte column are 1-based; column defaults to 1 and is clamped to the line. Opens folds at the target and centers it by default. Returns actual cursor_line, cursor_column and top_line. Does not read text, save files, or grant read permission.', {
+  spec('set_window_cursor', 'Place the cursor in a Codeit file window without changing focus. Line and byte column are 1-based; column defaults to 1 and is clamped to the line. Opens folds at the target and places it about 25% from the top by default. Returns actual cursor_line, cursor_column and top_line. Does not read text, save files, or grant read permission.', {
     window_id = window, line = { type = 'integer', minimum = 1 },
-    column = { type = 'integer', minimum = 1 }, center = { type = 'boolean', description = 'Center the target line (default true)' },
+    column = { type = 'integer', minimum = 1 }, center = { type = 'boolean', description = 'Reposition the target about 25% from the top (default true); false preserves normal cursor scrolling' },
   }, { 'window_id', 'line' }),
   spec('scroll_window', 'Scroll a Codeit file window by screen lines without changing focus. Positive lines scroll down, negative lines scroll up; zero does nothing. Neovim clamps at buffer boundaries and may move the cursor to keep it visible. Returns actual cursor_line, cursor_column and top_line. Does not read text, save files, or grant read permission.', {
     window_id = window, lines = { type = 'integer', minimum = -2147483647, maximum = 2147483647 },
@@ -101,7 +101,13 @@ function M.execute(name, args, done, reads)
       vim.api.nvim_win_set_cursor(win, { args.line, (args.column or 1) - 1 })
       vim.api.nvim_win_call(win, function()
         vim.cmd('normal! zv')
-        if args.center ~= false then vim.cmd('normal! zz') end
+        if args.center ~= false then
+          local above = math.max(0, math.floor(vim.api.nvim_win_get_height(win) / 4) - 1)
+          vim.cmd('normal! zt')
+          if above > 0 then
+            vim.cmd('normal! ' .. above .. vim.api.nvim_replace_termcodes('<C-y>', true, false, true))
+          end
+        end
       end)
     end)
   elseif name == 'scroll_window' then

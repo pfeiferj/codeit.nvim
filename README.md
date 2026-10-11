@@ -65,8 +65,9 @@ ordinary `buffer_id`. `split_window` takes no target and inherits the current bu
 
 `set_window_cursor` takes a `window_id`, a 1-based `line`, and an optional 1-based
 byte `column` (default 1, clamped to the line). It reveals folded targets and
-centers them unless `center = false`. `scroll_window` takes a `window_id` and a
-signed `lines` count: positive scrolls down, negative scrolls up, in screen lines.
+places them about 25% from the top of the window unless `center = false`.
+`scroll_window` takes a `window_id` and a signed `lines` count: positive scrolls
+down, negative scrolls up, in screen lines.
 Scrolling stops at buffer boundaries and may move the cursor to keep it visible.
 Neither tool changes focus or grants read permission; use `focus_window` when you
 want to interact with the target. Window results, including `list_windows`, report
