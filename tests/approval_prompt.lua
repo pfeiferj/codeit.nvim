@@ -135,7 +135,7 @@ local shift_prompt = prompt.show(score_prompt .. 'Pending', options, function(ch
 local shift_win, shift_buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
 local original_row = vim.api.nvim_win_get_cursor(shift_win)[1]
 vim.api.nvim_win_set_cursor(shift_win, { original_row + 1, 0 })
-shift_prompt(score_prompt .. '6/10\n\nType APPROVE run_command to confirm.', { safety_score = 6 })
+shift_prompt(score_prompt .. '6/10\n\nType approve run_command to confirm.', { safety_score = 6 })
 assert(vim.api.nvim_win_get_cursor(shift_win)[1] == original_row + 3)
 for _, item in ipairs(vim.api.nvim_buf_get_keymap(shift_buf, 'n')) do
   if item.lhs == '<CR>' then item.callback(); break end

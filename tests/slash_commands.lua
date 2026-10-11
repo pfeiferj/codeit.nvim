@@ -166,6 +166,40 @@ end
 local function keys(text)
   vim.api.nvim_feedkeys(vim.keycode(text), 'xt', false)
 end
+-- Native completion must not overlap the palette, and its settings must be restored.
+local original_completeopt = vim.bo[buf].completeopt
+vim.bo[buf].completeopt = 'menu,menuone,noinsert,noselect'
+set_draft('/co')
+local completion_checked = false
+_G.codeit_test_completion = function()
+  vim.fn.complete(vim.fn.col('.'), { 'ordinary', 'other' })
+  assert(vim.fn.pumvisible() == 1, 'native completion should initially be visible')
+  ui.refresh_slash(true)
+  assert(palette(), 'slash palette should open over an existing completion')
+  assert(vim.fn.pumvisible() == 0, 'opening the palette must hide native completion')
+  assert(vim.bo[buf].completeopt == 'noinsert,noselect', 'palette must suppress native menus')
+  vim.fn.complete(vim.fn.col('.'), { 'ordinary', 'other' })
+  ui.refresh_slash()
+  assert(vim.fn.pumvisible() == 0, 'native completion must stay hidden while the palette is active')
+  ui.dismiss_slash()
+  assert(vim.bo[buf].completeopt == 'menu,menuone,noinsert,noselect',
+    'dismissing the palette must restore completion settings')
+  local global_completeopt = vim.go.completeopt
+  vim.go.completeopt = 'menu,menuone'
+  vim.bo[buf].completeopt = ''
+  ui.refresh_slash(true)
+  assert(vim.bo[buf].completeopt == 'noselect', 'inherited menu settings must also be suppressed')
+  ui.dismiss_slash()
+  assert(vim.bo[buf].completeopt == '', 'palette must restore global option inheritance')
+  vim.go.completeopt = global_completeopt
+  completion_checked = true
+end
+keys('A<Cmd>lua codeit_test_completion()<CR><Esc>')
+assert(completion_checked, 'completion suppression check must complete successfully')
+assert(draft() == '/co', 'suppressing completion must preserve the draft')
+vim.bo[buf].completeopt = original_completeopt
+_G.codeit_test_completion = nil
+
 set_draft('')
 keys('A/<Cmd>doautocmd TextChangedI<CR><Cmd>lua vim.wait(20); codeit_test_palette()<CR><Esc><Esc>')
 assert(palette_checked, 'the insert-mode palette check must complete successfully')

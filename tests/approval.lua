@@ -252,13 +252,13 @@ for score = 0, 10 do
   assert(prompts[#prompts]:find('**Safety score:** ' .. score .. '/10', 1, true))
   assert(prompt_configs[#prompts].safety_score == score)
   local before_inputs = #input_prompts
-  inputs = { 'APPROVE run_command' }
+  inputs = { 'approve run_command' }
   held_choice('once')
   assert(result == 'executed')
   assert(#input_prompts == before_inputs + (score > 5 and 1 or 0))
 end
 -- Empty input, Enter, a single number, partial phrases, and cancellation cannot confirm.
-for index, input in ipairs({ '', '\n', '1', 'APPROVE', 'approve run_command', false }) do
+for index, input in ipairs({ '', '\n', '1', 'approve', 'approve run_command', false }) do
   choices, inputs = { 'hold' }, { input }
   call('run_command', { argv = { 'echo', 'accidental ' .. index } },
     assessed('{"summary":"Runs a risky command.","safety_score":6}'))
@@ -283,7 +283,7 @@ for index, answer in ipairs({
 end
 -- A failed or unconfigured assessment also needs the exact phrase.
 for _, context in ipairs({ assessed(nil, 'offline'), {} }) do
-  choices, inputs = { 'hold' }, { 'APPROVE run_command' }
+  choices, inputs = { 'hold' }, { 'approve run_command' }
   call('run_command', { argv = { 'echo', 'unknown' } }, context)
   held_choice('once')
   assert(result == 'executed' and prompt_configs[#prompts].risk_unknown)
@@ -291,7 +291,7 @@ end
 -- High-risk and unknown approvals cannot be remembered.
 for _, context in ipairs({ assessed('{"summary":"Risky.","safety_score":6}'), {} }) do
   for attempt = 1, 2 do
-    choices, inputs = { 'hold' }, { 'APPROVE run_command' }
+    choices, inputs = { 'hold' }, { 'approve run_command' }
     local before_prompts = #prompts
     call('run_command', { argv = { 'echo', 'never remember ' .. tostring(context.review ~= nil) } }, context)
     assert(#prompts == before_prompts + 1)
@@ -320,6 +320,6 @@ approval.request('run_command', { argv = { 'echo', 'cancel confirmation' } }, 'C
 held_choice('once')
 assert(confirmation)
 current = false
-confirmation('APPROVE run_command')
+confirmation('approve run_command')
 vim.ui.input, prompt_ui.show, prompt_ui.ask_reviewer = original_input, original_show, original_ask
 print('codeit approval tests passed')

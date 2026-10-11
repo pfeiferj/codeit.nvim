@@ -25,12 +25,36 @@ local draft_hint_id
 require('codeit.highlight').setup_roles()
 local slash_group = vim.api.nvim_create_augroup('codeit_chat_' .. next_instance, { clear = true })
 local completion, palette_win, palette_buf
+local saved_completeopt
+local function suppress_completion()
+  if vim.api.nvim_get_current_buf() ~= transcript then return end
+  if saved_completeopt == nil then
+    saved_completeopt = vim.bo[transcript].completeopt
+    local effective_completeopt = saved_completeopt ~= '' and saved_completeopt or vim.o.completeopt
+    local flags = vim.split(effective_completeopt, ',', { plain = true, trimempty = true })
+    flags = vim.tbl_filter(function(flag)
+      return flag ~= 'menu' and flag ~= 'menuone' and flag ~= 'popup'
+    end, flags)
+    -- An empty local value would inherit the global menu settings again.
+    if #flags == 0 then flags = { 'noselect' } end
+    vim.bo[transcript].completeopt = table.concat(flags, ',')
+  end
+  if vim.fn.pumvisible() == 1 and vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then
+    vim.fn.complete(vim.fn.col('.'), {})
+  end
+end
 local slash_hint, slash_error, dismissed
 local draft_hint
 local palette_ns = vim.api.nvim_create_namespace('codeit_slash_' .. next_instance)
 
 local function close_palette()
   completion = nil
+  if saved_completeopt ~= nil then
+    if transcript and vim.api.nvim_buf_is_valid(transcript) then
+      vim.bo[transcript].completeopt = saved_completeopt
+    end
+    saved_completeopt = nil
+  end
   if palette_win and vim.api.nvim_win_is_valid(palette_win) then
     vim.api.nvim_win_close(palette_win, true)
   end
@@ -79,13 +103,17 @@ function M.refresh_slash(force)
     return
   end
   if force then dismissed = nil end
-  if completion and completion.text == text and completion.row == cursor[1] then return end
+  if completion and completion.text == text and completion.row == cursor[1] then
+    suppress_completion()
+    return
+  end
   close_palette()
   slash_error = nil
   local items, start_col, hint = slash_commands.complete(text)
   slash_hint = hint
   if text ~= dismissed and #items > 0 then
     completion = { items = items, index = 1, row = cursor[1], start_col = start_col, text = text }
+    suppress_completion()
     paint_palette()
     slash_hint = (hint and (hint .. ' · ') or '')
       .. 'Tab / Shift-Tab or Ctrl-N / Ctrl-P: navigate · Enter: select · Esc: dismiss'
@@ -471,7 +499,7 @@ function M.open(on_send, on_close)
   end, { buffer = transcript, expr = true })
   vim.keymap.set('i', '<Plug>(codeit-dismiss-slash)', M.dismiss_slash,
     { buffer = transcript, silent = true })
-  local events = { 'TextChangedI', 'TextChangedP', 'CursorMovedI', 'InsertEnter' }
+  local events = { 'TextChangedI', 'TextChangedP', 'CursorMovedI', 'InsertEnter', 'CompleteChanged' }
   vim.api.nvim_clear_autocmds({ group = slash_group, event = events })
   vim.api.nvim_create_autocmd(events, {
     group = slash_group, buffer = transcript,

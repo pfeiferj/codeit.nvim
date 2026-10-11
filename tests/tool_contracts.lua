@@ -9,7 +9,7 @@ prompt.show = function(_, _, cb) cb('once') end
 write.show = function(_, _, cb) cb('once') end
 local function run(name, args, context)
   local result
-  vim.ui.input = function(_, cb) cb('APPROVE ' .. name) end
+  vim.ui.input = function(_, cb) cb('approve ' .. name) end
   tools.execute(name, args, nil, function(value) result = value end, function() return true end, context)
   assert(vim.wait(5000, function() return result ~= nil end), 'timeout: ' .. name)
   return result

@@ -344,7 +344,7 @@ if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (reme
       .. (skip_summary and '' or '\n\nSummary: ' .. summary
         .. '\n\n**Safety score:** ' .. (score and score .. '/10' or (ready and 'Unavailable' or 'Pending'))
         .. ' (0 safest; 10 most dangerous)'
-        .. (ready and needs_confirmation() and '\n\n**Approval requires typing `APPROVE ' .. name .. '` and cannot be remembered.**' or ''))
+        .. (ready and needs_confirmation() and '\n\n**Approval requires typing `approve ' .. name .. '` and cannot be remembered.**' or ''))
       .. (reason and '\n\n**Reason:** ' .. tostring(reason) or '')
       .. '\n\n**Workspace:** `' .. workspace .. '`'
   end
@@ -422,7 +422,7 @@ if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (reme
           return action()
         end
         if not needs_confirmation() then return approve() end
-        local phrase = 'APPROVE ' .. name
+        local phrase = 'approve ' .. name
         vim.ui.input({ prompt = 'Safety score: ' .. (score and score .. '/10' or 'unavailable')
           .. '. Type ' .. phrase .. ' to approve once: ' }, function(input)
           if not live() then return end

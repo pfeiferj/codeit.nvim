@@ -15,7 +15,7 @@ writes.show = function(diff, _, cb) preview = diff; approvals = approvals + 1; c
 local function run(name, args, source, context)
   local result, signal
   vim.ui.input = function(config, cb)
-    cb(config.prompt:find('Type APPROVE ', 1, true) and ('APPROVE ' .. name) or nil)
+    cb(config.prompt:find('Type approve ', 1, true) and ('approve ' .. name) or nil)
   end
   tools.execute(name, args, source, function(value, kind) result, signal = value, kind end, function() return true end, context)
   assert(vim.wait(6000, function() return result ~= nil end), name)
