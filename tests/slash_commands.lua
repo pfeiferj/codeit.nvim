@@ -22,6 +22,25 @@ assert(select(1, slash.parse('/compact anything')) == false)
 assert(select(1, slash.parse('/missing')) == false)
 assert(select(1, slash.parse('/compact\nmore')) == nil)
 assert(select(1, slash.parse('What about /compact?')) == nil)
+assert(select(1, slash.parse('/CONTEXT-files')).command == 'CodeitContextFiles')
+assert(select(1, slash.parse('/system-prompt')).command == 'CodeitSystemPrompt')
+assert(select(1, slash.parse('/trust-status')).command == 'CodeitTrustStatus')
+assert(select(1, slash.parse('/help')).name == 'help')
+assert(select(1, slash.parse('//compact')) == nil)
+assert(slash.literal('//compact') == '/compact')
+assert(slash.literal('//compact\nmore') == '//compact\nmore')
+assert(select(2, slash.parse('/contex')):find('did you mean /context?', 1, true))
+local provider = slash.parse('/provider')
+assert(provider.required and slash.validate(provider, ''))
+assert(slash.validate(provider, 'invalid'))
+assert(not slash.validate(provider, 'copilot'))
+assert(not slash.validate(slash.parse('/trust'), ''))
+local choices, start_col, hint = slash.complete('/provider co')
+assert(#choices == 1 and choices[1].word == 'copilot' and start_col == 10 and hint)
+assert(#slash.complete('/TRUST-st') == 1)
+for _, item in ipairs(slash.complete_items()) do
+  assert(item.menu ~= '' and not item.menu:match('^:Codeit'), 'commands need useful descriptions')
+end
 
 codeit.setup()
 codeit.open()
@@ -44,6 +63,23 @@ assert(draft() == nil, 'successful slash command should clear its draft')
 set_draft('/noSuchCommand')
 vim.api.nvim_feedkeys(vim.keycode('<CR>'), 'x', false)
 assert(draft() == '/noSuchCommand', 'unknown slash commands must remain editable')
+local function hint_text()
+  local ns = vim.api.nvim_get_namespaces().codeit_chat_ui
+  local text = {}
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+    for _, line in ipairs(mark[4].virt_lines or {}) do
+      for _, chunk in ipairs(line) do text[#text + 1] = chunk[1] end
+    end
+  end
+  return table.concat(text, ' ')
+end
+assert(hint_text():find('Unknown command', 1, true), 'errors should appear beside the draft')
+set_draft('/provider')
+codeit.send()
+assert(draft() == '/provider' and hint_text():find('Choose a provider', 1, true))
+set_draft('/provider missing')
+codeit.send()
+assert(draft() == '/provider missing' and hint_text():find('choose openrouter or copilot', 1, true))
 set_draft('/provider copilot')
 vim.api.nvim_feedkeys(vim.keycode('<CR>'), 'x', false)
 assert(draft() == nil, 'argument-bearing slash command should execute')
@@ -108,29 +144,92 @@ assert_order('## Command: `/trustStatus`', 'first question', 'first answer',
   '## Command: `/trustStatus`', '## Command: `/contextFull`', 'second question',
   '## Command: `/trustStatus`', 'second answer', '## Message')
 
--- The first Tab snapshots prefix matches; later Tabs cycle those matches even
--- though the inserted command no longer shares the original prefix.
-set_draft('/co')
-vim.api.nvim_feedkeys(vim.keycode('A<Tab><Esc>'), 'xt', false)
-assert(draft() == '/compact', 'first Tab should complete the prefix: ' .. tostring(draft()))
-set_draft('/co')
-vim.api.nvim_feedkeys(vim.keycode('A<Tab><Tab><Esc>'), 'xt', false)
-assert(draft() == '/context', 'second Tab should cycle the original matches: ' .. tostring(draft()))
-set_draft('/co')
-vim.api.nvim_feedkeys(vim.keycode('A<Tab><Tab><Tab><Esc>'), 'xt', false)
-assert(draft() == '/contextFull', 'Tab should keep cycling: ' .. tostring(draft()))
-
+-- Navigate a visible palette without mutating the draft; Enter selects only.
+local refresh = '<Cmd>lua require("codeit.ui").refresh_slash(true)<CR>'
+local function palette()
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local config = vim.api.nvim_win_get_config(win)
+    if config.zindex == 150 then
+      assert(not config.focusable, 'palette must not take focus from the draft')
+      return win, vim.api.nvim_win_get_buf(win)
+    end
+  end
+end
+local palette_checked = false
+_G.codeit_test_palette = function()
+  local win, buffer = palette()
+  assert(win, 'typing / should automatically show the palette')
+  local lines = vim.api.nvim_buf_get_lines(buffer, 0, -1, false)
+  assert(lines[1]:find('Toggle the chat', 1, true), 'palette should show descriptions')
+  palette_checked = true
+end
+local function keys(text)
+  vim.api.nvim_feedkeys(vim.keycode(text), 'xt', false)
+end
 set_draft('')
-vim.api.nvim_feedkeys(vim.keycode('A/<Tab><Tab><Esc>'), 'xt', false)
-assert(draft() == '/send', 'typing / then Tab should cycle from the initial menu: ' .. tostring(draft()))
+keys('A/<Cmd>doautocmd TextChangedI<CR><Cmd>lua vim.wait(20); codeit_test_palette()<CR><Esc><Esc>')
+assert(palette_checked, 'the insert-mode palette check must complete successfully')
+assert(draft() == '/' and not palette(), 'Escape closes the menu and preserves the draft')
+set_draft('/co')
+keys('A' .. refresh .. '<Tab><Esc><Esc>')
+assert(draft() == '/co', 'navigation and dismissal must preserve the typed prefix')
+set_draft('/co')
+keys('A' .. refresh .. '<Tab><CR><Esc>')
+assert(draft() == '/context', 'Enter selects the highlighted command without running it')
+set_draft('/co')
+keys('A' .. refresh .. '<Tab><S-Tab><CR><Esc>')
+assert(draft() == '/compact', 'Shift-Tab navigates backwards')
+set_draft('/co')
+keys('A' .. refresh .. '<C-n><C-p><CR><Esc>')
+assert(draft() == '/compact', 'Ctrl-N and Ctrl-P navigate the palette')
+set_draft('/provider')
+keys('A' .. refresh .. '<CR><Tab><CR><Esc>')
+assert(draft() == '/provider copilot', 'arguments are a second selection, not execution')
+set_draft('/send')
+keys('A' .. refresh .. '<CR><Esc>')
+assert(draft() == '/send', 'free-text argument command must not execute on selection')
+assert(vim.api.nvim_get_current_line() == '/send ', 'argument commands insert a trailing space')
 
--- Completion is buffer-local and InsertCharPre starts it as soon as '/' is typed.
-local autocmds = vim.api.nvim_get_autocmds({ event = 'InsertCharPre', buffer = buf })
-assert(#autocmds == 1, 'chat should register exactly one slash completion handler')
+-- Help opens the searchable palette rather than sending an LLM message.
+set_draft('/help')
+codeit.send()
+assert(draft() == '/', '/help should reopen command discovery')
+vim.cmd('stopinsert')
+ui.dismiss_slash()
+set_draft('//compact')
+codeit.send()
+assert(requests[#requests][#requests[#requests]].content == '/compact', 'literal slash should reach the assistant')
+responses[#responses]({ role = 'assistant', content = 'literal answer' })
+
+local autocmds = vim.api.nvim_get_autocmds({ event = 'TextChangedI', buffer = buf })
+assert(#autocmds == 1, 'chat should register exactly one palette update handler')
 assert(vim.fn.maparg('<CR>', 'i', false, true).buffer == 1, 'chat should handle Enter in insert mode')
 ui.close()
 codeit.open()
-assert(#vim.api.nvim_get_autocmds({ event = 'InsertCharPre', buffer = buf }) == 1,
-  'reopening the chat must not duplicate slash completion')
+assert(#vim.api.nvim_get_autocmds({ event = 'TextChangedI', buffer = buf }) == 1,
+  'reopening the chat must not duplicate palette updates')
 ui.close()
+assert(not palette(), 'closing chat should close the palette')
+
+-- A streaming render can move the draft while its palette is open.
+local chat = ui.new({ floating = true, name = 'codeit://slash-test' })
+local sends = 0
+local _, isolated = chat.open(function() sends = sends + 1 end, function() chat.close() end)
+chat.render({}, 'Ready', 'test', 'model')
+local row = vim.api.nvim_buf_line_count(isolated)
+vim.api.nvim_buf_set_lines(isolated, row - 1, -1, false, { '/co' })
+_G.codeit_test_stream_palette = function()
+  chat.refresh_slash(true)
+  assert(palette(), 'isolated chat should have a palette')
+  chat.render({ { role = 'assistant', content = 'streaming output' } }, 'Working', 'test', 'model')
+  chat.accept_slash()
+end
+keys('A<Cmd>lua codeit_test_stream_palette()<CR><Esc>')
+assert(chat.peek_input() == '/compact', 'selection must use the draft location after a render')
+assert(sends == 0, 'selection must never execute a command')
+keys('A<CR><Esc>')
+assert(sends == 1, 'Enter with the menu closed should run the selected command')
+chat.destroy()
+assert(not palette(), 'destroying chat must close its palette')
+_G.codeit_test_palette, _G.codeit_test_stream_palette = nil, nil
 print('codeit slash command tests passed')

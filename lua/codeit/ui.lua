@@ -24,43 +24,127 @@ local draft_status
 local draft_hint_id
 require('codeit.highlight').setup_roles()
 local slash_group = vim.api.nvim_create_augroup('codeit_chat_' .. next_instance, { clear = true })
-local completion
+local completion, palette_win, palette_buf
+local slash_hint, slash_error, dismissed
+local draft_hint
+local palette_ns = vim.api.nvim_create_namespace('codeit_slash_' .. next_instance)
 
--- Keep the first Tab's matches even after replacing the typed prefix.
-local function tab_complete()
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local row, col = cursor[1], cursor[2]
-  local line = vim.api.nvim_get_current_line()
-  local prefix = line:sub(1, col)
-  local same = completion and completion.row == row and completion.col == col
-    and completion.line == line
-  if not same then
-    completion = nil
-    if row ~= draft_start + 1 or not prefix:match('^/[%w]*$') then return '<Tab>' end
-    local matches = {}
-    for _, item in ipairs(slash_commands.complete_items()) do
-      if item.word:sub(1, #prefix) == prefix then matches[#matches + 1] = item.word end
-    end
-    if #matches == 0 then return '<Tab>' end
-    completion = { matches = matches, index = 0, row = row }
+local function close_palette()
+  completion = nil
+  if palette_win and vim.api.nvim_win_is_valid(palette_win) then
+    vim.api.nvim_win_close(palette_win, true)
   end
-  local current = completion
-  current.index = current.index % #current.matches + 1
-  -- Apply the replacement after dismissing completion, without leaving insert mode.
-  return (vim.fn.pumvisible() == 1 and '<C-e>' or '')
-    .. '<Plug>(codeit-cycle-slash)'
+  palette_win = nil
 end
 
-function M.cycle_slash()
+local function paint_palette()
   local current = completion
-  if not current or not M.is_open() or vim.api.nvim_get_current_buf() ~= transcript then return end
-  local row, col = current.row, vim.api.nvim_win_get_cursor(0)[2]
-  if vim.api.nvim_win_get_cursor(0)[1] ~= row then return end
-  local word = current.matches[current.index]
-  vim.api.nvim_buf_set_text(transcript, row - 1, 0, row - 1, col, { word })
-  vim.api.nvim_win_set_cursor(0, { row, #word })
-  current.col = #word
-  current.line = vim.api.nvim_get_current_line()
+  if not current then return end
+  if not palette_buf or not vim.api.nvim_buf_is_valid(palette_buf) then
+    palette_buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[palette_buf].bufhidden = 'hide'
+  end
+  local lines, width = {}, 1
+  for _, item in ipairs(current.items) do
+    local line = item.word .. '  ' .. item.menu
+    lines[#lines + 1] = line
+    width = math.max(width, vim.fn.strdisplaywidth(line))
+  end
+  vim.api.nvim_buf_set_lines(palette_buf, 0, -1, false, lines)
+  local config = { relative = 'cursor', row = 1, col = 0, width = math.min(width, math.max(1, vim.o.columns - 4)),
+    height = math.min(#lines, 8, math.max(1, vim.o.lines - 6)),
+    style = 'minimal', border = 'rounded', focusable = false, zindex = 150 }
+  if palette_win and vim.api.nvim_win_is_valid(palette_win) then
+    vim.api.nvim_win_set_config(palette_win, config)
+  else
+    palette_win = vim.api.nvim_open_win(palette_buf, false, config)
+    vim.wo[palette_win].wrap = false
+  end
+  vim.api.nvim_buf_clear_namespace(palette_buf, palette_ns, 0, -1)
+  vim.api.nvim_buf_set_extmark(palette_buf, palette_ns, current.index - 1, 0,
+    { line_hl_group = 'PmenuSel' })
+  vim.api.nvim_win_set_cursor(palette_win, { current.index, 0 })
+end
+
+function M.refresh_slash(force)
+  if options.slash_commands == false or not M.is_open()
+    or vim.api.nvim_get_current_buf() ~= transcript then return end
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local lines = vim.api.nvim_buf_get_lines(transcript, draft_start, -1, false)
+  local text = lines[1] or ''
+  if #lines ~= 1 or cursor[1] ~= draft_start + 1 or cursor[2] ~= #text then
+    close_palette()
+    slash_hint = nil
+    draft_hint()
+    return
+  end
+  if force then dismissed = nil end
+  if completion and completion.text == text and completion.row == cursor[1] then return end
+  close_palette()
+  slash_error = nil
+  local items, start_col, hint = slash_commands.complete(text)
+  slash_hint = hint
+  if text ~= dismissed and #items > 0 then
+    completion = { items = items, index = 1, row = cursor[1], start_col = start_col, text = text }
+    paint_palette()
+    slash_hint = (hint and (hint .. ' · ') or '')
+      .. 'Tab / Shift-Tab or Ctrl-N / Ctrl-P: navigate · Enter: select · Esc: dismiss'
+  elseif text:sub(1, 1) == '/' and text:sub(1, 2) ~= '//' then
+    local command, args = slash_commands.parse(text)
+    slash_hint = command and (slash_commands.validate(command, args) or 'Enter: run command')
+      or (args or hint)
+  end
+  draft_hint()
+end
+
+function M.move_slash(direction)
+  local existing = completion ~= nil
+  M.refresh_slash(true)
+  if not completion then return end
+  if existing then
+    completion.index = (completion.index - 1 + direction) % #completion.items + 1
+  elseif direction < 0 then
+    completion.index = #completion.items
+  end
+  paint_palette()
+end
+
+function M.dismiss_slash()
+  dismissed = completion and completion.text or nil
+  close_palette()
+  slash_hint = nil
+  draft_hint()
+end
+
+function M.accept_slash()
+  M.refresh_slash()
+  local current = completion
+  if not current then return end
+  local item = current.items[current.index]
+  local suffix = item.command and item.command.args and ' ' or ''
+  local word = item.word .. suffix
+  close_palette()
+  dismissed = current.text:sub(1, current.start_col) .. word
+  vim.api.nvim_buf_set_text(transcript, current.row - 1, current.start_col,
+    current.row - 1, #current.text, { word })
+  vim.api.nvim_win_set_cursor(0, { current.row, #dismissed })
+  -- Argument choices are a second selection step, never an implicit execution.
+  M.refresh_slash(suffix ~= '')
+end
+
+function M.slash_error(message)
+  close_palette()
+  slash_error = message
+  draft_hint()
+end
+
+function M.slash_help()
+  M.take_input()
+  vim.api.nvim_buf_set_lines(transcript, draft_start, -1, false, { '/' })
+  vim.api.nvim_set_current_win(transcript_win)
+  vim.api.nvim_win_set_cursor(transcript_win, { draft_start + 1, 1 })
+  vim.cmd('startinsert!')
+  M.refresh_slash(true)
 end
 
 local function update_header()
@@ -92,7 +176,7 @@ local function wrap_hint(text, width)
   return lines
 end
 
-local function draft_hint()
+draft_hint = function()
   if not transcript or not vim.api.nvim_buf_is_valid(transcript) then return end
   local width
   -- Virtual lines are buffer-wide, so they must fit both the sidebar and popup.
@@ -106,6 +190,10 @@ local function draft_hint()
   local hint = can_send_message and 'Ctrl-S: send · Enter: newline (insert mode) · normal Enter: send'
     or 'Sending unavailable while busy · Your draft is kept'
   if draft_status and draft_status ~= '' then hint = draft_status .. ' · ' .. hint end
+  if options.slash_commands ~= false then
+    if slash_error or slash_hint then hint = (slash_error or slash_hint) .. ' · ' .. hint
+    else hint = hint .. ' · Type / for commands · // sends a literal /' end
+  end
   draft_hint_id = vim.api.nvim_buf_set_extmark(transcript, ui_ns, draft_start - 2, 0, {
     id = draft_hint_id,
     virt_lines = wrap_hint(hint, width),
@@ -347,51 +435,55 @@ function M.open(on_send, on_close)
   end, { buffer = transcript, desc = 'Send codeit message' })
   if options.slash_commands ~= false then
   vim.keymap.set('i', '<CR>', function()
-    if vim.fn.pumvisible() == 1 then
-      vim.schedule(function()
-        if not M.is_open() then return end
-        local command, args = slash_commands.parse(M.peek_input() or '')
-        if command and (command.command ~= 'CodeitProvider' or args ~= '')
-          and (command.command ~= 'CodeitSend' or args ~= '') then
-          vim.cmd('stopinsert')
-          on_send()
-        end
-      end)
-      return '<C-y>'
-    end
+    if completion then return '<Plug>(codeit-accept-slash)' end
     local text = M.peek_input()
-    if text and slash_commands.parse(text) ~= nil then
-      vim.schedule(function()
-        if M.is_open() then
-          vim.cmd('stopinsert')
-          on_send()
-        end
-      end)
-      return ''
+    if text and (slash_commands.parse(text) ~= nil or text:sub(1, 2) == '//') then
+      return '<Plug>(codeit-run-slash)'
     end
     return '<CR>'
-  end, { buffer = transcript, expr = true, desc = 'Run slash command or insert newline' })
-  vim.api.nvim_clear_autocmds({ group = slash_group, event = 'InsertCharPre' })
-  vim.api.nvim_create_autocmd('InsertCharPre', {
-    group = slash_group,
-    buffer = transcript,
-    callback = function()
-      if vim.v.char ~= '/' or vim.api.nvim_get_current_buf() ~= transcript then return end
+  end, { buffer = transcript, expr = true, desc = 'Select or run slash command; otherwise newline' })
+  vim.keymap.set('i', '<Plug>(codeit-accept-slash)', M.accept_slash,
+    { buffer = transcript, silent = true })
+  vim.keymap.set('i', '<Plug>(codeit-run-slash)', on_send,
+    { buffer = transcript, silent = true })
+  local function navigate(direction, fallback)
+    return function()
       local cursor = vim.api.nvim_win_get_cursor(0)
-      if cursor[1] ~= draft_start + 1 or cursor[2] ~= 0 then return end
-      vim.schedule(function()
-        if not M.is_open() or vim.api.nvim_get_current_buf() ~= transcript
-          or vim.api.nvim_get_mode().mode:sub(1, 1) ~= 'i' then return end
-        local row = vim.api.nvim_win_get_cursor(0)[1]
-        if row ~= draft_start + 1 or vim.api.nvim_get_current_line():sub(1, 1) ~= '/' then return end
-        vim.fn.complete(1, slash_commands.complete_items())
-      end)
-    end,
+      local text = vim.api.nvim_get_current_line()
+      if not completion and (cursor[1] ~= draft_start + 1 or cursor[2] ~= #text
+        or #slash_commands.complete(text) == 0) then return fallback end
+      return direction == 1 and '<Plug>(codeit-next-slash)' or '<Plug>(codeit-prev-slash)'
+    end
+  end
+  vim.keymap.set('i', '<Plug>(codeit-next-slash)', function() M.move_slash(1) end,
+    { buffer = transcript, silent = true })
+  vim.keymap.set('i', '<Plug>(codeit-prev-slash)', function() M.move_slash(-1) end,
+    { buffer = transcript, silent = true })
+  for _, key in ipairs({ '<Tab>', '<C-n>' }) do
+    vim.keymap.set('i', key, navigate(1, key), { buffer = transcript, expr = true })
+  end
+  for _, key in ipairs({ '<S-Tab>', '<C-p>' }) do
+    vim.keymap.set('i', key, navigate(-1, key), { buffer = transcript, expr = true })
+  end
+  vim.keymap.set('i', '<Esc>', function()
+    if completion then return '<Plug>(codeit-dismiss-slash)' end
+    return '<Esc>'
+  end, { buffer = transcript, expr = true })
+  vim.keymap.set('i', '<Plug>(codeit-dismiss-slash)', M.dismiss_slash,
+    { buffer = transcript, silent = true })
+  local events = { 'TextChangedI', 'TextChangedP', 'CursorMovedI', 'InsertEnter' }
+  vim.api.nvim_clear_autocmds({ group = slash_group, event = events })
+  vim.api.nvim_create_autocmd(events, {
+    group = slash_group, buffer = transcript,
+    callback = function() vim.schedule(function()
+      if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then M.refresh_slash() end
+    end) end,
   })
-  vim.keymap.set('i', '<Plug>(codeit-cycle-slash)', M.cycle_slash,
-    { buffer = transcript, silent = true, desc = 'Apply slash completion' })
-  vim.keymap.set('i', '<Tab>', tab_complete,
-    { buffer = transcript, expr = true, desc = 'Complete or cycle slash commands' })
+  vim.api.nvim_clear_autocmds({ group = slash_group, event = { 'InsertLeave', 'BufLeave' } })
+  vim.api.nvim_create_autocmd({ 'InsertLeave', 'BufLeave' }, {
+    group = slash_group, buffer = transcript,
+    callback = function() close_palette(); slash_hint = nil; draft_hint() end,
+  })
   end
   if not options.floating then
     vim.keymap.set({ 'n', 'i' }, '<C-g>', M.toggle_popup,
@@ -409,7 +501,8 @@ function M.open(on_send, on_close)
 end
 
 function M.close()
-  completion = nil
+  close_palette()
+  slash_hint, slash_error, dismissed = nil, nil, nil
   local active, sidebar = transcript_win, sidebar_win
   transcript_win, sidebar_win = nil, nil
   if valid(active) then vim.api.nvim_win_close(active, true) end
@@ -446,7 +539,8 @@ end
 function M.take_input()
   local text = M.peek_input()
   if not text then return nil end
-  completion = nil
+  close_palette()
+  slash_hint, slash_error, dismissed = nil, nil, nil
   vim.api.nvim_buf_set_lines(transcript, draft_start, -1, false, { '' })
   focus_draft()
   return text

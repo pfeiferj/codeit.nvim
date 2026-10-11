@@ -138,8 +138,9 @@ for _, mark in ipairs(marks()) do
 end
 
 local long_status = 'Working on 界面 é ' .. string.rep('界', 30) .. ' ' .. string.rep('x', 90)
-local send_hint = 'Ctrl-S: send · Enter: newline (insert mode) · normal Enter: send'
-local busy_hint = 'Sending unavailable while busy · Your draft is kept'
+local discovery = ' · Type / for commands · // sends a literal /'
+local send_hint = 'Ctrl-S: send · Enter: newline (insert mode) · normal Enter: send' .. discovery
+local busy_hint = 'Sending unavailable while busy · Your draft is kept' .. discovery
 local function check_wrapped(expected, windows)
   local lines = hint_lines()
   assert(#lines > 1, 'long status should wrap into multiple virtual lines')

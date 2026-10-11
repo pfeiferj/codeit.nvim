@@ -250,7 +250,13 @@ With the cursor on any row of a Markdown pipe table (header, separator, or body)
 
 #### Slash commands
 
-In the chat draft, type `/` at the start of the message to open the slash-command completion menu. Press Tab to complete the first matching command; press it again to cycle through the matches from the first Tab. Choose an entry and press Enter to run it (or `<CR>` in normal mode). For `/provider` or `/send`, Enter accepts the completion first so you can type a required argument; press Enter again to run it. Command results stay in chronological order in the chat transcript and are saved with its history, without being sent to the assistant. Slash names are the Ex command names without `Codeit`, starting with a lowercase letter: for example, `/compact`, `/contextFull`, `/systemPrompt`, `/trustStatus`, and `/toggle` (for `:Codeit`). Commands with arguments also work, such as `/provider copilot`, `/trust tracked`, and `/send your question`. A single-line draft starting with `/` is treated as a command, not sent to the assistant; unknown commands remain in the draft for correction. Multiline messages and slashes elsewhere in a message are sent normally.
+In the chat draft, type `/` at the start of a single-line message to open a searchable command palette with descriptions. Keep typing to filter; Tab / Shift-Tab or Ctrl-N / Ctrl-P moves the highlight without changing your draft. Enter accepts the highlighted entry **without running it**; with the menu closed, Enter runs the command. Escape dismisses the palette without changing the draft (press again to leave insert mode). Normal-mode Enter and Ctrl-S submit the draft directly.
+
+Argument-taking commands insert a trailing space and show guidance. `/provider` offers `openrouter` and `copilot`; `/trust` offers `all` and `tracked`, or runs its picker when no argument is supplied. `/send` requires a message. Enter accepts an argument choice first; press it again to execute. Unknown commands, missing arguments, and invalid choices remain editable, with an inline error and typo suggestions where available.
+
+Run `/help` to reopen the searchable palette. Command matching is case-insensitive and accepts kebab-case aliases: `/context-files`, `/context-full`, `/system-prompt`, and `/trust-status` work alongside `/contextFiles`, `/contextFull`, `/systemPrompt`, and `/trustStatus`. Other examples include `/compact`, `/history`, `/settings`, and `/toggle` (for `:Codeit`).
+
+A single-line draft starting with `/` is treated as a command, not sent to the assistant. To send a literal slash-leading message, prefix it with another slash: `//compact` sends `/compact`. Multiline messages and slashes elsewhere in a message are sent unchanged. Command results stay in chronological order in the chat transcript and are saved with its history, without being sent to the assistant.
 
 ### Tool-round limits
 

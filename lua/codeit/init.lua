@@ -968,11 +968,16 @@ function M.send(text)
   if from_draft then
     local command, args = slash_commands.parse(text)
     if command == false then
-      vim.notify('codeit: ' .. args, vim.log.levels.WARN)
+      ui.slash_error(args)
       return
     elseif command then
-      if (command.command == 'CodeitProvider' or command.command == 'CodeitSend') and args == '' then
-        vim.notify('codeit: /' .. command.name .. ' requires an argument', vim.log.levels.WARN)
+      local err = slash_commands.validate(command, args)
+      if err then
+        ui.slash_error(err)
+        return
+      end
+      if command.name == 'help' then
+        ui.slash_help()
         return
       end
       ui.take_input()
@@ -1011,7 +1016,10 @@ function M.send(text)
     vim.notify('codeit: wait for the current response', vim.log.levels.WARN)
     return
   end
-  if from_draft then ui.take_input() end
+  if from_draft then
+    ui.take_input()
+    text = slash_commands.literal(text)
+  end
   if #messages == 0 then
     table.insert(messages, { role = 'system', content = current_prompt() })
   end
