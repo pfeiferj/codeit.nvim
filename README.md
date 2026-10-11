@@ -11,8 +11,18 @@ approval, and resume conversations from local history.
 - [Provider setup](#provider-setup)
 - [Per-feature models and presets](#per-feature-models-and-presets)
 - [Usage](#usage)
+  - [Commands](#command-reference)
+  - [Background tasks](#background-tasks)
+  - [File views](#file-views)
+  - [Chat and navigation](#chat-and-navigation)
+  - [Slash commands](#slash-commands)
+  - [Context review](#background-context-review)
+  - [Compaction](#conversation-compaction)
+  - [Chat history](#chat-history)
 - [Settings](#settings)
 - [Storage, usage, and logs](#storage-usage-and-logs)
+  - [Cost review](#cost-review)
+  - [Error logs](#error-logs)
 - [Project instructions and skills](#project-instructions-and-skills)
 - [Agent tools](#agent-tools)
 - [Trust and approvals](#trust-and-approvals)
@@ -28,7 +38,7 @@ approval, and resume conversations from local history.
 
 ## Quick start
 
-1. Install this directory with your plugin manager. For example, with lazy.nvim:
+1. Install the plugin and call `setup()`. For a local checkout with lazy.nvim:
 
    ```lua
    {
@@ -55,42 +65,7 @@ previous tab, keeping the conversation, file layout, and unsaved buffers; reopen
 Codeit restores its tab. Use `:CodeitNew` for a fresh chat or `:CodeitHistory` to
 resume an earlier one.
 
-The assistant can use `list_windows`, `open_window_file`, `open_window_buffer`,
-`split_window`, `split_window_file`, `split_window_buffer`, `resize_window`,
-`set_window_cursor`, `scroll_window`, `focus_window`, and `close_window` to manage
-file views in this tab only. Chat windows and popups are excluded, and the last
-file view cannot be closed. Window operations never save files. The `_file` tools
-require an existing workspace `path`; the `_buffer` tools require an already-loaded
-ordinary `buffer_id`. `split_window` takes no target and inherits the current buffer.
-
-`set_window_cursor` takes a `window_id`, a 1-based `line`, and an optional 1-based
-byte `column` (default 1, clamped to the line). It reveals folded targets and
-places them about 25% from the top of the window unless `center = false`.
-`scroll_window` takes a `window_id` and a signed `lines` count: positive scrolls
-down, negative scrolls up, in screen lines.
-Scrolling stops at buffer boundaries and may move the cursor to keep it visible.
-Neither tool changes focus or grants read permission; use `focus_window` when you
-want to interact with the target. Window results, including `list_windows`, report
-`cursor_line`, `cursor_column`, and `top_line` without returning buffer text.
-
-`read_window_buffer` reads a visible file buffer, including unsaved edits. Buffers
-you open or attach in Codeit's file views can be read without approval while
-visible, including unnamed and external buffers. This also applies to existing
-buffer-read tools. Buffers the assistant opens, attaches, or inherits in a split
-still follow normal workspace read trust; displaying one does not grant consent.
-Merely focusing an assistant-opened view does not make it user-attached. Approval
-validators can still require a prompt or reject any of these calls.
-
-UI buffers use the `codeit` filetype with built-in Markdown-like highlighting,
-independent of Markdown plugins and Tree-sitter parsers. Language-labelled fenced
-code blocks use Neovim's installed syntax files (including `json`, `bash`/`sh`,
-and `python`/`py`); new blocks are recognized while responses stream. Unlabelled
-or unknown-language blocks and raw tool output stay literal. Highlight groups
-such as `CodeitHeading`, `CodeitFence`, `CodeitInlineCode`, and `CodeitCodeBlock`
-can be customized with `nvim_set_hl`; they link to standard theme groups by default.
-Chat headers use bold blue for `CodeitUser` and bold amber for `CodeitAssistant`,
-with defaults suited to dark or light backgrounds. Both groups can also be
-customized with `nvim_set_hl`.
+For navigation, file views, and appearance options, see [Usage](#usage).
 
 <details>
 <summary>Optional setup settings</summary>
@@ -195,9 +170,10 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitSkill <name> [arguments]` | Invoke a skill with literal task arguments |
 | `:CodeitStop` | Interrupt the current assistant turn without clearing the chat |
 | `:CodeitNew` | Start a fresh conversation |
-| `:CodeitHistory` | Browse, resume, or delete saved chats |
+| `:CodeitHistory` | Browse, resume, archive, or delete saved chats |
+| `:CodeitCosts` | Review saved usage and ask questions about costs |
 | `:CodeitTasks` | View background tasks and logs, or cancel a running task |
-| `:CodeitCompact` | Summarize completed turns for future requests |
+| `:CodeitCompact[!]` | Summarize completed turns (`!` includes the most recent turn) |
 | `:CodeitContext` | Inspect effective context and edit its summary |
 | `:CodeitContextFull` | Edit the full effective request context as JSON |
 | `:CodeitContextFiles` | Toggle instruction files and skills |
@@ -230,21 +206,102 @@ dismissing sends nothing. Approval never interrupts an active response or sends
 results to a different chat. With this option omitted or false, no assistant
 follow-up is requested; results remain available in the task view.
 
+### File views
+
+The assistant can manage ordinary file views in the Codeit tab. Chat windows,
+popups, and other tabs are excluded; the last file view cannot be closed.
+Window operations never save files or grant read permission.
+
+| Tools | Purpose |
+| --- | --- |
+| `list_windows` | List views, sizes, and cursor/scroll positions without buffer text |
+| `open_window_file`, `open_window_buffer` | Display a workspace file or loaded ordinary buffer |
+| `split_window` | Split a view, inheriting its current buffer |
+| `split_window_file`, `split_window_buffer` | Split a view and display a file or loaded buffer |
+| `resize_window`, `close_window` | Resize or close a file view |
+| `set_window_cursor`, `scroll_window` | Reveal a location or scroll without changing focus |
+| `focus_window` | Focus a view so you can interact with it |
+| `read_window_buffer` | Read a visible ordinary buffer, including unsaved edits |
+
+The `_file` tools take an existing workspace `path`; the `_buffer` tools take an
+already-loaded ordinary `buffer_id`. `set_window_cursor` uses 1-based lines and
+byte columns (column defaults to 1 and is clamped). It opens folds and places the
+target about 25% from the top unless `center = false`. `scroll_window` uses signed
+screen-line counts: positive scrolls down, negative scrolls up. Scrolling stops at
+buffer boundaries and may move the cursor to keep it visible. Window results
+report `cursor_line`, `cursor_column`, and `top_line`.
+
+Buffers **you** open or attach in Codeit's file views can be read without approval
+while visible, including unnamed and external buffers. This also applies to the
+other buffer-read tools. Buffers the **assistant** displays or inherits in a split
+still follow normal workspace read trust. Focusing an assistant-opened view does
+not make it user-attached. Approval validators can still ask or reject.
+
 ### Chat and navigation
 
-In normal mode, `{` jumps to the previous chat turn and `}` to the next in the sidebar, interactive popup, or read-only chat preview. Each turn starts at a user message; assistant replies and tool output are skipped. From inside a turn, `{` returns to its start. Counts are supported (for example, `3}`), and navigation stops at the first or last turn without wrapping. These chat-local mappings replace the default paragraph motions.
+The transcript and multiline draft under `## Message` share a `codeit` buffer
+with Markdown-like formatting. The sidebar wraps prose at word boundaries, and
+usage stays in a window header rather than covering messages as you scroll.
+The draft heading stays visible while the assistant is busy, with a subdued send
+hint or an unavailable indicator; your draft is preserved.
 
-In tool approval popups, file-edit/save previews, the tool-call reviewer, and tool-limit prompts, press `<C-g>` (normal or insert mode) to view the full chat transcript in a read-only popup. Scroll or search with normal Vim keys for context, then press `<C-g>`, `<Esc>`, or `q` to return. Switching views does not approve, reject, or dismiss the pending prompt; its cursor, scroll position, and any reviewer draft are preserved. The chat preview excludes your unsent message draft and works even when the sidebar is closed. Each visit shows the latest transcript and remembers your preview position.
+| Key | Action |
+| --- | --- |
+| `<CR>` (normal), `<C-s>` (insert) | Send the draft |
+| `<CR>` (insert) | Insert a newline |
+| `<C-g>` (normal or insert) | Toggle the large interactive chat popup |
+| `<Esc>` (normal, in the popup) | Return to the sidebar |
+| `q` (normal) | Close the chat, including its popup |
+| `{`, `}` (normal) | Jump to the previous/next user turn; counts are supported |
+| `za` (normal) | Expand or collapse an activity fold |
+| `gT` (normal, on a table) | Open an aligned table preview |
 
-`:Codeit` toggles the single chat sidebar. The transcript and the multiline draft under `## Message` share a Markdown buffer; assistant replies retain Markdown formatting. Type below the heading and press `<CR>` in normal mode or `<C-s>` in insert mode to send; `<CR>` in insert mode inserts a newline. Press `<C-g>` in normal or insert mode to toggle a large interactive chat popup (85% of the editor width, 80% of its height). It shares the sidebar's draft and live transcript, so sending messages and using slash commands works as usual. Press `<C-g>` again, or `<Esc>` in normal mode, to return to the sidebar. Press `q` in normal mode to close the chat, including its popup.
+The interactive popup shares the sidebar's draft and live transcript, so messages
+and slash commands work in either view. It uses 85% of the editor width and 80%
+of its height.
+
+From inside a turn, `{` returns to its start. Navigation stops at the first or
+last turn without wrapping, skipping assistant replies and tool output. These
+chat-local mappings replace Vim's paragraph motions and also work in read-only
+chat previews.
+
+In approval previews, reviewers, and tool-limit prompts, `<C-g>` instead opens a
+read-only preview of the full transcript, excluding the unsent draft. Scroll or
+search with normal Vim keys, then press `<C-g>`, `<Esc>`, or `q` to return. This
+never approves or dismisses the pending prompt; its position and reviewer draft
+are preserved. Each visit shows the latest transcript and remembers your preview
+position, even when the sidebar is closed.
 
 `:CodeitSend your question` sends a message directly. `:CodeitSend` sends the draft currently at the bottom of the chat.
 
 Use `:CodeitStop` from any buffer, or `/stop` in the chat draft, to interrupt the active turn and send a new message. Streamed text and completed tool results are kept; pending approvals and remaining calls cannot continue the stopped turn. Foreground commands are cancelled, but completed edits are not undone. Separately started background tasks keep running; cancel them with `:CodeitTasks`. An interrupted provider request may still be billed without returning usage data.
 
-The sidebar wraps prose at word boundaries, and usage stays in a window header rather than covering messages as you scroll. Speaker labels are separated from content headings and use the `CodeitUser`, `CodeitAssistant`, and `CodeitTool` highlight groups (linked to `Special`, `Title`, and `Comment` by default). The draft heading stays visible while the assistant is busy, with a subdued send hint or an unavailable indicator; your draft is preserved.
+#### Appearance
 
-Readable provider reasoning, tool calls, tool results, and slash-command results start collapsed in individual folds. Consecutive items are also bundled inside a collapsed outer **Activity** fold; user messages and assistant prose remain outside it. Press `za` on an activity preview to reveal its individual folds, then `za` on an item to expand or collapse it; standard Vim fold commands also work. Full text remains in the buffer for searching and copying, but encrypted provider reasoning is not displayed. Fold state survives streamed updates, resizing, and switches between the sidebar and interactive popup. Read-only chat previews support the same nested folds.
+UI buffers use the `codeit` filetype with built-in Markdown-like highlighting,
+independent of Markdown plugins and Tree-sitter parsers. Language-labelled fenced
+blocks use Neovim's installed syntax files (including `json`, `bash`/`sh`, and
+`python`/`py`); new blocks are recognized while responses stream. Unlabelled or
+unknown-language blocks and raw tool output stay literal.
+
+Customize highlights with `vim.api.nvim_set_hl`. `CodeitHeading`, `CodeitFence`,
+`CodeitInlineCode`, and `CodeitCodeBlock` link to standard theme groups by default.
+Speaker labels are separate from content headings: `CodeitUser` is bold blue,
+`CodeitAssistant` is bold amber, and `CodeitTool` links to `Comment`. The speaker
+colors adapt to dark or light backgrounds and can also be overridden.
+
+#### Activity folds
+
+Readable provider reasoning, tool calls/results, and slash-command results start
+collapsed in individual folds. Consecutive items are bundled inside a collapsed
+outer **Activity** fold; user messages and assistant prose remain outside it.
+Press `za` on an activity preview to reveal its item folds, then `za` on an item
+to expand or collapse it. Standard Vim fold commands also work.
+
+Full text remains searchable and copyable, but encrypted provider reasoning is
+not displayed. Fold state survives streamed updates, resizing, and switches
+between the sidebar and interactive popup. Read-only chat previews support the
+same nested folds.
 
 #### Table previews
 
@@ -262,11 +319,46 @@ A single-line draft starting with `/` is treated as a command, not sent to the a
 
 ### Tool-round limits
 
-When the assistant reaches `max_tool_rounds` (default 12) and requests more tools, a popup pauses the turn: press `1` to allow another configured allowance, `2` to enter a custom positive whole number, or `3` / `<Esc>` to decline. Enter selects the highlighted choice. A **round** is one assistant tool-call batch, which may contain multiple calls. Extra rounds apply only to the current turn; exhausting them prompts again, and individual tool approval policies still apply. Declining (including closing the popup or cancelling custom input) returns a limit error for each pending call and requests one final response with tools disabled. Setting `max_tool_rounds = 0` prompts before the first tool batch and offers only custom continuation or decline.
+When the assistant reaches `max_tool_rounds` (default 12) and requests more
+tools, a popup pauses the turn. A **round** is one assistant tool-call batch,
+which may contain multiple calls.
+
+| Key | Choice |
+| --- | --- |
+| `1` | Allow another configured allowance |
+| `2` | Enter a custom positive whole number |
+| `3`, `<Esc>` | Decline further tool calls |
+| `<CR>` | Select the highlighted choice |
+
+Extra rounds apply only to the current turn; exhausting them prompts again.
+Individual tool approval policies still apply. Declining, closing the popup, or
+cancelling custom input returns limit errors for the pending calls and requests
+one final response with tools disabled. `max_tool_rounds = 0` prompts before the
+first tool batch and offers only custom continuation or decline.
 
 ### Background context review
 
-After a completed user turn with at least `context_review_min_tokens` (default 512) estimated tokens of replaceable tool exchanges, the `context_review` feature model reviews that turn asynchronously, without tools, and prunes low-value tool context in the background. Turns without eligible tool exchanges are never reviewed. Short useful outputs stay verbatim; long responses, bulky edit arguments, and ephemeral information can be replaced with concise factual notes recording what was actually done, relevant paths, results, failures, and remaining work. User messages, assistant prose, clarification answers, and skill instructions are preserved. Calls and results are removed together, so retained exchanges remain valid. The full visible transcript stays unchanged; review decisions are saved with the chat and survive resume. `:CodeitContext` and `:CodeitContextFull` show the effective reviewed context. You can send another question while review is pending: all tool rounds in the active user turn keep the same review snapshot; the next user turn uses newly available reviews. Stable instruction and skill messages precede the changing summary to improve prefix-cache reuse. Stale reviews after reset, workspace changes, manual context edits, or compaction are ignored; failed/invalid reviews leave context unchanged. Review requests may incur provider charges (included in OpenRouter usage totals). Set `context_review = false` in `setup()` to disable this independently of automatic compaction.
+After a completed turn reaches `context_review_min_tokens` (default 512)
+estimated tokens of replaceable tool exchanges, the `context_review` feature
+model reviews it asynchronously, without tools. Turns without eligible exchanges
+are never reviewed.
+
+- Short useful outputs stay verbatim. Long responses, bulky edit arguments, and
+  ephemeral information may become concise factual notes about actions, paths,
+  results, failures, and remaining work.
+- User messages, assistant prose, clarification answers, and skill instructions
+  are preserved. Calls and results are removed together.
+- The visible transcript stays unchanged. Review decisions are saved with the
+  chat and shown in `:CodeitContext` and `:CodeitContextFull`.
+- You can keep chatting while review is pending. An active turn uses a fixed
+  review snapshot; the next turn uses newly available reviews.
+- Stale reviews after resets, workspace changes, manual context edits, or
+  compaction are ignored. Failed or invalid reviews leave context unchanged.
+
+Stable instruction and skill messages precede the changing summary to improve
+prefix-cache reuse. Review requests may incur provider charges, included in chat
+usage totals. Set `context_review = false` in `setup()` to disable this
+independently of automatic compaction.
 
 ### Conversation compaction
 
@@ -308,7 +400,30 @@ Cached-input usage is normalized for both providers. The chat displays `Cache: N
 `:CodeitNew` starts a fresh conversation and cancels outstanding responses or
 pending edits; previous chats remain in history.
 
-`:CodeitHistory` lists saved chats for the current workspace (most recently updated first), showing each chat's last-updated date/time and LLM summary. For chats whose latest assistant turn has finished, it generates a brief description of what was done using the currently active `history_summary` feature settings, not the saved chat's settings, before opening the picker. Each successful summary is cached in the chat file. Sending another question clears that cache; once the new turn finishes, history generates a fresh summary. Unfinished chats are shown with just their date/time. Select a chat in the wide, scrollable history window with `<CR>` to resume its transcript, provider, model, and usage totals; press `d` to permanently delete the selected chat after confirmation, or `a` to archive it. Use `V` and movement keys to select multiple chat lines, then press `d` or `a` to act on all selected chats with a single confirmation. Archived files are moved unchanged to `stdpath('data')/codeit/archive/<workspace-hash>/`, outside the history UI and history-reading tools (including cost reviews). There is no archive browser in the UI. Press `q` / `<Esc>` to dismiss the window. Deleting or archiving keeps the history window open. If you delete or archive the current chat, its open transcript remains available but is detached from the removed entry; sending another message saves it as a new chat. The current chat cannot be deleted or archived while a response is in progress. Summary requests may incur provider charges and are not included in the chat's usage totals.
+`:CodeitHistory` lists saved chats for the current workspace, most recently
+updated first, with each chat's last-updated date/time and an LLM summary.
+For chats whose latest assistant turn has finished, it generates a description
+using the **currently active** `history_summary` feature settings, not the saved
+chat's settings, before opening the picker. Successful summaries are cached;
+sending another question clears the cache. Unfinished chats show only their
+date/time. Summary requests may incur provider charges; they count toward the
+summarized chat's totals and `history_summary` breakdown, not a completed turn.
+
+| Key | Action |
+| --- | --- |
+| `<CR>` | Resume the selected transcript, provider, model, and usage totals |
+| `d` | Permanently delete the selected chat after confirmation |
+| `a` | Archive the selected chat after confirmation |
+| `V`, then movement keys | Select multiple chat lines for `d` or `a` |
+| `q`, `<Esc>` | Close the history window |
+
+Deleting or archiving keeps the picker open. Archived files move unchanged to
+`stdpath('data')/codeit/archive/<workspace-hash>/`, outside the history UI and
+history-reading tools, including cost reviews. There is no archive browser.
+
+If you remove the current chat, its open transcript stays available but is
+detached from the removed entry; sending another message saves it as a new chat.
+The current chat cannot be deleted or archived during a response.
 
 ## Settings
 
@@ -371,10 +486,9 @@ include numbered, full-precision turn costs, per-function breakdowns, and missin
 counts, so you can ask questions such as “Which turn in this chat was most expensive?”
 or “How much did background reviews cost compared with main chat?” Totals and chat
 listings report older `unattributed_cost` and `unattributed_missing_cost` separately.
-Unrecorded costs
-in older history remain unknown. **Requested
-history from any saved workspace may be sent to the selected provider**, including
-tool arguments/results. The scope toggle filters the displayed table, not the
+Unrecorded costs in older history remain unknown. **Requested history from any
+saved workspace may be sent to the selected provider**, including tool
+arguments/results. The scope toggle filters the displayed table, not the
 reviewer's access. No history is sent until you ask a question. Review requests
 have their own usage line and are saved as a separate `Cost review` chat, included
 in future reviews. Esc/q closes the window; it does not cancel an in-flight charge.
@@ -470,13 +584,25 @@ In the standard Markdown approval window, move to a choice and press `<CR>` in n
 
 The reviewer opens a single Markdown window showing the tool name, arguments, conversation, and a multiline draft under `## Question`. Type below the heading and press `<C-s>` (in insert or normal mode), or `<CR>` in normal mode, to send. A waiting indicator appears until the reply is added to the conversation. Type another question below the heading to follow up. Press `<Esc>` in normal mode or close the reviewer window to return to approval; empty questions are ignored. The reviewer is a separate conversation with the configured model and its own read-only `read_chat_history` and `search_chat_history` tools. These tools provide paginated access to a snapshot of the current main conversation, including tool arguments and results but excluding private reasoning. The reviewer cannot use the coding assistant's tools, modify files, execute commands, or approve the pending call. Reviewer tool exchanges stay in the reviewer conversation; automatic safety assessments remain tool-free. Each question is limited to eight tool rounds and 32 calls. Cancelling stops the task and drops its unfinished tool-call batch, leaving earlier conversation intact.
 
-When the assistant has provided an explanation during the current user turn, approval previews, reviewer windows, and clarification popups show its latest nonempty text in a separate read-only Markdown pane above the popup. Tool-only replies preserve that explanation; a new user message clears it. The pane wraps text and reserves at most roughly 30% of the editor height, shrinking the decision popup when necessary. Keyboard focus stays on the decision or answer field, and the pane closes when that interaction finishes. Very small editors (fewer than 10 lines) omit the pane. Clarifications still use `vim.ui.select` / `vim.ui.input`: floating pickers are repositioned to make room, while command-line prompts get a pane at the top of the editor. Third-party multi-window pickers that enforce their own layout may override that positioning.
+When the assistant has provided an explanation during the current user turn,
+approval previews, reviewers, and clarification popups show its latest nonempty
+text in a separate read-only pane above the popup. Tool-only replies preserve
+that explanation; a new user message clears it. The pane wraps text and uses at
+most roughly 30% of the editor height, shrinking the decision popup if needed.
+Focus stays on the decision or answer field, and the pane closes with the
+interaction. Editors with fewer than 10 lines omit it. Clarifications use
+Codeit's own near-full-screen Markdown popup with choices or a multiline answer
+field, not `vim.ui.select` / `vim.ui.input`.
 
 ### Remembered approvals and validators
 
 Always-approved signatures include the workspace's resolved path, tool name, and full arguments (independent of JSON object key order); their hashes are saved across Neovim sessions in `stdpath('data')/codeit/approvals.json`. Explicit per-call approvals remain effective even if workspace trust changes; delete that file to revoke saved approvals. Configure `approval.validators` in `setup()` with functions receiving `(name, args, context)` that return `'approve'`, `'ask'`, `'reject'`, or `nil`, optionally with a reason. Validators run for **every** call, including saved approvals and `ask_user`; all save tools require their own explicit approval window, even for an approve decision. Rejection wins over asking, and asking wins over approval or saved/default auto-approval. Errors or invalid decisions reject the call.
 
 ### Execution boundaries
+
+**Approval is not a sandbox.** Commands operate on disk without implicitly
+saving buffers or invoking a shell. Once approved, they can access the wider
+system, and cancellation cannot undo completed side effects.
 
 Buffer edits check for changes while confirmation is pending; file paths are restricted to the current workspace, including symlink targets. Commands run in that workspace but, once approved, can access the wider system. Command/search/Git outputs are limited to 20 KB with explicit truncation markers. Commands time out after 60 seconds; cancellation and timeout send SIGTERM, then SIGKILL after a grace period. On Unix, signals reach the process group and ordinary descendants; processes that deliberately detach can escape, and other platforms only terminate the direct process. Cancellation cannot undo side effects already completed. File reads and listings are bounded and advertise continuation rather than silently appearing complete. Invalid tool arguments and execution exceptions return tool errors so the assistant can recover. This is a local approximation of common VS Code Copilot Agent capabilities, not VS Code's exact or extension-provided tool set.
 
@@ -488,8 +614,9 @@ Run all headless tests from the repository root:
 sh tests/run.sh
 ```
 
-The runner isolates saved approvals and state in temporary directories and exits
-with an error if a suite fails.
+The runner requires `nvim` on `PATH`, isolates saved approvals and state in
+temporary directories, and exits with an error if a suite fails. Instruction and
+skill discovery suites also use isolated home directories.
 
 ## License
 
