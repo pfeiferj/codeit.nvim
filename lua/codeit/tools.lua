@@ -38,6 +38,7 @@ M.specs[#M.specs + 1] = {
 }
 vim.list_extend(M.specs, agent_tools.specs)
 vim.list_extend(M.specs, window_tools.specs)
+vim.list_extend(M.specs, require('codeit.subagents').specs)
 M.specs[#M.specs + 1] = {
   type = 'function', ['function'] = {
     name = 'load_skill',
@@ -126,6 +127,7 @@ local function validate_value(value, property, key)
       if err then return err end
     end
   elseif type(value) ~= kind then return key .. ' must be a ' .. kind end
+  if property.enum and not vim.tbl_contains(property.enum, value) then return key .. ' has invalid value' end
   if kind == 'string' and (#value < (property.minLength or 0) or property.maxLength and #value > property.maxLength) then
     return key .. ' has invalid length'
   end
@@ -196,6 +198,11 @@ function M.execute(name, args, source, done, active, context)
     -- Validate before approval and editor API calls.
     local invalid = M.validate(name, args)
     if invalid then return done('Error: ' .. invalid) end
+    local subagents = require('codeit.subagents')
+    if context and context.no_prompt and not subagents.allowed[name] then
+      return done('Error: tool is not available to subagents')
+    end
+    if subagents.names[name] then return subagents.execute(name, args, source, done, active, context) end
     local visible = name == 'read_window_buffer' and require('codeit.managed_tab').buffer(args.window_id)
     if name == 'read_window_buffer' and not visible then return done('Error: invalid Codeit file window') end
     if name == 'load_skill' then

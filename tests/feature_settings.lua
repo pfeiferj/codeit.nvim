@@ -30,6 +30,7 @@ local features = {
   history_summary = { model = 'history-model', options = { effort = 'minimal' } },
   compaction = { provider = 'copilot', model = 'compact-model' },
   cost_review = { model = 'cost-model' },
+  subagent = { model = 'subagent-model' },
 }
 plugin.setup({ max_context_tokens = false, feature_settings = features,
   request_options = { openrouter = { effort = 'low', service_tier = 'flex' } } })

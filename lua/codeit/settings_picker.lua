@@ -256,7 +256,7 @@ function M.show(current, apply, live)
       items[#items + 1] = { id = 'preset_' .. name, section = 'Shared model presets',
         label = 'Preset ' .. settings.preset_labels[name] .. ': ' .. selected.provider .. ' / ' .. selected.model }
     end
-    for _, name in ipairs({ 'tool_assessment', 'tool_review', 'context_review', 'compaction', 'history_summary', 'cost_review' }) do
+    for _, name in ipairs({ 'tool_assessment', 'tool_review', 'context_review', 'compaction', 'history_summary', 'cost_review', 'subagent' }) do
       local selected = settings.feature_config(draft, name)
       local assigned = settings.feature_preset(draft, name)
       items[#items + 1] = { id = name, section = 'Feature overrides', label = settings.feature_labels[name] .. ' ['

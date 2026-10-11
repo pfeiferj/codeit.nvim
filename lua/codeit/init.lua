@@ -761,6 +761,33 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
   set_status('Waiting for ' .. selected_config.provider .. '…')
   local advertised = vim.json.encode(context_files.messages(workspace, approval.workspace_trust(workspace),
     context_paths, selected_skills))
+  local subagent_workspace, subagent_chat = workspace, chat_id
+  local subagent_config = request_config('subagent')
+  subagent_config.max_tool_rounds = config.max_tool_rounds
+  local subagent_turn_index
+  for index, turn in ipairs(turn_costs) do if turn == billed_turn then subagent_turn_index = index end end
+  local function subagent_usage(usage)
+    if workspace == subagent_workspace and chat_id == subagent_chat then
+      return record_usage(usage, 'subagent', subagent_config.provider, turn_costs[subagent_turn_index])
+    end
+    -- Background billing belongs to the originating chat, never the active one.
+    local chat = history.load(subagent_workspace, subagent_chat)
+    if not chat then return end
+    local amount = usage_number(usage and usage.cost)
+    local input, output = usage_number(usage and usage.prompt_tokens), usage_number(usage and usage.completion_tokens)
+    local function add(target)
+      target.cost = (target.cost or 0) + (amount or 0)
+      target.missing_cost = (target.missing_cost or 0) + (amount and 0 or 1)
+      target.cost_by_function = target.cost_by_function or {}
+      cost_breakdown.add(target.cost_by_function, 'subagent', amount, input, output)
+    end
+    add(chat)
+    local turn = chat.turn_costs and chat.turn_costs[subagent_turn_index]
+    if turn then add(turn) end
+    chat.tokens_in, chat.tokens_out = (chat.tokens_in or 0) + (input or 0), (chat.tokens_out or 0) + (output or 0)
+    chat.missing_in, chat.missing_out = chat.missing_in or not input, chat.missing_out or not output
+    history.save(subagent_workspace, subagent_chat, chat)
+  end
   providers.chat(selected_config, request_messages(), specs, function(message, err, usage)
     if not active() then return end
     stream_preview = nil
@@ -924,6 +951,9 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
         end, function() return id == generation and workspace == history.workspace() end, {
           user_request = user_request,
           background_origin = { workspace = workspace, chat_id = chat_id },
+          subagent_config = subagent_config,
+          subagent_messages = request_messages(),
+          subagent_usage = subagent_usage,
           tool_log_entry = tool_log_entries[index],
           review = review,
           assessment = assessments[index],
@@ -1497,7 +1527,15 @@ function M.setup(opts)
     return not busy and task.origin and task.origin.chat_id == chat_id
       and task.origin.workspace == workspace and workspace == history.workspace()
   end, function(_, text) M.send(text) end)
+  local subagents = require('codeit.subagents')
+  subagents.configure(function(run)
+    return not busy and run.origin and run.origin.chat_id == chat_id
+      and run.origin.workspace == workspace and workspace == history.workspace()
+  end, function(_, text) M.send(text) end)
+  vim.api.nvim_create_user_command('CodeitSubagents', subagents.show,
+    { desc = 'View session subagents, chat logs, and cancel runs', force = true })
   local task_group = vim.api.nvim_create_augroup('codeit_background_tasks', { clear = true })
+  vim.api.nvim_create_autocmd('VimLeavePre', { group = task_group, callback = subagents.shutdown })
   vim.api.nvim_create_autocmd('VimLeavePre', { group = task_group, callback = background_tasks.shutdown })
   vim.api.nvim_create_user_command('CodeitTasks', background_tasks.show,
     { desc = 'View background tasks, live logs, and cancel running tasks', force = true })

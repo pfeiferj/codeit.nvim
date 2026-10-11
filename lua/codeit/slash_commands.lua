@@ -17,6 +17,7 @@ local commands = {
   { name = 'history', command = 'CodeitHistory', description = 'Browse saved conversations' },
   { name = 'costs', command = 'CodeitCosts', description = 'Review chat costs' },
   { name = 'tasks', command = 'CodeitTasks', description = 'Review background tasks' },
+  { name = 'subagents', command = 'CodeitSubagents', description = 'Review subagent runs and chat logs' },
   { name = 'trust', command = 'CodeitTrust', description = 'Trust this workspace for reads', args = true,
     choices = { 'all', 'tracked' }, hint = 'Choose all or tracked; omit to open the trust picker' },
   { name = 'untrust', command = 'CodeitUntrust', description = 'Revoke workspace read trust' },

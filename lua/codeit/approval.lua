@@ -283,6 +283,7 @@ Use this ordinal risk scale, considering authorization, data sensitivity, untrus
 --- Start a review without waiting for this call's turn in the execution queue.
 --- The returned function delivers the result immediately if it is already available.
 function M.prefetch(name, args, context, active)
+  if require('codeit.subagents').names[name] then return nil end
   if not context or not context.review then return nil end
   -- Relative resource arguments need a resolved location before review or approval caching.
   if name == 'read_skill_resource' and not context.skill_resource_path then return nil end
@@ -334,6 +335,8 @@ function M.request(name, args, prompt, active, done, action, context)
   -- remembered call or an approve validator. Reject validators still win.
 if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (remembered[signature]
     or auto_read(name, args, workspace, context.source_buffer, context)))) then return action() end
+
+  if context.no_prompt then return done('Error: this call requires approval; subagents cannot prompt the user') end
 
   local function live() return not active or active() end
   local skip_summary = context.diff or save_tools[name] or require('codeit.window_tools').names[name]

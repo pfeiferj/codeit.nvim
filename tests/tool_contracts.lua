@@ -18,6 +18,7 @@ local function has(value, text) assert(value:find(text, 1, true), value) end
 
 -- Every optional field accepts an empty string, irrespective of its declared type.
 local function sample(schema)
+  if schema.enum then return schema.enum[1] end
   if schema.type == 'integer' then return schema.minimum or 0 end
   if schema.type == 'boolean' then return false end
   if schema.type == 'string' then return 'x' end
