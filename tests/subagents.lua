@@ -68,6 +68,15 @@ local function execute(name, args, context)
   assert(result)
   return result
 end
+local function assert_status(run_id, status)
+  local data = vim.json.decode(execute('get_subagent_status', { run_id = run_id }))
+  assert(vim.deep_equal(data, { status = status }), 'status polling must return only status')
+end
+assert(not tools.validate('get_subagent_status', { run_id = 1 }))
+assert(tools.validate('get_subagent_status', { run_id = 0 }))
+assert(tools.validate('get_subagent_status', {}))
+assert_status(1, 'completed')
+assert(execute('get_subagent_status', { run_id = 999 }):find('unknown subagent run', 1, true))
 local data = vim.json.decode(execute('read_subagent_artifact', { run_id = 1, artifact_id = 1, start_line = 2 }))
 assert(data.lines[1] == 'second line')
 assert(execute('write_subagent_artifact', { content = 'no' }):find('only running subagents', 1, true))
@@ -91,6 +100,7 @@ local returned
 agents.start({ title = 'Notify', task = 'Summarize', mode = 'background_notify' }, nil, context,
   function(value) returned = value end, function() return false end)
 assert(returned and agents.list()[2].status == 'running')
+assert_status(2, 'running')
 await(5)
 reply({ role = 'assistant', content = {
   { type = 'text', text = 'Background results' },
@@ -106,6 +116,7 @@ vim.wait(250, function() return false end)
 assert(#sent == 1)
 assert(sent[1]:find('Background results\\nSecond finding', 1, true))
 assert(not sent[1]:find('private', 1, true))
+assert_status(2, 'completed')
 assert(vim.json.decode(execute('get_subagent', { run_id = 2 })).result == 'Background results\nSecond finding')
 agents.start({ title = 'Quiet', task = 'Summarize', mode = 'background' }, nil, context, function() end)
 await(6)
@@ -128,6 +139,7 @@ press('<CR>')
 vim.api.nvim_win_set_cursor(win, { 6, 0 })
 press('c')
 assert(agents.list()[4].status == 'cancelled' and not requests[7].active())
+assert_status(4, 'cancelled')
 reply({ role = 'assistant', content = 'Too late' })
 assert(agents.list()[4].result == 'Cancelled')
 press('q')
@@ -153,6 +165,7 @@ agents.start({ title = 'Failure', task = 'Fail', mode = 'background' }, nil, con
 await(11)
 table.remove(callbacks, 1)(nil, 'Provider failure')
 assert(agents.list()[7].status == 'failed')
+assert_status(7, 'failed')
 -- Feature overrides and billing remain associated with the originating chat.
 local settings = plugin.get_settings()
 settings.feature_settings.subagent = { provider = 'copilot', model = 'override-model' }

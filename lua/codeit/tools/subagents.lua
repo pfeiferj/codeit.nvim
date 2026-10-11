@@ -19,6 +19,9 @@ M.specs = {
   spec('get_subagent', 'Read a session subagent result, status, and artifact IDs without approval.', {
     run_id = { type = 'integer', minimum = 1 },
   }, { 'run_id' }),
+  spec('get_subagent_status', 'Read only a session subagent status without approval. Use this to poll progress without adding results or artifacts to context; use get_subagent to retrieve results when ready.', {
+    run_id = { type = 'integer', minimum = 1 },
+  }, { 'run_id' }),
   spec('cancel_subagent', 'Cancel a running session subagent without approval.', {
     run_id = { type = 'integer', minimum = 1 },
   }, { 'run_id' }),
@@ -186,6 +189,7 @@ function M.execute(name, args, source, done, active, context)
     return done(vim.json.encode({ run_id = run.id, artifact_id = id, path = path }))
   end
   if not run then return done('Error: unknown subagent run') end
+  if name == 'get_subagent_status' then return done(vim.json.encode({ status = run.status })) end
   if name == 'get_subagent' then return done(M.result(run)) end
   if name == 'cancel_subagent' then return done(vim.json.encode({ cancelled = M.cancel(run.id) })) end
   local artifact = run.artifacts[args.artifact_id]

@@ -279,7 +279,9 @@ A subagent can use `write_subagent_artifact` to create private temporary text
 files (200KB per file, 1MB per run). It shares run/artifact IDs with the main
 agent, which can read them with `read_subagent_artifact` without arbitrary-path
 access or approval. Files are removed on normal Neovim exit. The main agent can
-also use `get_subagent` to poll results or `cancel_subagent` to stop a run.
+also use `get_subagent_status` to poll only a run's status without loading results
+or artifacts into context, `get_subagent` to retrieve results, or `cancel_subagent`
+to stop a run.
 
 Open `:CodeitSubagents` or `/subagents` to see all runs in this Neovim session.
 Press `<CR>` to view a run's chat log or return to the list, `c` to cancel, and
