@@ -5,6 +5,8 @@ local commands = {
   { name = 'toggle', command = 'Codeit', description = 'Toggle the chat' },
   { name = 'send', command = 'CodeitSend', description = 'Send a message', args = true,
     required = true, hint = 'Enter the message to send' },
+  { name = 'skill', command = 'CodeitSkill', description = 'Invoke a skill with optional arguments', args = true,
+    required = true, hint = 'Enter a skill name followed by optional literal arguments' },
   { name = 'stop', command = 'CodeitStop', description = 'Stop the current response' },
   { name = 'new', command = 'CodeitNew', description = 'Start a new conversation' },
   { name = 'compact', command = 'CodeitCompact', description = 'Summarize conversation to reduce context' },
@@ -53,6 +55,15 @@ function M.complete(text)
   local command = name and find(name)
   if not command or not command.args then return {}, 0 end
   local items = {}
+  if command.name == 'skill' and not args:find('%s') then
+    local workspace = require('codeit.history').workspace()
+    for _, entry in ipairs(require('codeit.context_files').entries(workspace, require('codeit.approval').workspace_trust(workspace))) do
+      if entry.kind == 'skill' and entry.available and entry.name:sub(1, #args) == args then
+        items[#items + 1] = { word = entry.name, menu = entry.description }
+      end
+    end
+    return items, #text - #args, command.hint
+  end
   for _, choice in ipairs(command.choices or {}) do
     if choice:sub(1, #args) == args then
       items[#items + 1] = { word = choice, menu = command.hint }

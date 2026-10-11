@@ -721,7 +721,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
       request(round, id, false, limit, true, budget)
     end)
   end
-  local specs = budget.declined and {} or tools.request_specs(workspace, approval.workspace_trust(workspace))
+  local specs = budget.declined and {} or tools.request_specs(workspace, approval.workspace_trust(workspace), selected_skills)
   local limit = budget.long_context_limit or (config.max_context_tokens == nil and detected_limit or config.max_context_tokens)
   local selected_config = budget.long_context or request_config()
   if not skip_auto then
@@ -895,7 +895,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
                     table.remove(selected_skills, index)
                   end
                 end
-                selected_skills[#selected_skills + 1] = { name = args.name, path = loaded_path }
+                selected_skills[#selected_skills + 1] = { name = args.name, path = loaded_path, arguments = args.arguments or '' }
               end
             end
           end
@@ -923,6 +923,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
           assessment = assessments[index],
           prepare = prepare,
           read_versions = read_versions,
+          skill_selections = selected_skills,
         })
       end
       next_call(1)
@@ -998,6 +999,21 @@ function M.compact(all)
   end)
 end
 
+function M.invoke_skill(name, arguments)
+  sync_workspace()
+  if busy then return false, 'wait for the current response before invoking a skill' end
+  local skill = context_files.skill(name, workspace, approval.workspace_trust(workspace), true)
+  if not skill then return false, 'skill is unavailable, disabled, or workspace is not trusted' end
+  local rendered, err = require('codeit.skill_invocation').render(require('codeit.skill_frontmatter').body(skill.content), arguments)
+  if not rendered then return false, err end
+  for index = #selected_skills, 1, -1 do
+    if selected_skills[index].name == name then table.remove(selected_skills, index) end
+  end
+  selected_skills[#selected_skills + 1] = { name = name, path = skill.path, arguments = arguments or '' }
+  M.send('Use skill ' .. name .. ' for this task.' .. ((arguments and arguments ~= '') and ('\n\n' .. arguments) or ''))
+  return true
+end
+
 function M.send(text)
   sync_workspace()
   local from_draft = text == nil
@@ -1016,6 +1032,14 @@ function M.send(text)
       end
       if command.name == 'help' then
         ui.slash_help()
+        return
+      end
+      if command.name == 'skill' then
+        local name, arguments = require('codeit.skill_invocation').parse(args)
+        if not name then ui.slash_error(arguments); return end
+        local ok, err = M.invoke_skill(name, arguments)
+        if not ok then ui.slash_error(err); return end
+        ui.take_input()
         return
       end
       ui.take_input()
@@ -1486,6 +1510,13 @@ function M.setup(opts)
   vim.api.nvim_create_user_command('CodeitSettings', M.settings,
     { desc = 'Manage main/feature models, presets, request options, and saved settings', force = true })
   vim.api.nvim_create_user_command('Codeit', M.toggle, { desc = 'Toggle codeit chat', force = true })
+  vim.api.nvim_create_user_command('CodeitSkill', function(args)
+    local name, arguments = require('codeit.skill_invocation').parse(args.args)
+    if not name then return vim.notify('codeit: ' .. arguments, vim.log.levels.WARN) end
+    M.open()
+    local ok, err = M.invoke_skill(name, arguments)
+    if not ok then vim.notify('codeit: ' .. err, vim.log.levels.WARN) end
+  end, { nargs = '+', desc = 'Invoke a skill with optional literal arguments', force = true })
   vim.api.nvim_create_user_command('CodeitSend', function(args)
     M.open()
     M.send(args.args ~= '' and args.args or nil)

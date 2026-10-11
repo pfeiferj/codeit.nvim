@@ -12,7 +12,7 @@ local read_tools = {
   list_buffers = true, list_workspace_files = true,
   search_workspace = true, read_file = true, read_loaded_buffer = true,
   read_source_buffer = true, get_diagnostics = true,
-  git_status = true, git_diff = true, load_skill = true,
+  git_status = true, git_diff = true, load_skill = true, read_skill_resource = true,
 }
 
 local trusted_workspaces = {}
@@ -47,7 +47,7 @@ local function buffer_path(id)
   return vim.api.nvim_buf_get_name(id)
 end
 
-local function auto_read(name, args, workspace, source)
+local function auto_read(name, args, workspace, source, context)
   local layout = require('codeit.managed_tab')
   if require('codeit.window_tools').names[name] and name ~= 'read_window_buffer' then return true end
   local id
@@ -67,6 +67,7 @@ local function auto_read(name, args, workspace, source)
     local real = trusted_path(path, workspace)
     return real and (mode == 'all' or tracked(real, workspace)) or false
   end
+  if name == 'read_skill_resource' then return allowed(context and context.skill_resource_path) end
   if name == 'read_file' then return allowed(args.path) end
   if name == 'read_window_buffer' then return allowed(buffer_path(id)) end
   if name == 'read_loaded_buffer' or name == 'read_source_buffer' then
@@ -283,17 +284,21 @@ Use this ordinal risk scale, considering authorization, data sensitivity, untrus
 --- The returned function delivers the result immediately if it is already available.
 function M.prefetch(name, args, context, active)
   if not context or not context.review then return nil end
+  -- Relative resource arguments need a resolved location before review or approval caching.
+  if name == 'read_skill_resource' and not context.skill_resource_path then return nil end
   local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
 if name == 'ask_user' or require('codeit.window_tools').names[name] or save_tools[name] or workspace_read(name, args, context, workspace)
     or edit_tools[name] or name == 'create_file' then return nil end
   load()
-  if remembered[vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args }))] then return nil end
+  if remembered[vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args,
+    resource_path = context.skill_resource_path }))] then return nil end
   local summary, score, ready = nil, nil, false
   local listeners = {}
   context.review({
     { role = 'system', content = assessment_system },
     { role = 'user', content = 'User request: ' .. tostring(context.user_request or '') .. '\nTool: ' .. name
-      .. '\nArguments: ' .. canonical(args) .. '\nApproval prompt: Allow ' .. name .. ' ' .. canonical(args) .. '?' },
+      .. '\nArguments: ' .. canonical(args) .. '\nApproval prompt: Allow ' .. name .. ' ' .. canonical(args) .. '?'
+      .. (context.skill_resource_path and ('\nResolved resource: ' .. canonical(context.skill_resource_path)) or '') },
   }, function(answer, err)
     if active and not active() then return end
     summary, score = assessment(answer, err)
@@ -310,7 +315,8 @@ function M.request(name, args, prompt, active, done, action, context)
   context = context or {}
   load()
   local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
-  local signature = vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args }))
+  local signature = vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args,
+    resource_path = context.skill_resource_path }))
   local verdict, reason
   for _, validator in ipairs(validators) do
     local ok, decision, message = pcall(validator, name, args, { workspace = workspace, user_request = context.user_request })
@@ -327,7 +333,7 @@ function M.request(name, args, prompt, active, done, action, context)
   -- Saving user changes always needs a fresh explicit decision, even with a
   -- remembered call or an approve validator. Reject validators still win.
 if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (remembered[signature]
-    or auto_read(name, args, workspace, context.source_buffer)))) then return action() end
+    or auto_read(name, args, workspace, context.source_buffer, context)))) then return action() end
 
   local function live() return not active or active() end
   local skip_summary = context.diff or save_tools[name] or require('codeit.window_tools').names[name]
@@ -341,6 +347,7 @@ if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (reme
   end
   local function prompt_text()
     return approval_format.call(name, args)
+      .. (context.skill_resource_path and ('\n\n**Resolved resource:** ' .. canonical(context.skill_resource_path)) or '')
       .. (skip_summary and '' or '\n\nSummary: ' .. summary
         .. '\n\n**Safety score:** ' .. (score and score .. '/10' or (ready and 'Unavailable' or 'Pending'))
         .. ' (0 safest; 10 most dangerous)'
