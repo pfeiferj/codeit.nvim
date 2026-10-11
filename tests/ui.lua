@@ -467,7 +467,26 @@ do
     end)
   end
   local set_lines, set_text = vim.api.nvim_buf_set_lines, vim.api.nvim_buf_set_text
-  local writes = 0
+  local text_height, cmd = vim.api.nvim_win_text_height, vim.cmd
+  local writes, refreshing = 0, false
+  local window_count = #vim.api.nvim_list_wins()
+  vim.cmd = setmetatable({}, { __index = cmd, __call = function(_, command)
+    local current = vim.api.nvim_get_current_win()
+    if current == win or current == popup then
+      assert(not command:find('foldopen', 1, true),
+        'fold-state capture must not temporarily open live activity sections')
+      assert(not refreshing or not command:find('zE', 1, true),
+        'resizing must not delete and rebuild populated folds')
+    end
+    return cmd(command)
+  end })
+  vim.api.nvim_win_text_height = function(target, range)
+    assert(vim.api.nvim_win_get_config(target).hide,
+      'activity height must be measured in an invisible window')
+    assert(vim.wo[win].foldenable and vim.wo[popup].foldenable,
+      'summary measurements must never disable live folds')
+    return text_height(target, range)
+  end
   vim.api.nvim_buf_set_lines = function(buf, first, last, strict, replacement)
     if buf == chat then
       assert(not table.concat(replacement, '\n'):find('fold test', 1, true),
@@ -492,9 +511,16 @@ do
     ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
     activity[3].content = activity[3].content .. '\nfold test growing output'
     ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
+    refreshing = true
+    vim.api.nvim_exec_autocmds('WinResized', {})
+    vim.api.nvim_exec_autocmds('VimResized', {})
+    refreshing = false
   end)
   vim.api.nvim_buf_set_lines, vim.api.nvim_buf_set_text = set_lines, set_text
+  vim.api.nvim_win_text_height, vim.cmd = text_height, cmd
   assert(ok, err)
+  assert(#vim.api.nvim_list_wins() == window_count, 'fold probes must not leak windows')
+  assert(vim.api.nvim_get_current_win() == popup, 'fold probes must not change the focused window')
   assert(writes == 8, 'reasoning, input, output, and command bodies should each be filled on both renders')
   local text = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
   for _, body in ipairs({ 'fold test reasoning', 'fold test input', 'fold test output',
@@ -506,6 +532,26 @@ do
       local after = vim.fn.winsaveview()
       assert(after.topline == before[view].topline and after.lnum == before[view].lnum,
         'adding folded activity must preserve a scrolled-back viewport')
+    end)
+  end
+  local section_row, reasoning_row
+  for row, line in ipairs(vim.api.nvim_buf_get_lines(chat, 0, -1, false)) do
+    if line == '**Activity**' then section_row = row end
+    if line == '**Reasoning**' then reasoning_row = row end
+  end
+  vim.api.nvim_win_call(popup, function()
+    vim.cmd(section_row .. 'foldopen')
+    vim.cmd(reasoning_row .. 'foldopen')
+    vim.cmd(section_row .. 'foldclose')
+  end)
+  ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
+  for _, view in ipairs({ win, popup }) do
+    vim.api.nvim_win_call(view, function()
+      assert(vim.fn.foldclosed(reasoning_row) == section_row, 'the outer section must remain collapsed')
+      vim.cmd(section_row .. 'foldopen')
+      assert(vim.fn.foldclosed(reasoning_row) == (view == popup and -1 or reasoning_row),
+        'hidden children must retain their independent per-window expansion state')
+      vim.cmd(section_row .. 'foldclose')
     end)
   end
   ui.toggle_popup()

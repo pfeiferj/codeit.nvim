@@ -87,7 +87,7 @@ function M.attach(api, state, options, helpers)
 
   function helpers.refresh_chat_folds()
     for _, win in ipairs({ state.transcript_win, state.sidebar_win }) do
-      if valid(win) then M.decorate_chat(win, helpers.expanded_folds(win)) end
+      if valid(win) then helpers.update_fold_summaries(win) end
     end
   end
 

@@ -2,26 +2,38 @@ local M = {}
 
 function M.attach(api, state, options, helpers)
   local M = api
+  -- A same-buffer window inherits the source's manual folds, including child state.
+  -- Inspect and measure that hidden copy without ever exposing live activity bodies.
+  local function with_fold_probe(win, callback)
+    return vim.api.nvim_win_call(win, function()
+      local width = vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff
+      local probe = vim.api.nvim_open_win(vim.api.nvim_win_get_buf(win), false, {
+        relative = 'editor', row = 0, col = 0, width = math.max(1, width), height = 1,
+        hide = true, noautocmd = true, focusable = false, style = 'minimal',
+      })
+      local ok, result = pcall(vim.api.nvim_win_call, probe, function() return callback(probe) end)
+      vim.cmd('noautocmd call nvim_win_close(' .. probe .. ', v:true)')
+      if not ok then error(result) end
+      return result
+    end)
+  end
+
   function helpers.update_fold_summaries(win)
-    vim.api.nvim_win_call(win, function()
-      local view = vim.fn.winsaveview()
-      local enabled = vim.wo[win].foldenable
-      -- Measure wrapped content without deleting the folds that already contain it.
-      vim.wo[win].foldenable = false
+    local summaries = with_fold_probe(win, function(probe)
+      vim.wo[probe].foldenable = false
       local summaries = {}
       for _, folds in ipairs({ state.tool_folds, state.section_folds }) do
         for _, fold in ipairs(folds) do
-          local height = vim.api.nvim_win_text_height(win, {
+          local height = vim.api.nvim_win_text_height(probe, {
             start_row = fold.first - 1 + fold.padding,
             end_row = fold.last - 1 - fold.padding,
           })
           summaries[tostring(fold.first)] = { preview = fold.preview, count = height.all - height.fill }
         end
       end
-      vim.w[win].codeit_fold_summaries = summaries
-      vim.wo[win].foldenable = enabled
-      vim.fn.winrestview(view)
+      return summaries
     end)
+    vim.w[win].codeit_fold_summaries = summaries
   end
 
   function M.tool_foldtext()
@@ -93,14 +105,11 @@ function M.attach(api, state, options, helpers)
   function helpers.expanded_folds(win)
     local expanded = { sections = {} }
     if win and vim.api.nvim_win_is_valid(win) then
-      vim.api.nvim_win_call(win, function()
-        local view = vim.fn.winsaveview()
-        local closed = {}
-        -- Temporarily expose children to retain their state even under a closed section.
+      with_fold_probe(win, function()
+        -- Expose children only in the hidden copy to retain their independent state.
         for _, fold in ipairs(state.section_folds) do
           if vim.fn.foldlevel(fold.first) > 0 then
             if vim.fn.foldclosed(fold.first) == fold.first then
-              closed[#closed + 1] = fold.first
               vim.cmd(fold.first .. 'foldopen')
             else
               expanded.sections[fold.key] = true
@@ -112,8 +121,6 @@ function M.attach(api, state, options, helpers)
             expanded[fold.key] = true
           end
         end
-        for _, row in ipairs(closed) do vim.cmd(row .. 'foldclose') end
-        vim.fn.winrestview(view)
       end)
     end
     return expanded
