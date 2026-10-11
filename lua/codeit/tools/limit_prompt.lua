@@ -1,5 +1,5 @@
 local M = {}
-local prompt = require('codeit.approval_prompt')
+local prompt = require('codeit.tools.approval.prompt')
 
 -- This grants more rounds, not approval for the individual tools in those rounds.
 function M.show(default_rounds, active, callback)

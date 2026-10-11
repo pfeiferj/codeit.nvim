@@ -3,7 +3,7 @@ local temp = vim.fn.tempname()
 vim.fn.mkdir(temp, 'p')
 local original_home, original_system = vim.env.CODEX_HOME, vim.system
 vim.env.CODEX_HOME = temp
-local codex = require('codeit.codex')
+local codex = require('codeit.providers.codex.auth')
 local providers = require('codeit.providers')
 local function jwt(value)
   local encoded = vim.base64.encode(vim.json.encode(value)):gsub('+', '-'):gsub('/', '_'):gsub('=+$', '')

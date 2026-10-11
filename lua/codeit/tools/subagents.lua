@@ -9,10 +9,7 @@ M.allowed = { list_buffers = true, list_workspace_files = true, search_workspace
   git_status = true, git_diff = true, write_subagent_artifact = true,
   read_subagent_artifact = true }
 
-local function spec(name, description, properties, required)
-  return { type = 'function', ['function'] = { name = name, description = description,
-    parameters = { type = 'object', properties = properties, required = required or {}, additionalProperties = false } } }
-end
+local spec = require('codeit.tools.spec')
 M.specs = {
   spec('start_subagent', 'Delegate an approval-free read-only task. Uses the subagent feature model settings (fast preset by default) and current context. No user questions, workspace writes, commands, or recursive delegation. Temporary artifacts can be shared with the main agent. Generally useful for tasks such as gathering context as the sub-agent will be faster and cheaper but not as smart.', {
     title = { type = 'string', minLength = 1, maxLength = 200 },

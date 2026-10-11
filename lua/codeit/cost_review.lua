@@ -1,7 +1,7 @@
 local M = {}
 local current
 local history = require('codeit.history')
-local costs = require('codeit.cost_tools')
+local costs = require('codeit.tools.cost')
 local usage_format = require('codeit.usage_format')
 local table_popup = require('codeit.table_popup')
 local cost_breakdown = require('codeit.cost_breakdown')

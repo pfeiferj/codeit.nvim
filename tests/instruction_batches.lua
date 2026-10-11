@@ -11,7 +11,7 @@ package.loaded['codeit.providers'] = { chat = function(_, messages, _, callback)
 end }
 local plugin = require('codeit')
 local writes = 0
-require('codeit.write_approval').show = function(_, _, cb) writes = writes + 1; cb('once') end
+require('codeit.tools.approval.write').show = function(_, _, cb) writes = writes + 1; cb('once') end
 plugin.setup({ max_context_tokens = false, approval = { trusted_workspaces = { [dir] = 'all' } } })
 local function call(id, name, args)
   return { id = id, type = 'function', ['function'] = { name = name, arguments = vim.json.encode(args) } }
@@ -87,7 +87,7 @@ plugin.send('Read under updated restrictions')
 reply({ call('updated-read', 'read_file', { path = 'src/main.txt' }) })
 finish()
 local pending
-require('codeit.write_approval').show = function(_, _, cb) pending = cb end
+require('codeit.tools.approval.write').show = function(_, _, cb) pending = cb end
 plugin.send('Propose a change for approval')
 reply({ call('pending-write', 'edit_file', { path = 'src/main.txt', edits = { { old_text = 'after', new_text = 'bad' } } }) })
 assert(pending)

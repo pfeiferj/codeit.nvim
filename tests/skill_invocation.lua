@@ -29,7 +29,7 @@ vim.fn.system({ 'git', '-C', workspace, 'init', '-q' })
 vim.fn.system({ 'git', '-C', workspace, 'add', '.agents/skills/review/SKILL.md', '.agents/skills/review/references/checklist.md' })
 vim.fn.chdir(workspace)
 local history = require('codeit.history')
-local approval = require('codeit.approval')
+local approval = require('codeit.tools.approval')
 local files = require('codeit.context_files')
 local requests, callbacks = {}, {}
 package.loaded['codeit.providers'] = { chat = function(_, messages, specs, callback)
@@ -91,7 +91,7 @@ answer()
 chat = history.load(workspace, id)
 local selected = chat.selected_skills
 local tools = require('codeit.tools')
-local prompt = require('codeit.approval_prompt')
+local prompt = require('codeit.tools.approval.prompt')
 local choice, prompts = 'reject', 0
 prompt.show = function(message, _, callback)
   assert(message:find('Resolved resource:', 1, true))

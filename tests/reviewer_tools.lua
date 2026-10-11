@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local reviewer = require('codeit.reviewer_tools')
+local reviewer = require('codeit.tools.reviewer')
 local transcript = {
   { role = 'user', content = 'Keep my changes\nneedle' },
   { role = 'assistant', content = 'Plan', _copilot_reasoning = 'private-secret', reasoning_details = 'private-secret',

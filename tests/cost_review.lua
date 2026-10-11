@@ -4,7 +4,7 @@ vim.fn.mkdir(temp, 'p')
 local original_stdpath = vim.fn.stdpath
 vim.fn.stdpath = function(kind) return kind == 'data' and temp or original_stdpath(kind) end
 local history = require('codeit.history')
-local costs = require('codeit.cost_tools')
+local costs = require('codeit.tools.cost')
 local usage_format = require('codeit.usage_format')
 local breakdown = require('codeit.cost_breakdown')
 local buckets = {}

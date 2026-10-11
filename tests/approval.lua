@@ -1,6 +1,6 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local approval = require('codeit.approval')
-local prompt_ui = require('codeit.approval_prompt')
+local approval = require('codeit.tools.approval')
+local prompt_ui = require('codeit.tools.approval.prompt')
 local original_show, original_ask, original_input = prompt_ui.show, prompt_ui.ask_reviewer, vim.ui.input
 local choices, inputs, questions = {}, {}, {}
 local prompts, prompt_configs, input_prompts = {}, {}, {}
@@ -218,7 +218,7 @@ assert(#prompts == before + 1 and pending, 'approval must open before the review
 live = false
 pending('{"summary":"Prints text.","safety_score":1}')
 assert(prompts[#prompts]:find('Waiting for provider…', 1, true), 'stale reviewer response must not update approval')
-local write_ui = require('codeit.write_approval')
+local write_ui = require('codeit.tools.approval.write')
 local old_write_show = write_ui.show
 local write_calls = 0
 write_ui.show = function(diff, options, cb)

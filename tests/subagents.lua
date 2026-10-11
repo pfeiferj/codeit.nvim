@@ -13,9 +13,9 @@ vim.fn.writefile({ 'private' }, temp .. '/private.txt')
 local plugin = require('codeit')
 plugin.setup({ context_review = false, max_context_tokens = false,
   model_presets = { fast = { model = 'fast-model' } } })
-local tools, agents = require('codeit.tools'), require('codeit.subagents')
-local approval = require('codeit.approval')
-require('codeit.approval_prompt').show = function() error('subagents must never prompt') end
+local tools, agents = require('codeit.tools'), require('codeit.tools.subagents')
+local approval = require('codeit.tools.approval')
+require('codeit.tools.approval.prompt').show = function() error('subagents must never prompt') end
 vim.ui.input = function() error('subagents must never ask') end
 vim.ui.select = function() error('subagents must never select') end
 local function reply(message, usage)

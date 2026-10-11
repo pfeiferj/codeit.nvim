@@ -2,11 +2,7 @@ local M = {}
 local layout = require('codeit.managed_tab')
 local buffers = require('codeit.file_buffer')
 
-local function spec(name, description, properties, required)
-  return { type = 'function', ['function'] = { name = name, description = description,
-    parameters = { type = 'object', properties = properties or vim.empty_dict(),
-      required = required or {}, additionalProperties = false } } }
-end
+local spec = require('codeit.tools.spec')
 local window = { type = 'integer', minimum = 1, description = 'File window ID from list_windows; must belong to the Codeit tab' }
 local path = { type = 'string', minLength = 1, description = 'Existing regular file inside the workspace' }
 local buffer = { type = 'integer', minimum = 1, description = 'Already-loaded ordinary buffer ID, including unnamed or external buffers' }

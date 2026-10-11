@@ -1,7 +1,7 @@
 local M = {}
-local approval_prompt = require('codeit.approval_prompt')
-local approval_format = require('codeit.approval_format')
-local write_approval = require('codeit.write_approval')
+local approval_prompt = require('codeit.tools.approval.prompt')
+local approval_format = require('codeit.tools.approval.format')
+local write_approval = require('codeit.tools.approval.write')
 local buffers = require('codeit.file_buffer')
 
 local save_tools = { save_buffer = true, save_loaded_buffer = true, save_source_buffer = true }
@@ -49,7 +49,7 @@ end
 
 local function auto_read(name, args, workspace, source, context)
   local layout = require('codeit.managed_tab')
-  if require('codeit.window_tools').names[name] and name ~= 'read_window_buffer' then return true end
+  if require('codeit.tools.windows').names[name] and name ~= 'read_window_buffer' then return true end
   local id
   if name == 'read_window_buffer' then id = layout.buffer(args.window_id)
   elseif name == 'read_loaded_buffer' or name == 'read_source_buffer' then id = args.buffer_id or source
@@ -283,12 +283,12 @@ Use this ordinal risk scale, considering authorization, data sensitivity, untrus
 --- Start a review without waiting for this call's turn in the execution queue.
 --- The returned function delivers the result immediately if it is already available.
 function M.prefetch(name, args, context, active)
-  if require('codeit.subagents').names[name] then return nil end
+  if require('codeit.tools.subagents').names[name] then return nil end
   if not context or not context.review then return nil end
   -- Relative resource arguments need a resolved location before review or approval caching.
   if name == 'read_skill_resource' and not context.skill_resource_path then return nil end
   local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
-if name == 'ask_user' or require('codeit.window_tools').names[name] or save_tools[name] or workspace_read(name, args, context, workspace)
+if name == 'ask_user' or require('codeit.tools.windows').names[name] or save_tools[name] or workspace_read(name, args, context, workspace)
     or edit_tools[name] or name == 'create_file' then return nil end
   load()
   if remembered[vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args,
@@ -339,7 +339,7 @@ if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (reme
   if context.no_prompt then return done('Error: this call requires approval; subagents cannot prompt the user') end
 
   local function live() return not active or active() end
-  local skip_summary = context.diff or save_tools[name] or require('codeit.window_tools').names[name]
+  local skip_summary = context.diff or save_tools[name] or require('codeit.tools.windows').names[name]
     or workspace_read(name, args, context, workspace)
   local summary = context.review and 'Waiting for provider…' or 'Review unavailable (reviewer not configured)'
   local score, ready = nil, not context.review or skip_summary

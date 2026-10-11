@@ -8,8 +8,8 @@ package.loaded['codeit.providers'] = {
 }
 local plugin = require('codeit')
 plugin.setup({ context_review = false })
-local tasks = require('codeit.background_tasks')
-local approval = require('codeit.approval')
+local tasks = require('codeit.tools.execution.tasks')
+local approval = require('codeit.tools.approval')
 local approve
 approval.prefetch = function() end
 approval.request = function(_, _, _, _, _, action) approve = action end

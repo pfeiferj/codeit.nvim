@@ -9,7 +9,7 @@ function M.show(question, choices, callback)
       options[#options + 1] = { key = tostring(index % 10), id = choice, label = choice }
     end
     options[#options + 1] = { key = 'o', id = other, label = 'Other (type an answer)' }
-    return require('codeit.approval_prompt').show(question, options, function(choice)
+    return require('codeit.tools.approval.prompt').show(question, options, function(choice)
       if choice == other then return M.show(question, nil, callback) end
       callback(choice)
     end, { title = ' Codeit question ', dismiss = 'Cancel task' })

@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local popup = require('codeit.write_approval')
+local popup = require('codeit.tools.approval.write')
 local options = {
   { key = '1', id = 'once', label = 'Approve once' },
   { key = '2', id = 'always', label = 'Always approve exact call' },

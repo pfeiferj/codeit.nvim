@@ -29,6 +29,8 @@ local function reset()
   gh_result = { code = 0, stdout = 'cli-token\n' }
   exchange_result = { code = 0, stdout = vim.json.encode({ token = 'session-token', expires_at = now + 300 }) .. '\n200' }
   package.loaded['codeit.providers'] = nil
+  package.loaded['codeit.providers.copilot'] = nil
+  package.loaded['codeit.providers.copilot.auth'] = nil
   return require('codeit.providers')
 end
 local function credentials(name, data)

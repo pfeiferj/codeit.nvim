@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local prompt = require('codeit.question_prompt')
+local prompt = require('codeit.tools.question_prompt')
 local original = vim.api.nvim_get_current_win()
 local function press(key, mode)
   local buf = vim.api.nvim_get_current_buf()

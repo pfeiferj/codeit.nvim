@@ -692,6 +692,54 @@ Buffer edits check for changes while confirmation is pending; file paths are res
 
 ## Development
 
+### Tool code layout
+
+`require('codeit.tools')` loads `lua/codeit/tools/init.lua`, the main tool
+registry and approval-aware dispatcher. Tool names and schemas are independent
+of the Lua module paths.
+
+- `tools/agent.lua` assembles capability modules, preserving advertised order,
+  and routes calls using the names in their schemas.
+- `tools/workspace/` contains file/buffer reads and writes, edit helpers, search,
+  diagnostics, Git, and shared workspace path checks.
+- `tools/execution/` contains command and HTTP tools plus background task state
+  and UI.
+- `tools/approval/` contains approval policy, formatting, prompts, and write
+  previews.
+- `tools/windows.lua`, `subagents.lua`, `reviewer.lua`, and `cost.lua` contain
+  their respective tool sets; `tools/skills/` contains skill resource access.
+- `tools/spec.lua` builds schemas, `validation.lua` validates main-agent calls,
+  and logging and tool-specific prompts live alongside them.
+
+Keep each capability's schemas beside its handlers. Add new workspace or
+execution groups to `tools/agent.lua`; keep approval routing in `tools/init.lua`
+and policy in `tools/approval/`. Shared infrastructure used beyond tools, such
+as `file_buffer.lua`, `managed_tab.lua`, and `process.lua`, remains in
+`lua/codeit/`. Tests remain grouped by behavior under `tests/`.
+
+### Provider code layout
+
+`require('codeit.providers')` loads `lua/codeit/providers/init.lua`, the public
+entry point for chat, model catalogs, upstream endpoints, and context limits.
+It selects backends and handles chat cancellation checks and error logging.
+
+- `providers/openrouter.lua` owns OpenRouter requests, routing options, and
+  upstream endpoint catalogs.
+- `providers/copilot/` owns Copilot authentication, allowed API hosts, cached
+  catalogs, and endpoint selection.
+- `providers/codex/` owns CLI credential access, redaction, and the subscription
+  backend's request requirements.
+- `providers/protocols/` contains shared chat-completions and Responses adapters,
+  SSE parsing, and usage normalization. Responses is shared by Copilot and Codex.
+- `providers/http.lua` owns curl execution, HTTP/JSON decoding, rate-limit retries,
+  streaming delivery, and process cancellation.
+- `providers/models.lua` normalizes catalogs and caches/deduplicates context-limit
+  lookups; `providers/log.lua` writes provider error logs.
+
+Keep backend-specific authentication, headers, and options in the backend modules;
+keep shared wire formats and transport independent of backend request routing.
+Provider behavior tests remain under `tests/`.
+
 Run all headless tests from the repository root:
 
 ```sh

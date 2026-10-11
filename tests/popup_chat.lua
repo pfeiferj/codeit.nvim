@@ -1,7 +1,7 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local ui = require('codeit.ui')
-local prompt = require('codeit.approval_prompt')
-local write = require('codeit.write_approval')
+local prompt = require('codeit.tools.approval.prompt')
+local write = require('codeit.tools.approval.write')
 local function press(win, key, mode)
   vim.api.nvim_set_current_win(win)
   for _, map in ipairs(vim.api.nvim_buf_get_keymap(vim.api.nvim_win_get_buf(win), mode or 'n')) do

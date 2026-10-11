@@ -2,7 +2,7 @@ local M = {}
 
 -- Resolve the integration, not the user's current workspace (including symlink installs).
 local source = debug.getinfo(1, 'S').source:sub(2)
-local directory = vim.fn.fnamemodify(vim.uv.fs_realpath(source) or source, ':h:h:h')
+local directory = vim.fn.fnamemodify(vim.uv.fs_realpath(source) or source, ':h:h:h:h')
 local warned = false
 local function warn(err)
   if warned then return end

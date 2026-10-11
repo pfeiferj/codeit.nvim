@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local prompt = require('codeit.approval_prompt')
+local prompt = require('codeit.tools.approval.prompt')
 local options = {
   { key = '1', id = 'once', label = 'Approve once' },
   { key = '2', id = 'tracked', label = 'Trust workspace (Git-tracked reads)' },
@@ -264,7 +264,7 @@ assert(#vim.api.nvim_get_autocmds({ event = { 'WinClosed', 'WinResized', 'VimRes
   'closing the reviewer must remove its instance autocmds')
 ui.close()
 -- Tool-limit decisions use the same keyboard-driven popup, with safe dismissal.
-local limit_prompt = require('codeit.tool_limit_prompt')
+local limit_prompt = require('codeit.tools.limit_prompt')
 local function limit_choice(key, expected, default_rounds)
   local result, calls = false, 0
   limit_prompt.show(default_rounds or 12, function() return true end, function(rounds)

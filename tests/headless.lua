@@ -41,7 +41,7 @@ contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Conte
 plugin.send('Show me the buffer')
 assert(requests[1].messages[2].content == 'Show me the buffer')
 assert(requests[1].config.model == 'openai/gpt-4o-mini', 'main requests use the main model')
-local prompt_ui = require('codeit.approval_prompt')
+local prompt_ui = require('codeit.tools.approval.prompt')
 local read_choice
 prompt_ui.show = function(_, _, callback) read_choice = callback end
 local reasoning = { { type = 'reasoning', id = 'rs_1', summary = {}, encrypted_content = 'encrypted' } }
@@ -74,7 +74,7 @@ assert(vim.api.nvim_buf_get_lines(chat_buf, -2, -1, false)[1] == 'next draft',
   'async replies must preserve an unfinished draft')
 assert(require('codeit.ui').take_input() == 'next draft')
 
-local write_ui = require('codeit.write_approval')
+local write_ui = require('codeit.tools.approval.write')
 local select_callback, edit_diff
 write_ui.show = function(diff, _, callback)
   select_callback = callback

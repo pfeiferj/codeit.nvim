@@ -28,7 +28,7 @@ plugin.context_full()
 local buf = vim.fn.bufnr('codeit://context-full')
 local function replace(value)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false,
-    vim.split(require('codeit.approval_format').pretty_json(value), '\n', { plain = true }))
+    vim.split(require('codeit.tools.approval.format').pretty_json(value), '\n', { plain = true }))
 end
 local effective = vim.json.decode(table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n'))
 assert(#effective == 2 and effective[2].content:find('Summary.', 1, true))

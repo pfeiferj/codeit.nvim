@@ -3,7 +3,7 @@ local compaction = require('codeit.compaction')
 local ui = require('codeit.ui')
 local providers = require('codeit.providers')
 local tools = require('codeit.tools')
-local approval = require('codeit.approval')
+local approval = require('codeit.tools.approval')
 local history = require('codeit.history')
 local cost_breakdown = require('codeit.cost_breakdown')
 local history_picker = require('codeit.history_picker')
@@ -12,7 +12,7 @@ local context_files = require('codeit.context_files')
 local context_files_picker = require('codeit.context_files_picker')
 local settings = require('codeit.settings')
 local settings_picker = require('codeit.settings_picker')
-local tool_limit_prompt = require('codeit.tool_limit_prompt')
+local tool_limit_prompt = require('codeit.tools.limit_prompt')
 
 local M = {}
 local defaults = {
@@ -810,7 +810,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
         seen[call.id] = true
       end
     end
-    local tool_log = require('codeit.tool_log')
+    local tool_log = require('codeit.tools.log')
     local tool_log_entries = {}
     for index, call in ipairs(type(calls) == 'table' and calls or {}) do
       local fn = call['function']
@@ -863,7 +863,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
             respond(message, err)
           end, nil, active_review)
         else
-          require('codeit.reviewer_tools').chat(selected_config, history, messages, respond, active_review, usage)
+          require('codeit.tools.reviewer').chat(selected_config, history, messages, respond, active_review, usage)
         end
       end
       local function prepare(path)
@@ -1528,12 +1528,12 @@ function M.setup(opts)
     error('codeit: context_review must be a boolean')
   end
   tools.configure(config.approval)
-  local background_tasks = require('codeit.background_tasks')
+  local background_tasks = require('codeit.tools.execution.tasks')
   background_tasks.configure(function(task)
     return not busy and task.origin and task.origin.chat_id == chat_id
       and task.origin.workspace == workspace and workspace == history.workspace()
   end, function(_, text) M.send(text) end)
-  local subagents = require('codeit.subagents')
+  local subagents = require('codeit.tools.subagents')
   subagents.configure(function(run)
     return not busy and run.origin and run.origin.chat_id == chat_id
       and run.origin.workspace == workspace and workspace == history.workspace()

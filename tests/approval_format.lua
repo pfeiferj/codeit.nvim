@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local format = require('codeit.approval_format')
+local format = require('codeit.tools.approval.format')
 
 local json = format.call('read_file', { path = 'a`b.lua', end_line = 20, options = { nested = true, items = { 1, 2 } } })
 assert(json:find('# read_file\n\n```json\n{\n', 1, true), json)

@@ -72,7 +72,7 @@ local function reply(content, usage)
 end
 plugin.send('Check a tool')
 assert(requests[#requests].config.model == base.models.openrouter)
-local prompt = require('codeit.approval_prompt')
+local prompt = require('codeit.tools.approval.prompt')
 local choose, ask
 prompt.show = function(_, _, callback) choose = callback end
 prompt.ask_reviewer = function(_, _, callback) ask = callback end

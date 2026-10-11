@@ -9,10 +9,10 @@ package.loaded['codeit.providers'] = { chat = function(_, messages, specs, cb)
 end }
 local plugin = require('codeit')
 plugin.setup({ max_context_tokens = false })
-local prompt = require('codeit.approval_prompt')
+local prompt = require('codeit.tools.approval.prompt')
 prompt.show = function(_, _, cb) cb('once') end
 local pending
-require('codeit.question_prompt').show = function(_, _, cb) pending = cb end
+require('codeit.tools.question_prompt').show = function(_, _, cb) pending = cb end
 local function tool(name, args)
   table.remove(callbacks, 1)({ role = 'assistant', tool_calls = { {
     id = name, type = 'function', ['function'] = { name = name, arguments = vim.json.encode(args) },
@@ -66,7 +66,7 @@ vim.fn.writefile({ 'before' }, 'save.txt')
 local id = vim.fn.bufadd(dir .. '/save.txt')
 vim.fn.bufload(id)
 vim.api.nvim_buf_set_lines(id, 0, -1, false, { 'unsaved user change' })
-require('codeit.write_approval').show = function(diff, _, cb)
+require('codeit.tools.approval.write').show = function(diff, _, cb)
   assert(diff.warning and diff.before == 'before\n' and diff.after == 'unsaved user change\n')
   pending = cb
 end

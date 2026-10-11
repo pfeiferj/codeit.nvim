@@ -775,7 +775,7 @@ function M.render(messages, status, provider, model, billing, command_results, c
         local input = fn.arguments
         if type(input) == 'string' and input ~= '' then
           local ok, decoded = pcall(vim.json.decode, input)
-          if ok then input = require('codeit.approval_format').pretty_json(decoded) end
+          if ok then input = require('codeit.tools.approval.format').pretty_json(decoded) end
           vim.list_extend(lines, markdown.fence(input, ok and 'json' or 'text'))
         end
         finish_item(first, call)
@@ -928,7 +928,7 @@ local function editor(name, lines, filetype, decode, on_save)
 end
 
 function M.show_context_full(messages, on_save)
-  local text = require('codeit.approval_format').pretty_json(messages)
+  local text = require('codeit.tools.approval.format').pretty_json(messages)
   -- JSON is intentionally the exact effective request message array, including tool metadata.
   editor('codeit://context-full', vim.split(text, '\n', { plain = true }), 'json',
     function(value) return pcall(vim.json.decode, value) end, on_save)

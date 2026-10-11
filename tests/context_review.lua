@@ -77,7 +77,7 @@ package.loaded['codeit.providers'] = {
   end,
 }
 local tools = require('codeit.tools')
-require('codeit.approval').prefetch = function() return nil end
+require('codeit.tools.approval').prefetch = function() return nil end
 tools.execute = function(name, _, _, callback)
   callback(name == 'edit_file' and string.rep('edit result', 500) or 'Tests passed.')
 end

@@ -1,9 +1,9 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local root = vim.fn.getcwd()
-local log = require('codeit.tool_log')
+local log = require('codeit.tools.log')
 local tools = require('codeit.tools')
-local approval = require('codeit.approval')
-local agent = require('codeit.agent_tools')
+local approval = require('codeit.tools.approval')
+local agent = require('codeit.tools.agent')
 local path = vim.fn.stdpath('state') .. '/codeit/tool-errors.jsonl'
 vim.fn.delete(path)
 local workspace = vim.fn.tempname()

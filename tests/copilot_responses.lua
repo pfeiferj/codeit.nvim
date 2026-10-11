@@ -189,7 +189,7 @@ for _, case in ipairs({
   assert(#calls == before + 1, 'errors must not retry a possibly billable chat')
 end
 
-local adapter = require('codeit.copilot_responses')
+local adapter = require('codeit.providers.protocols.responses')
 local body = adapter.body('model', {
   { role = 'user', content = {
     { type = 'text', text = 'describe' },

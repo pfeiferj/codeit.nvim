@@ -14,7 +14,7 @@ end
 local plugin = require('codeit')
 local history = require('codeit.history')
 local prompts, pending, input = {}, nil, nil
-require('codeit.approval_prompt').show = function(text, options, cb, config)
+require('codeit.tools.approval.prompt').show = function(text, options, cb, config)
   assert(text:find('Tool limit reached', 1, true) and config.dismiss == 'Decline additional tools')
   prompts[#prompts + 1] = options
   assert(not pending, 'only one limit decision may be pending')

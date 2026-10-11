@@ -94,7 +94,7 @@ for i = 1, 2 do
 end
 local tools = require('codeit.tools')
 local execute = tools.execute
-local approval = require('codeit.approval')
+local approval = require('codeit.tools.approval')
 local prefetch = approval.prefetch
 approval.prefetch = function() return nil end
 tools.execute = function(_, _, _, callback) callback(string.rep('t', 500)) end

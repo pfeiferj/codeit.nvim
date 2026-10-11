@@ -6,9 +6,9 @@ vim.fn.writefile({ 'workspace' }, dir .. '/src/file.txt')
 vim.fn.writefile({ 'external' }, other .. '/file.txt')
 vim.cmd.cd(dir)
 local tools = require('codeit.tools')
-local approval = require('codeit.approval')
-local prompt = require('codeit.approval_prompt')
-local writes = require('codeit.write_approval')
+local approval = require('codeit.tools.approval')
+local prompt = require('codeit.tools.approval.prompt')
+local writes = require('codeit.tools.approval.write')
 local files = require('codeit.context_files')
 local asked, preview = 0, nil
 prompt.show = function(_, _, cb) asked = asked + 1; cb('once') end

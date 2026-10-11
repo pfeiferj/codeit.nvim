@@ -3,8 +3,8 @@ local root, dir = vim.fn.getcwd(), vim.fn.tempname()
 vim.fn.mkdir(dir .. '/src', 'p')
 vim.cmd.cd(dir)
 local tools = require('codeit.tools')
-local prompt = require('codeit.approval_prompt')
-local write = require('codeit.write_approval')
+local prompt = require('codeit.tools.approval.prompt')
+local write = require('codeit.tools.approval.write')
 prompt.show = function(_, _, cb) cb('once') end
 write.show = function(_, _, cb) cb('once') end
 local function run(name, args, context)

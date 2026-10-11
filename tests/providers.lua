@@ -185,14 +185,38 @@ for _, value in ipairs({ vim.NIL, { choices = vim.NIL }, { choices = { vim.NIL }
   assert(failure == 'Response has no assistant message', tostring(failure))
 end
 
-http_response = '{"choices":[{"finish_reason":"length","message":{"content":"partial"}}],"usage":{"cost":0.1}}\n200'
-local cap_failure, cap_usage
-providers.chat({ provider = 'openrouter', model = 'test', max_output_tokens = 256 },
-  { { role = 'user', content = 'summarize' } }, {}, function(message, err, usage)
-    assert(message == nil); cap_failure, cap_usage = err, usage
+http_response = vim.json.encode({ choices = { { finish_reason = 'length', message = { content = 'partial' } } },
+  usage = { cost = 0.1, prompt_tokens = 100, completion_tokens = 25 },
+  copilot_usage = { total_nano_aiu = 360000 },
+}) .. '\n200'
+for _, backend in ipairs({ 'openrouter', 'copilot' }) do
+  local cap_failure, cap_usage
+  providers.chat({ provider = backend, model = 'test', max_output_tokens = 256 },
+    { { role = 'user', content = 'summarize' } }, {}, function(message, err, usage)
+      assert(message == nil); cap_failure, cap_usage = err, usage
+    end)
+  assert(vim.wait(2000, function() return cap_failure ~= nil end))
+  assert(cap_failure:find('token cap', 1, true))
+  assert(cap_usage.cost == (backend == 'openrouter' and 0.1 or 360000 / 100000000000))
+  assert(cap_usage.prompt_tokens == 100 and cap_usage.completion_tokens == 25)
+
+  local answer
+  providers.chat({ provider = backend, model = 'test', max_output_tokens = false }, {}, {}, function(message, err)
+    assert(not err); answer = message
   end)
-assert(vim.wait(2000, function() return cap_failure ~= nil end))
-assert(cap_failure:find('token cap', 1, true) and cap_usage.cost == 0.1)
+  assert(vim.wait(2000, function() return answer ~= nil end))
+  assert(answer.content == 'partial', 'uncapped chat must not reject length-limited results')
+  local request = vim.json.decode(calls[#calls].options.stdin)
+  assert(request.max_tokens == nil and request.max_completion_tokens == nil)
+end
+
+local unknown_calls = #calls
+local unknown_error
+providers.models('unknown', function(_, err) unknown_error = err end)
+assert(unknown_error == 'Unknown provider: unknown')
+unknown_error = nil
+providers.chat({ provider = 'unknown', model = 'test' }, {}, {}, function(_, err) unknown_error = err end)
+assert(unknown_error == 'Unknown provider: unknown' and #calls == unknown_calls)
 
 local log_path = vim.fn.stdpath('state') .. '/codeit/provider-errors.log'
 local before = vim.fn.filereadable(log_path) == 1 and table.concat(vim.fn.readfile(log_path), '\n') or ''

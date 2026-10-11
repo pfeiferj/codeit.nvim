@@ -24,7 +24,7 @@ package.loaded['codeit.providers'] = {
 local tools = require('codeit.tools')
 local schemas = { { type = 'function' } }
 tools.request_specs = function() return schemas end
-require('codeit.approval').prefetch = function() return nil end
+require('codeit.tools.approval').prefetch = function() return nil end
 tools.execute = function(_, _, _, callback) callback('ok') end
 local plugin = require('codeit')
 local function setup(extra)

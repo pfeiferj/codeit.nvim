@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local prompt_ui = require('codeit.approval_prompt')
+local prompt_ui = require('codeit.tools.approval.prompt')
 local tools = require('codeit.tools')
 local root = vim.fn.getcwd()
 local dir = vim.fn.tempname()

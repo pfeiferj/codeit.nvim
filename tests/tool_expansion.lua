@@ -5,9 +5,9 @@ vim.fn.mkdir(dir .. '/docs', 'p')
 vim.fn.mkdir(other, 'p')
 vim.cmd.cd(dir)
 local tools = require('codeit.tools')
-local approval = require('codeit.approval')
-local prompt = require('codeit.approval_prompt')
-local writes = require('codeit.write_approval')
+local approval = require('codeit.tools.approval')
+local prompt = require('codeit.tools.approval.prompt')
+local writes = require('codeit.tools.approval.write')
 local preview, approvals, choice = nil, 0, 'once'
 vim.ui.input = function(_, cb) cb(nil) end
 prompt.show = function(_, _, cb) cb(choice) end
@@ -131,7 +131,7 @@ has(run('save_loaded_buffer', { buffer_id = id }), 'Rejected by approval policy'
 
 -- Questions use choices or free text, respect reject validators, and cancel cleanly.
 approval.setup({})
-local questions = require('codeit.question_prompt')
+local questions = require('codeit.tools.question_prompt')
 questions.show = function(question, choices, cb)
   assert(question:find('Which', 1, true))
   cb(choices[2])

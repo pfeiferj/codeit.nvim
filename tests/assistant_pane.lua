@@ -1,7 +1,7 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local pane = require('codeit.assistant_pane')
 local ui = require('codeit.ui')
-local prompt = require('codeit.approval_prompt')
+local prompt = require('codeit.tools.approval.prompt')
 local original = vim.api.nvim_get_current_win()
 local function explanation_win(except)
   for _, win in ipairs(vim.api.nvim_list_wins()) do
@@ -52,7 +52,7 @@ close()
 close()
 assert(#vim.api.nvim_list_wins() == 1, 'question cleanup must remove the pane')
 
-local write = require('codeit.write_approval')
+local write = require('codeit.tools.approval.write')
 write.show({ before = 'old\n', after = 'new\n', path = 'example.lua' },
   { { key = '1', id = 'once', label = 'Approve' } }, function() end)
 win = vim.api.nvim_get_current_win()

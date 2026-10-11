@@ -18,7 +18,7 @@ vim.fn.mkdir(vim.fn.fnamemodify(other_path, ':h'), 'p')
 write_skill(other_path, 'OTHER_SKILL_BODY')
 vim.fn.chdir(workspace)
 local history = require('codeit.history')
-local approval = require('codeit.approval')
+local approval = require('codeit.tools.approval')
 local files = require('codeit.context_files')
 local requests, callbacks = {}, {}
 package.loaded['codeit.providers'] = { chat = function(_, messages, specs, callback)

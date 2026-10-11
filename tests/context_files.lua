@@ -34,7 +34,7 @@ vim.fn.system({ 'git', '-C', workspace, 'add', 'AGENTS.md', 'src/CLAUDE.md', 'sr
   '.agents/skills/review/SKILL.md', 'src/inner/main.lua' })
 vim.fn.chdir(workspace)
 local history = require('codeit.history')
-local approval = require('codeit.approval')
+local approval = require('codeit.tools.approval')
 local files = require('codeit.context_files')
 local function text(messages)
   local parts = {}

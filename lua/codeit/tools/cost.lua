@@ -1,5 +1,5 @@
 local M = {}
-local reviewer = require('codeit.reviewer_tools')
+local reviewer = require('codeit.tools.reviewer')
 local cost_breakdown = require('codeit.cost_breakdown')
 
 M.note = 'USD totals from saved chats, not invoices. Days use the chat last-updated date in local time, not request dates. Missing usage is unknown, not free. Model/provider are the last saved selection, not a per-request breakdown. Turn costs cover a user prompt and its assistant/tool loop, including associated reviews and automatic compaction; older turns may have no recorded cost. Standalone operations such as manual compaction and history summaries contribute to chat totals but not turn costs. cost_by_function contains recorded main_chat, context_review (background pruning), tool_assessment, tool_review, compaction, cost_review, and history_summary buckets with USD cost, requests, missing_cost counts, tokens_in and tokens_out totals, and missing_in/missing_out flags for incomplete token usage (including older buckets without token counts). Older costs without function attribution are reported separately as unattributed; do not infer that absent buckets were free.'
@@ -9,10 +9,7 @@ function M.number(value)
   if n and n >= 0 and n < math.huge then return n end
 end
 
-local function spec(name, description, properties, required)
-  return { type = 'function', ['function'] = { name = name, description = description,
-    parameters = { type = 'object', properties = properties, required = required or {}, additionalProperties = false } } }
-end
+local spec = require('codeit.tools.spec')
 local filters = {
   workspace = { type = 'string', description = 'Exact workspace path; omitted means all saved workspaces.' },
   from_day = { type = 'string', description = 'Inclusive local date YYYY-MM-DD.' },
@@ -173,7 +170,7 @@ function M.new(chats)
 end
 
 function M.chat(config, messages, tools, callback, active, record_usage)
-  require('codeit.reviewer_tools').chat(config, messages, nil, callback, active, record_usage, tools)
+  require('codeit.tools.reviewer').chat(config, messages, nil, callback, active, record_usage, tools)
 end
 
 return M

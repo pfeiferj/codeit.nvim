@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local stream = require('codeit.stream')
+local stream = require('codeit.providers.protocols.stream')
 local function event(value)
   return 'data: ' .. (type(value) == 'string' and value or vim.json.encode(value)) .. '\r\n\r\n'
 end
@@ -49,7 +49,7 @@ parser.push(event({ type = 'response.output_text.delta', delta = 'wer' })
   .. event({ type = 'response.completed', response = final }))
 result, err = parser.finish()
 assert(not err and vim.deep_equal(result, final) and previews[#previews] == 'Answer')
-local normalized = require('codeit.copilot_responses').message(result)
+local normalized = require('codeit.providers.protocols.responses').message(result)
 assert(normalized.tool_calls[1].id == 'call' and normalized._copilot_reasoning[1].encrypted_content == 'encrypted')
 parser = stream.new(true, function() end)
 parser.push(header .. event({ type = 'response.output_text.delta', delta = 'partial' }) .. event('[DONE]'))
@@ -81,6 +81,8 @@ assert(done == 1 and attempts == 2 and waits[1] == 0 and body.stream and body.st
 vim.env.COPILOT_GITHUB_TOKEN = 'test-token'
 for _, endpoint in ipairs({ '/chat/completions', '/responses' }) do
   package.loaded['codeit.providers'] = nil
+  package.loaded['codeit.providers.copilot'] = nil
+  package.loaded['codeit.providers.copilot.auth'] = nil
   local provider = require('codeit.providers')
   done = 0
   vim.system = function(args, options, callback)
