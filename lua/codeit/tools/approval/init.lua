@@ -2,6 +2,7 @@ local M = {}
 local approval_prompt = require('codeit.tools.approval.prompt')
 local approval_format = require('codeit.tools.approval.format')
 local write_approval = require('codeit.tools.approval.write')
+local approval_queue = require('codeit.ui.approval_queue')
 local buffers = require('codeit.file_buffer')
 
 local save_tools = { save_buffer = true, save_loaded_buffer = true, save_source_buffer = true }
@@ -466,7 +467,9 @@ if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (reme
       summary, ready = 'Review unavailable (assessment not available)', true
     end
   end
-  choose()
+  approval_queue.enqueue(choose, live, function(err)
+    if live() then done('Error: could not show approval prompt: ' .. tostring(err)) end
+  end)
 end
 
 return M
