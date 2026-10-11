@@ -258,7 +258,7 @@ for score = 0, 10 do
   assert(#input_prompts == before_inputs + (score > 5 and 1 or 0))
 end
 -- Empty input, Enter, a single number, partial phrases, and cancellation cannot confirm.
-for index, input in ipairs({ '', '\n', '1', 'approve', 'approve run_command', false }) do
+for index, input in ipairs({ '', '\n', '1', 'approve', 'approve run', false }) do
   choices, inputs = { 'hold' }, { input }
   call('run_command', { argv = { 'echo', 'accidental ' .. index } },
     assessed('{"summary":"Runs a risky command.","safety_score":6}'))
