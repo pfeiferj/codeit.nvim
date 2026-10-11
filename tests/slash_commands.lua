@@ -266,4 +266,44 @@ assert(sends == 1, 'Enter with the menu closed should run the selected command')
 chat.destroy()
 assert(not palette(), 'destroying chat must close its palette')
 _G.codeit_test_palette, _G.codeit_test_stream_palette = nil, nil
+-- Completion plugins must be disabled only in chat buffers, including lazy loads.
+local original_cmp, original_blink = package.loaded['cmp'], package.loaded['blink.cmp']
+local ordinary = vim.api.nvim_get_current_buf()
+local ordinary_blink = vim.b[ordinary].completion
+for _, lazy in ipairs({ false, true }) do
+  local configs = { [ordinary] = { enabled = true, sources = { { name = 'path' } } } }
+  local aborted, hidden = {}, {}
+  local cmp = {
+    setup = { buffer = function(config)
+      configs[vim.api.nvim_get_current_buf()] = config
+    end },
+    abort = function() aborted[#aborted + 1] = vim.api.nvim_get_current_buf() end,
+  }
+  local blink = { hide = function() hidden[#hidden + 1] = vim.api.nvim_get_current_buf() end }
+  package.loaded['cmp'] = not lazy and cmp or nil
+  package.loaded['blink.cmp'] = not lazy and blink or nil
+  local completion_chat = ui.new({ floating = true, slash_commands = not lazy,
+    name = 'codeit://completion-test-' .. tostring(lazy) })
+  local _, completion_buf = completion_chat.open(function() end, function() completion_chat.close() end)
+  assert(vim.b[completion_buf].completion == false, 'chat must opt out of blink completion')
+  if lazy then
+    assert(package.loaded['cmp'] == nil and package.loaded['blink.cmp'] == nil,
+      'opening chat must not load optional completion plugins')
+    -- Simulate a plugin loading after Codeit's InsertEnter handler has run.
+    vim.api.nvim_exec_autocmds('InsertEnter', { buffer = completion_buf })
+    package.loaded['cmp'], package.loaded['blink.cmp'] = cmp, blink
+    assert(vim.wait(100, function() return configs[completion_buf] ~= nil end),
+      'InsertEnter must disable lazily loaded completion plugins')
+  end
+  assert(vim.deep_equal(configs[completion_buf], { enabled = false }),
+    'nvim-cmp must be disabled with buffer-local configuration')
+  assert(aborted[1] == completion_buf and hidden[1] == completion_buf,
+    'existing plugin menus must be dismissed in the chat')
+  assert(vim.deep_equal(configs[ordinary], { enabled = true, sources = { { name = 'path' } } }),
+    'ordinary buffer completion configuration must remain unchanged')
+  assert(vim.b[ordinary].completion == ordinary_blink,
+    'ordinary buffer blink settings must remain unchanged')
+  completion_chat.destroy()
+end
+package.loaded['cmp'], package.loaded['blink.cmp'] = original_cmp, original_blink
 print('codeit slash command tests passed')

@@ -26,6 +26,17 @@ require('codeit.highlight').setup_roles()
 local slash_group = vim.api.nvim_create_augroup('codeit_chat_' .. next_instance, { clear = true })
 local completion, palette_win, palette_buf
 local saved_completeopt
+local function disable_plugin_completion()
+  if vim.api.nvim_get_current_buf() ~= transcript then return end
+  -- Do not load optional completion plugins just to disable them in the chat.
+  local cmp = package.loaded['cmp']
+  if cmp then
+    cmp.setup.buffer({ enabled = false })
+    cmp.abort()
+  end
+  local blink = package.loaded['blink.cmp']
+  if blink then blink.hide() end
+end
 local function suppress_completion()
   if vim.api.nvim_get_current_buf() ~= transcript then return end
   if saved_completeopt == nil then
@@ -343,6 +354,7 @@ local function scratch()
   vim.api.nvim_buf_set_name(buf, options.name or 'codeit://chat')
   vim.bo[buf].bufhidden = options.floating and 'wipe' or 'hide'
   vim.bo[buf].swapfile = false
+  vim.b[buf].completion = false
   markdown.enable(buf)
   local lines = vim.deepcopy(chat_lines)
   if #lines > 0 then table.insert(lines, '') end
@@ -451,6 +463,7 @@ function M.open(on_send, on_close)
     transcript_win = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(transcript_win, transcript)
   end
+  disable_plugin_completion()
   vim.bo[transcript].completeopt = 'menuone,noselect'
   vim.wo[transcript_win].wrap = true
   vim.wo[transcript_win].linebreak = true
@@ -499,7 +512,7 @@ function M.open(on_send, on_close)
   end, { buffer = transcript, expr = true })
   vim.keymap.set('i', '<Plug>(codeit-dismiss-slash)', M.dismiss_slash,
     { buffer = transcript, silent = true })
-  local events = { 'TextChangedI', 'TextChangedP', 'CursorMovedI', 'InsertEnter', 'CompleteChanged' }
+  local events = { 'TextChangedI', 'TextChangedP', 'CursorMovedI', 'CompleteChanged' }
   vim.api.nvim_clear_autocmds({ group = slash_group, event = events })
   vim.api.nvim_create_autocmd(events, {
     group = slash_group, buffer = transcript,
@@ -513,6 +526,17 @@ function M.open(on_send, on_close)
     callback = function() close_palette(); slash_hint = nil; draft_hint() end,
   })
   end
+  vim.api.nvim_clear_autocmds({ group = slash_group, event = 'InsertEnter' })
+  vim.api.nvim_create_autocmd('InsertEnter', {
+    group = slash_group, buffer = transcript,
+    callback = function()
+      -- InsertEnter may load a completion plugin after our handler runs.
+      vim.schedule(function()
+        disable_plugin_completion()
+        if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then M.refresh_slash() end
+      end)
+    end,
+  })
   if not options.floating then
     vim.keymap.set({ 'n', 'i' }, '<C-g>', M.toggle_popup,
       { buffer = transcript, silent = true, desc = 'Toggle interactive chat popup' })
