@@ -10,8 +10,10 @@ assert(not codeit.stop(), 'stopping an idle chat should be a no-op')
 local ui = require('codeit.ui')
 local render, defer, hrtime = ui.render, vim.defer_fn, vim.uv.hrtime
 local status, now, timers = nil, 0, {}
+local last_activity
 ui.render = function(messages, value, ...)
   status = value
+  last_activity = select(7, ...)
   return render(messages, value, ...)
 end
 vim.uv.hrtime = function() return now * 1e6 end
@@ -33,16 +35,23 @@ end
 codeit.send('First question')
 local first = pending[#pending]
 assert(status == 'Waiting', 'no provider data should show Waiting')
+assert(last_activity == now * 1e6, 'initial waiting should count from request start')
+advance(2300)
+assert(last_activity == 0, 'waiting without data must not reset the initial timestamp')
 first.activity()
 advance(50)
 assert(status == 'Thinking', 'non-text response data should also show Thinking')
+local first_event = last_activity
+assert(first_event == (now - 50) * 1e6, 'non-text streaming must record the latest event time')
 advance(3949)
 assert(status == 'Thinking', 'non-text activity should stay Thinking for four seconds')
 advance(1)
 assert(status == 'Waiting', 'four-second non-text stream pauses should show Waiting')
+assert(last_activity == first_event, 'entering Waiting must not reset elapsed time')
 first.text('Partial answer')
 advance(50)
 assert(status == 'Thinking', 'streaming text should show Thinking')
+assert(last_activity == (now - 50) * 1e6, 'streamed text must refresh the activity timestamp')
 advance(400)
 first.text('Partial answer')
 advance(550)
@@ -91,12 +100,15 @@ do
   advance(4000)
   assert(status == 'Tool: read_file', 'a completed stream timer must not overwrite a running tool')
   done('Completed result')
+  local tool_finished = now * 1e6
+  assert(last_activity == tool_finished, 'the next request must carry the tool completion timestamp')
   local after_tool = pending[#pending]
   assert(after_tool ~= tool_request and status == 'Thinking', 'tool completion should start Thinking on the next request')
   advance(3999)
   assert(status == 'Thinking', 'tool activity should stay Thinking for four seconds')
   advance(1)
   assert(status == 'Waiting', 'an idle provider should show Waiting four seconds after tool completion')
+  assert(last_activity == tool_finished, 'post-tool waiting must count from tool completion, not status changes')
   after_tool.activity()
   advance(50)
   assert(status == 'Thinking', 'provider activity after a tool should resume Thinking')

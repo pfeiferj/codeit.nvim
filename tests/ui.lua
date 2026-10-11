@@ -198,6 +198,63 @@ do
   assert(ok, err)
 end
 
+-- Waiting counts from the last agent event, including the Thinking debounce.
+do
+  local waiting = ui.new({ floating = true, name = 'codeit://waiting-test', slash_commands = false })
+  local defer, hrtime, timers, now = vim.defer_fn, vim.uv.hrtime, {}, 120
+  vim.uv.hrtime = function() return now * 1e9 end
+  vim.defer_fn = function(callback, delay)
+    assert(delay == 1000, 'waiting elapsed time should refresh once per second')
+    timers[#timers + 1] = callback
+  end
+  local ok, err = pcall(function()
+    local waiting_win, waiting_buf = waiting.open(function() end, function() end)
+    local function waiting_hint()
+      for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(waiting_buf, ns, 0, -1, { details = true })) do
+        if mark[4].virt_lines then return mark[4].virt_lines[1][1][1] end
+      end
+      error('missing waiting hint')
+    end
+    waiting.render({}, 'Waiting', 'test', 'test', nil, nil, false, nil, now * 1e9)
+    assert(waiting_hint() == 'Waiting ( 0s )', 'the initial request should start counting before any data arrives')
+    now = 121
+    table.remove(timers, 1)()
+    assert(waiting_hint() == 'Waiting ( 1s )')
+    local stale = table.remove(timers, 1)
+    waiting.render({}, 'Thinking', 'test', 'test', nil, nil, false, nil, now * 1e9)
+    stale()
+    assert(#timers == 1, 'resumed activity must cancel the waiting counter loop')
+    stale = table.remove(timers, 1)
+    now = 125
+    waiting.render({}, 'Waiting', 'test', 'test', nil, nil, false, nil, 121 * 1e9)
+    assert(waiting_hint() == 'Waiting ( 4s )', 'Waiting must include time spent in Thinking')
+    stale()
+    assert(#timers == 1, 'transitioning to Waiting should leave only one active timer')
+    local content = vim.api.nvim_buf_get_lines(waiting_buf, 0, -1, false)
+    local cursor = vim.api.nvim_win_get_cursor(waiting_win)
+    now = 144
+    table.remove(timers, 1)()
+    assert(waiting_hint() == 'Waiting ( 23s )', 'elapsed time must use the clock, not count refreshes')
+    assert(vim.deep_equal(content, vim.api.nvim_buf_get_lines(waiting_buf, 0, -1, false)),
+      'waiting counter ticks must not rewrite the transcript')
+    assert(vim.deep_equal(cursor, vim.api.nvim_win_get_cursor(waiting_win)),
+      'waiting counter ticks must not move the cursor')
+    stale = table.remove(timers, 1)
+    waiting.render({}, 'Ready', 'test', 'test')
+    stale()
+    assert(#timers == 0 and waiting_hint() == 'Ready · Ctrl-S: send',
+      'completion must stop counter updates')
+    waiting.render({}, 'Waiting', 'test', 'test', nil, nil, false, nil, 121 * 1e9)
+    stale = table.remove(timers, 1)
+    waiting.close()
+    stale()
+    assert(#timers == 0, 'closing the chat must stop waiting updates')
+  end)
+  waiting.destroy()
+  vim.defer_fn, vim.uv.hrtime = defer, hrtime
+  assert(ok, err)
+end
+
 local long_status = 'Working on 界面 é ' .. string.rep('界', 30) .. ' ' .. string.rep('x', 90)
 local discovery = '/ commands'
 local send_hint = 'Ctrl-S: send · ' .. discovery

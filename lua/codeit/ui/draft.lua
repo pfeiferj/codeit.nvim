@@ -2,9 +2,9 @@ local M = {}
 
 function M.attach(api, state, options, helpers)
   local M = api
-  local thinking_animation
-  function helpers.stop_thinking_animation()
-    thinking_animation = nil
+  local status_animation
+  function helpers.stop_status_animation()
+    status_animation = nil
   end
 
   local function wrap_hint(text, width)
@@ -36,7 +36,7 @@ function M.attach(api, state, options, helpers)
 
   helpers.draft_hint = function()
     if not state.transcript or not vim.api.nvim_buf_is_valid(state.transcript) then
-      helpers.stop_thinking_animation()
+      helpers.stop_status_animation()
       return
     end
     local width
@@ -48,26 +48,31 @@ function M.attach(api, state, options, helpers)
       end
     end
     if not width then
-      helpers.stop_thinking_animation()
+      helpers.stop_status_animation()
       return
     end
     local status = state.draft_status
-    if status == 'Thinking' then
-      if not thinking_animation then
-        local animation = { dots = 0 }
-        thinking_animation = animation
+    if status == 'Thinking' or (status == 'Waiting' and state.last_agent_activity) then
+      if not status_animation or status_animation.status ~= status then
+        local animation = { status = status, dots = 0 }
+        status_animation = animation
         local function tick()
-          if thinking_animation ~= animation then return end
+          if status_animation ~= animation then return end
           animation.dots = (animation.dots + 1) % 4
           helpers.draft_hint()
-          if thinking_animation == animation then vim.defer_fn(tick, 1000) end
+          if status_animation == animation then vim.defer_fn(tick, 1000) end
         end
         vim.defer_fn(tick, 1000)
       end
-      local dots = thinking_animation.dots
-      status = status .. string.rep('.', dots) .. string.rep(' ', 3 - dots)
+      if status == 'Thinking' then
+        local dots = status_animation.dots
+        status = status .. string.rep('.', dots) .. string.rep(' ', 3 - dots)
+      else
+        local seconds = math.max(0, math.floor((vim.uv.hrtime() - state.last_agent_activity) / 1e9))
+        status = status .. string.format(' ( %ds )', seconds)
+      end
     else
-      helpers.stop_thinking_animation()
+      helpers.stop_status_animation()
     end
     local hints = {}
     if status and status ~= '' then hints[#hints + 1] = status end

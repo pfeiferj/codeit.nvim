@@ -25,7 +25,8 @@ function M.attach(api, session, helpers)
       displayed = vim.list_extend({}, session.messages)
       displayed[#displayed + 1] = { role = 'assistant', content = session.stream_preview }
     end
-    ui.render(displayed, session.status, session.config.provider, helpers.model(), billing, session.command_results, not session.busy, session.turn_costs)
+    ui.render(displayed, session.status, session.config.provider, helpers.model(), billing, session.command_results,
+      not session.busy, session.turn_costs, session.last_agent_activity)
   end
 
   function helpers.usage_number(value)

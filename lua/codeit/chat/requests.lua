@@ -67,6 +67,7 @@ function M.attach(api, session, helpers)
     if last_stream_activity and (vim.uv.hrtime() - last_stream_activity) / 1e6 >= stream_idle_ms then
       last_stream_activity = nil
     end
+    session.last_agent_activity = budget.last_tool_activity or vim.uv.hrtime()
     helpers.set_status(last_stream_activity and 'Thinking' or 'Waiting')
     -- Treat brief gaps between chunks as streaming, but show longer provider pauses.
     local function check_stream_idle()
@@ -84,6 +85,7 @@ function M.attach(api, session, helpers)
       if not response_pending or not active() then return end
       local was_idle = last_stream_activity == nil
       last_stream_activity = vim.uv.hrtime()
+      session.last_agent_activity = last_stream_activity
       if was_idle then vim.defer_fn(check_stream_idle, stream_idle_ms) end
       session.status = 'Thinking'
       if session.stream_render_pending then return end
@@ -240,6 +242,7 @@ function M.attach(api, session, helpers)
               return helpers.set_status('Task cancelled')
             end
             budget.last_tool_activity = vim.uv.hrtime()
+            session.last_agent_activity = budget.last_tool_activity
             session.status = 'Thinking'
             table.insert(session.messages, { role = 'tool', tool_call_id = call.id, content = result })
             if type(result) == 'string' and not result:match('^Error:') and not result:match('^Rejected') then

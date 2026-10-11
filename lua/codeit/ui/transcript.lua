@@ -35,7 +35,7 @@ function M.attach(api, state, options, helpers)
     end)
   end
 
-  function M.render(messages, status, provider, model, billing, command_results, can_send, turn_costs)
+  function M.render(messages, status, provider, model, billing, command_results, can_send, turn_costs, last_agent_activity)
     local costs_by_message = {}
     for _, turn in ipairs(turn_costs or {}) do costs_by_message[turn.first] = turn end
     local views = {}
@@ -56,6 +56,7 @@ function M.attach(api, state, options, helpers)
     state.tool_folds, state.section_folds, state.role_marks = {}, {}, {}
     state.can_send_message = can_send ~= false
     state.draft_status = status
+    state.last_agent_activity = last_agent_activity
     local lines = options.header and vim.deepcopy(options.header)
       or { '# Codeit (' .. provider .. ': ' .. model .. ')' }
     if billing then table.insert(lines, '> ' .. billing) end
