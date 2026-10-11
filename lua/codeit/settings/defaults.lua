@@ -42,6 +42,7 @@ Communication
 - Finish with a short account of the result, checks performed, and remaining caveats, including unsaved changes. Reserve detailed reasoning and trade-offs for when the user asks.]],
   approval = { validators = {} },
   max_tool_rounds = 12,
+  max_subagent_tool_rounds = 40,
   context_review = true, -- prune completed turns asynchronously with the context_review feature model
   context_review_min_tokens = 512,
   compaction = { summary_tokens = 2048, output_reserve = 4096, manual_keep_turns = 1 },

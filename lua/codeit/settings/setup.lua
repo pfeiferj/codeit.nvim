@@ -20,9 +20,11 @@ function M.attach(api, session, helpers)
       or session.config.context_review_min_tokens >= math.huge or session.config.context_review_min_tokens ~= math.floor(session.config.context_review_min_tokens) then
       error('codeit: context_review_min_tokens must be a nonnegative whole number')
     end
-    if type(session.config.max_tool_rounds) ~= 'number' or session.config.max_tool_rounds < 0
-      or session.config.max_tool_rounds >= math.huge or session.config.max_tool_rounds ~= math.floor(session.config.max_tool_rounds) then
-      error('codeit: max_tool_rounds must be a nonnegative whole number')
+    for _, key in ipairs({ 'max_tool_rounds', 'max_subagent_tool_rounds' }) do
+      local value = session.config[key]
+      if type(value) ~= 'number' or value < 0 or value >= math.huge or value ~= math.floor(value) then
+        error('codeit: ' .. key .. ' must be a nonnegative whole number')
+      end
     end
     if session.config.max_context_tokens ~= nil and session.config.max_context_tokens ~= false
       and (type(session.config.max_context_tokens) ~= 'number'

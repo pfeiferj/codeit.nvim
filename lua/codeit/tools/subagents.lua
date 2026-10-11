@@ -109,11 +109,10 @@ function M.start(args, source, context, done, parent_active)
     if M.allowed[definition['function'].name] then specs[#specs + 1] = definition end
   end
   local config = vim.deepcopy(context.subagent_config)
+  local limit = config.max_tool_rounds or require('codeit.settings.defaults').max_subagent_tool_rounds
   local rounds, advance = 0
   advance = function()
     if not active() then return end
-    rounds = rounds + 1
-    if rounds > (config.max_tool_rounds or 20) + 1 then return finish(run, 'failed', 'Subagent tool round limit reached') end
     local ok = pcall(require('codeit.providers').chat, config, messages, specs, function(message, failure, usage)
       if not active() then return end
       if (usage or not failure) and context.subagent_usage then context.subagent_usage(usage) end
@@ -125,24 +124,31 @@ function M.start(args, source, context, done, parent_active)
       if type(calls) ~= 'table' or #calls == 0 then
         return finish(run, 'completed', display_text(message))
       end
+      if rounds >= limit then return finish(run, 'failed', 'Subagent tool round limit reached') end
+      rounds = rounds + 1
       local function next_call(index)
         if not active() then return end
         local call = calls[index]
         if not call then return vim.schedule(advance) end
         local fn = call['function'] or {}
         local decoded, arguments = pcall(vim.json.decode, fn.arguments or '{}')
+        local completed = false
         local function result(value)
-          if not active() then return end
+          if completed or not active() then return end
+          completed = true
           messages[#messages + 1] = { role = 'tool', tool_call_id = call.id, content = value }
           next_call(index + 1)
         end
-        if not decoded then return result('Error: invalid tool arguments') end
+        if not decoded then return result('Error: invalid tool arguments: ' .. tostring(arguments)) end
         if workspace ~= require('codeit.chat.storage').workspace() then
           return finish(run, 'failed', 'Workspace changed; refusing to read a different workspace')
         end
-        run.stop = tools.execute(fn.name, arguments, source, result, active, {
+        run.stop = nil
+        local executed, stop = pcall(tools.execute, fn.name, arguments, source, result, active, {
           no_prompt = true, subagent_run = run, user_request = args.task, read_versions = {},
         })
+        if not executed then return result('Error: tool execution failed: ' .. tostring(stop)) end
+        if not completed then run.stop = stop end
       end
       next_call(1)
     end, nil, active)

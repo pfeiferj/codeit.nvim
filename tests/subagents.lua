@@ -11,11 +11,12 @@ vim.fn.mkdir(temp, 'p')
 vim.fn.chdir(temp)
 vim.fn.writefile({ 'private' }, temp .. '/private.txt')
 local plugin = require('codeit')
-plugin.setup({ context_review = false, max_context_tokens = false,
+plugin.setup({ context_review = false, max_context_tokens = false, max_tool_rounds = 1,
   model_presets = { fast = { model = 'fast-model' } } })
 local tools, agents = require('codeit.tools'), require('codeit.tools.subagents')
 local approval = require('codeit.tools.approval')
 require('codeit.tools.approval.prompt').show = function() error('subagents must never prompt') end
+require('codeit.tools.limit_prompt').show = function() error('subagents must never extend their budget') end
 vim.ui.input = function() error('subagents must never ask') end
 vim.ui.select = function() error('subagents must never select') end
 local function reply(message, usage)
@@ -34,6 +35,7 @@ reply({ role = 'assistant', tool_calls = { call('start_subagent', { title = 'Res
 assert(#requests == 1, 'wait must not return early: ' .. vim.inspect(requests[#requests].messages))
 await(2)
 assert(requests[2].config.model == 'fast-model')
+assert(requests[2].config.max_tool_rounds == 40, 'subagents must not inherit the main chat limit')
 for _, definition in ipairs(requests[2].specs) do assert(agents.allowed[definition['function'].name]) end
 reply({ role = 'assistant', tool_calls = {
   call('read_file', { path = 'private.txt' }),
@@ -141,7 +143,12 @@ await(9)
 reply({ role = 'assistant', tool_calls = { call('get_diagnostics', {}) } })
 await(10)
 reply({ role = 'assistant', tool_calls = { call('get_diagnostics', {}) } })
-assert(vim.wait(1000, function() return agents.list()[6].status == 'failed' end))
+assert(agents.list()[6].status == 'failed' and agents.list()[6].result == 'Subagent tool round limit reached')
+local tool_results = 0
+for _, message in ipairs(agents.list()[6].messages) do
+  if message.role == 'tool' then tool_results = tool_results + 1 end
+end
+assert(tool_results == 1, 'the batch beyond the hard limit must not execute')
 agents.start({ title = 'Failure', task = 'Fail', mode = 'background' }, nil, context, function() end)
 await(11)
 table.remove(callbacks, 1)(nil, 'Provider failure')
@@ -219,6 +226,72 @@ assert(vim.wait(1000, function() return exception_result ~= nil end))
 assert(vim.json.decode(exception_result).result == 'Subagent provider request failed')
 assert(not exception_result:find('private', 1, true))
 provider.chat = chat
+
+-- Tool errors, including executor exceptions, stay within the subagent and allow retries.
+approval.setup({ trusted_workspaces = { [temp] = 'all' } })
+local recovery_context = vim.deepcopy(context)
+recovery_context.subagent_config.max_tool_rounds = 2
+local original_execute = tools.execute
+tools.execute = function(name, args, ...)
+  if name == 'read_file' and args.path == 'throw.txt' then error('read failed: temporary tool exception') end
+  return original_execute(name, args, ...)
+end
+local count = #requests + 1
+local recovered
+id = #agents.list() + 1
+agents.start({ title = 'Recover', task = 'Read a file', mode = 'wait' }, nil, recovery_context,
+  function(value) recovered = value end)
+await(count)
+local malformed = call('read_file', {})
+malformed.id, malformed['function'].arguments = 'malformed', '{invalid json'
+local thrown = call('read_file', { path = 'throw.txt' })
+thrown.id = 'thrown'
+reply({ role = 'assistant', tool_calls = { malformed, thrown,
+  call('read_file', { path = 'private.txt', start_line = 2, end_line = 1 }) } })
+await(count + 1)
+assert(agents.list()[id].status == 'running' and not recovered)
+local errors = requests[#requests].messages
+assert(errors[#errors - 2].content:find('invalid tool arguments:', 1, true))
+assert(errors[#errors - 1].content:find('temporary tool exception', 1, true))
+assert(errors[#errors].content == 'Error: invalid range', errors[#errors].content)
+reply({ role = 'assistant', tool_calls = { call('read_file', { path = 'private.txt' }) } })
+await(count + 2)
+assert(requests[#requests].messages[#requests[#requests].messages].content:find('private', 1, true))
+reply({ role = 'assistant', content = 'Recovered successfully' })
+assert(vim.json.decode(recovered).status == 'completed' and vim.json.decode(recovered).result == 'Recovered successfully')
+assert(not recovered:find('temporary tool exception', 1, true))
+tools.execute = original_execute
+
+-- A zero budget allows a final answer but rejects the first tool batch.
+context.subagent_config.max_tool_rounds = 0
+id, delivered = start_result_case('wait')
+reply({ role = 'assistant', content = 'No tools needed' })
+assert(vim.json.decode(delivered()).status == 'completed')
+id, delivered = start_result_case('wait')
+reply({ role = 'assistant', tool_calls = { call('write_subagent_artifact', { content = 'must not write' }) } })
+assert(vim.json.decode(delivered()).result == 'Subagent tool round limit reached')
+assert(#agents.list()[id].artifacts == 0)
+context.subagent_config.max_tool_rounds = 1
+
+-- Custom budgets propagate separately and permit more rounds than the main chat.
+plugin.setup({ context_review = false, max_context_tokens = false,
+  max_tool_rounds = 1, max_subagent_tool_rounds = 2 })
+count = #requests + 1
+plugin.send('Delegate with a custom budget')
+reply({ role = 'assistant', tool_calls = { call('start_subagent', { title = 'Custom budget', task = 'Inspect', mode = 'wait' }) } })
+await(count + 1)
+assert(requests[#requests].config.max_tool_rounds == 2)
+for round = 1, 2 do
+  reply({ role = 'assistant', tool_calls = { call('get_diagnostics', {}) } })
+  await(count + 1 + round)
+end
+reply({ role = 'assistant', content = 'Two rounds completed' })
+reply({ role = 'assistant', content = 'Done' })
+assert(agents.list()[#agents.list()].status == 'completed')
+for _, invalid in ipairs({ -1, 0.5, '40', math.huge }) do
+  local ok, err = pcall(plugin.setup, { max_subagent_tool_rounds = invalid })
+  assert(not ok and tostring(err):find('max_subagent_tool_rounds must be a nonnegative whole number', 1, true))
+end
 agents.shutdown()
 assert(vim.fn.filereadable(artifact.path) == 0 and vim.fn.isdirectory(vim.fn.fnamemodify(artifact.path, ':h')) == 0)
 vim.fn.chdir(vim.fn.fnamemodify(temp, ':h'))

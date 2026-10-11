@@ -103,6 +103,7 @@ require('codeit').setup({
   -- },
   -- system_prompt = 'You are a helpful Neovim coding assistant.',
   -- max_tool_rounds = 12, -- tool-call batches per user turn; prompts before exceeding this
+  -- max_subagent_tool_rounds = 40, -- separate hard cap per subagent; never prompts
   -- context_review = false, -- disable background pruning after each completed turn (default: true)
   -- max_context_tokens = 128000, -- optional manual override; false disables auto-compaction
   -- approval = {
@@ -284,7 +285,13 @@ Open `:CodeitSubagents` or `/subagents` to see all runs in this Neovim session.
 Press `<CR>` to view a run's chat log or return to the list, `c` to cancel, and
 `q` or `<Esc>` to close. Runs, results, and logs are session-only. Waiting runs
 are cancelled when the main response is stopped; background runs are independent.
-Subagents have a fixed tool-round budget and never prompt to extend it.
+Tool errors are returned to the subagent so it can correct the call and continue.
+Subagents have a separate hard budget of `max_subagent_tool_rounds` tool-call
+batches (default 40), independent of the main chat's `max_tool_rounds`. A batch
+may contain multiple calls, including failed calls. Reaching the cap fails the
+run before executing another batch, without prompting for an extension.
+`max_subagent_tool_rounds = 0` disallows all tool batches but permits a text-only
+response. Provider failures remain terminal.
 
 ### File views
 

@@ -99,7 +99,7 @@ function M.attach(api, session, helpers)
       session.context_paths, session.selected_skills))
     local subagent_workspace, subagent_chat = session.workspace, session.chat_id
     local subagent_config = helpers.request_config('subagent')
-    subagent_config.max_tool_rounds = session.config.max_tool_rounds
+    subagent_config.max_tool_rounds = session.config.max_subagent_tool_rounds
     local subagent_turn_index
     for index, turn in ipairs(session.turn_costs) do if turn == billed_turn then subagent_turn_index = index end end
     local function subagent_usage(usage)
