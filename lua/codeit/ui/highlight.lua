@@ -20,6 +20,9 @@ function M.setup_roles()
   vim.api.nvim_set_hl(0, 'CodeitAssistant', {
     default = true, fg = light and '#875f00' or '#e5c07b', ctermfg = light and 94 or 180, bold = true,
   })
+  vim.api.nvim_set_hl(0, 'CodeitMessageDisabled', {
+    default = true, fg = light and '#767676' or '#808080', ctermfg = light and 243 or 244, bold = true,
+  })
   vim.api.nvim_set_hl(0, 'CodeitTool', { default = true, link = 'Comment' })
   vim.api.nvim_set_hl(0, 'CodeitApprovalWarning', {
     default = true, fg = light and '#875f00' or '#ffaf00', ctermfg = light and 94 or 214, bold = true,

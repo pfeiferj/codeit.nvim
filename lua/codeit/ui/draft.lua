@@ -41,9 +41,13 @@ function M.attach(api, state, options, helpers)
       if state.slash_error or state.slash_hint then hint = (state.slash_error or state.slash_hint) .. ' · ' .. hint
       else hint = hint .. ' · Type / for commands · // sends a literal /' end
     end
+    local heading = vim.api.nvim_buf_get_lines(state.transcript, state.draft_start - 2, state.draft_start - 1, false)[1]
     state.draft_hint_id = vim.api.nvim_buf_set_extmark(state.transcript, state.ui_ns, state.draft_start - 2, 0, {
       id = state.draft_hint_id,
       virt_lines = wrap_hint(hint, width),
+      end_col = #heading,
+      hl_group = not state.can_send_message and 'CodeitMessageDisabled' or nil,
+      priority = 200,
     })
   end
 

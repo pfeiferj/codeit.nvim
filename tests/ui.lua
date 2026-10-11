@@ -201,7 +201,25 @@ assert(vim.tbl_contains(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '## Mess
 assert(hint():find('Waiting · Sending unavailable', 1, true) == 1,
   'virtual status should update while sending is blocked')
 assert(ui.peek_input() == 'first line\nsecond line', 'blocked sending must preserve the draft')
+local function check_message_highlight(disabled)
+  for _, mark in ipairs(marks()) do
+    if mark[4].virt_lines then
+      assert(mark[4].hl_group == (disabled and 'CodeitMessageDisabled' or nil),
+        'message heading should be gray only while sending is blocked')
+      assert(mark[4].end_col == #'## Message', 'highlight should cover only the message heading')
+    end
+  end
+end
+check_message_highlight(true)
+assert(vim.api.nvim_get_hl(0, { name = 'CodeitMessageDisabled' }).fg
+  == (vim.o.background == 'light' and 0x767676 or 0x808080),
+  'disabled message highlight should default to gray')
+ui.toggle_popup()
+check_message_highlight(true)
+ui.toggle_popup()
+check_message_highlight(true)
 ui.render(messages, 'Ready', 'copilot', 'model-b', nil, nil, true)
+check_message_highlight(false)
 assert(vim.api.nvim_win_get_cursor(win)[2] == 4)
 assert(vim.api.nvim_buf_get_lines(chat, -3, -1, false)[1] == 'first line')
 assert(ui.take_input() == 'first line\nsecond line')
