@@ -67,6 +67,19 @@ function M.user_visible(id)
   return false
 end
 
+local function is_empty_startup(current, source)
+  if #vim.api.nvim_list_tabpages() ~= 1 or #vim.api.nvim_tabpage_list_wins(current) ~= 1
+    or vim.api.nvim_buf_get_name(source) ~= '' or vim.bo[source].buftype ~= ''
+    or vim.bo[source].modified or vim.api.nvim_buf_line_count(source) ~= 1
+    or vim.api.nvim_buf_get_lines(source, 0, 1, false)[1] ~= '' then
+    return false
+  end
+  for _, id in ipairs(vim.api.nvim_list_bufs()) do
+    if id ~= source and vim.bo[id].buflisted then return false end
+  end
+  return true
+end
+
 function M.open()
   local current = vim.api.nvim_get_current_tabpage()
   if current ~= M.tab() then previous = current end
@@ -75,7 +88,11 @@ function M.open()
     return
   end
   local source = vim.api.nvim_get_current_buf()
-  vim.cmd('tabnew')
+  if is_empty_startup(current, source) then
+    previous = nil
+  else
+    vim.cmd('tabnew')
+  end
   tab = vim.api.nvim_get_current_tabpage()
   attachments = {}
   vim.t[tab].codeit = true
