@@ -14,7 +14,7 @@ local function spec(name, description, properties, required)
     parameters = { type = 'object', properties = properties, required = required or {}, additionalProperties = false } } }
 end
 M.specs = {
-  spec('start_subagent', 'Delegate an approval-free read-only task. Uses the subagent feature model settings (fast preset by default) and current context. No user questions, workspace writes, commands, or recursive delegation. Temporary artifacts can be shared with the main agent. Runs last for this session; inspect/cancel in :CodeitSubagents.', {
+  spec('start_subagent', 'Delegate an approval-free read-only task. Uses the subagent feature model settings (fast preset by default) and current context. No user questions, workspace writes, commands, or recursive delegation. Temporary artifacts can be shared with the main agent. Generally useful for tasks such as gathering context as the sub-agent will be faster and cheaper but not as smart.', {
     title = { type = 'string', minLength = 1, maxLength = 200 },
     task = { type = 'string', minLength = 1, maxLength = 20000 },
     mode = { type = 'string', enum = { 'wait', 'background_notify', 'background' }, description = 'wait returns the final result; background_notify returns immediately and prompts the originating assistant when idle; background returns immediately without a follow-up.' },
