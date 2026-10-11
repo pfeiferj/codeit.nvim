@@ -34,6 +34,10 @@ local function pump()
     local entry = pending[1]
     -- Liveness checks can resolve the workspace from the current tab's cwd.
     if not available(entry) then
+      if not entry.approval_round.notified then
+        entry.approval_round.notified = true
+        vim.notify('Approval required', vim.log.levels.INFO, { title = 'Codeit' })
+      end
       break
     elseif entry.active and not entry.active() then
       table.remove(pending, 1)
@@ -47,12 +51,6 @@ local function pump()
     end
   end
   pumping = false
-  for _, entry in ipairs(pending) do
-    if not entry.approval_round.notified then
-      entry.approval_round.notified = true
-      vim.notify('Approval required', vim.log.levels.INFO, { title = 'Codeit' })
-    end
-  end
   if #pending > 0 and not timer_pending then
     timer_pending = true
     vim.defer_fn(function()
