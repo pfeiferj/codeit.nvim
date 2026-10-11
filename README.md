@@ -754,7 +754,7 @@ It selects backends and handles chat cancellation checks and error logging.
 
 Keep backend-specific authentication, headers, and options in the backend modules;
 keep shared wire formats and transport independent of backend request routing.
-Provider behavior tests remain under `tests/`.
+Provider behavior tests live under `tests/providers/`.
 
 ### Conversation, UI, context, and settings layout
 
@@ -789,15 +789,39 @@ one explicit session object. Cross-component calls go through that helper
 interface, not through imports of `codeit`; UI components use a separate
 per-instance interface. Keep helpers with the responsibility that owns them.
 
+### Test layout
+
+Tests are grouped by behavior, rather than by whether they use mocked dependencies
+or real editor state:
+
+- `tests/integration/`: full conversation flows, public API, and instance isolation.
+- `tests/chat/`: history, history picking, and stopping requests.
+- `tests/commands/`: slash commands and workspace trust commands.
+- `tests/context/`: source discovery, instruction batches, editing, review, and compaction.
+- `tests/providers/`: backends, authentication, streaming, rate limits, and model limits.
+- `tests/settings/`: configuration, feature settings, presets, and menus.
+- `tests/skills/`: frontmatter, context selection, and invocation.
+- `tests/tools/`: tool contracts, dispatch, logging, limits, review, and subagents;
+  `approval/` covers permissions and prompts, and `execution/` covers processes
+  and background tasks.
+- `tests/ui/`: layout and interaction, folds, scrolling, panes, popups, and highlighting.
+
 Run all headless tests from the repository root:
 
 ```sh
 sh tests/run.sh
 ```
 
-The runner requires `nvim` on `PATH`, isolates saved approvals and state in
-temporary directories, and exits with an error if a suite fails. Instruction and
-skill discovery suites also use isolated home directories.
+The runner recursively discovers `*_test.lua` suites in sorted path order, launches
+each in a separate Neovim process, and exits with an error if a suite fails. Name
+new suites `*_test.lua` in the appropriate feature directory; helper files should
+not use that suffix.
+
+The runner requires `nvim` on `PATH` and isolates saved approvals and state in
+temporary directories. Source and skill discovery suites also use isolated home
+directories. The layout/interaction and Insert-mode fold suites have explicit
+editor-mode launch entries in `tests/run.sh`; other suites use `nvim -l`. Add a
+runner entry if a new suite needs special launch behavior.
 
 ## License
 

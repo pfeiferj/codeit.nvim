@@ -1,4 +1,4 @@
--- Run with: nvim --headless -u NONE -c 'luafile tests/chat_folds_insert.lua'
+-- Run with: nvim --headless -u NONE -c 'luafile tests/ui/chat_folds_insert_test.lua'
 -- Unlike -l script mode, this exercises the editor's Insert-mode fold updates.
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local ui = require('codeit.ui')
