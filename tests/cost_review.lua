@@ -3,7 +3,7 @@ local temp = vim.fn.tempname()
 vim.fn.mkdir(temp, 'p')
 local original_stdpath = vim.fn.stdpath
 vim.fn.stdpath = function(kind) return kind == 'data' and temp or original_stdpath(kind) end
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local costs = require('codeit.tools.cost')
 local usage_format = require('codeit.usage_format')
 local breakdown = require('codeit.cost_breakdown')
@@ -165,7 +165,7 @@ assert(vim.api.nvim_win_get_config(win).title[1][1] == ' Cost review ', 'popup t
 local function assert_table(rows)
   local alignment = { 'left' }
   for column = 2, #rows[1] do alignment[column] = 'right' end
-  local expected = require('codeit.table_popup').format({ rows = rows, alignment = alignment })
+  local expected = require('codeit.ui.table_popup').format({ rows = rows, alignment = alignment })
   assert(text():find(table.concat(expected, '\n'), 1, true), 'cost table must use popup formatting')
   for _, line in ipairs(expected) do
     -- strdisplaywidth includes wrapped-window break indentation for wide tables.

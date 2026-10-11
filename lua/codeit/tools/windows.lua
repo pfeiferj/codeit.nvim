@@ -1,5 +1,5 @@
 local M = {}
-local layout = require('codeit.managed_tab')
+local layout = require('codeit.ui.managed_tab')
 local buffers = require('codeit.file_buffer')
 
 local spec = require('codeit.tools.spec')

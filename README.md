@@ -714,8 +714,9 @@ of the Lua module paths.
 Keep each capability's schemas beside its handlers. Add new workspace or
 execution groups to `tools/agent.lua`; keep approval routing in `tools/init.lua`
 and policy in `tools/approval/`. Shared infrastructure used beyond tools, such
-as `file_buffer.lua`, `managed_tab.lua`, and `process.lua`, remains in
-`lua/codeit/`. Tests remain grouped by behavior under `tests/`.
+as `file_buffer.lua` and `process.lua`, remains in `lua/codeit/`; managed-tab
+presentation lives in `ui/managed_tab.lua`. Tests remain grouped by behavior under
+`tests/`.
 
 ### Provider code layout
 
@@ -739,6 +740,39 @@ It selects backends and handles chat cancellation checks and error logging.
 Keep backend-specific authentication, headers, and options in the backend modules;
 keep shared wire formats and transport independent of backend request routing.
 Provider behavior tests remain under `tests/`.
+
+### Conversation, UI, context, and settings layout
+
+`require('codeit')`, `require('codeit.ui')`, and `require('codeit.settings')` remain
+the public entry points. The main entry point only creates a session and assembles
+its components; components do not require the main entry point.
+
+- `chat/state.lua` creates independent mutable session data. `chat/session.lua`
+  handles workspace changes, persistence, and conversation lifecycle;
+  `requests.lua` handles the provider/tool loop, `input.lua` handles messages and
+  slash commands, and `usage.lua` handles billing and presentation. History
+  workflows, storage, and the picker live alongside them.
+- `ui/` owns presentation. Completion, draft hints/input, folds, windows, and
+  transcript rendering attach to an explicit per-instance state/helper interface.
+  Editors, secondary chat panes, markdown, highlighting, and table popups also
+  live here. Do not put state in component module globals: secondary chats must
+  remain independent of the main chat.
+- `context/` owns trusted source reading, instruction discovery, context assembly,
+  review, editing, and compaction. `compaction.lua` contains budget/checkpoint
+  calculations; `compactor.lua` coordinates summary requests and fallbacks.
+- `skills/` owns catalog discovery, frontmatter, and literal invocation arguments.
+  Agent-facing skill tools remain under `tools/skills/`. Context selection and
+  prompt assembly remain in `context/files.lua`; both instructions and skills
+  use the same trusted source checks in `context/sources.lua`.
+- `settings/` separates defaults/option definitions, validation, preset/feature
+  resolution, persistence, catalog presentation, and menus. `actions.lua` and
+  `setup.lua` integrate settings with the session.
+- `commands/` owns Ex command registration and slash-command metadata.
+
+Controller components attach public methods and named internal helpers around
+one explicit session object. Cross-component calls go through that helper
+interface, not through imports of `codeit`; UI components use a separate
+per-instance interface. Keep helpers with the responsibility that owns them.
 
 Run all headless tests from the repository root:
 

@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local popup = require('codeit.table_popup')
+local popup = require('codeit.ui.table_popup')
 local lines = { 'Intro', '| Name | Count | Note |', '| :--- | ---: | :---: |',
   '| 界 | 2 | x |', '| longer | 123 | a\\|b |', '', 'Outro' }
 for row = 2, 5 do
@@ -31,7 +31,7 @@ assert(ragged[3] == '| x   |     |')
 
 local source = vim.api.nvim_get_current_buf()
 vim.api.nvim_buf_set_lines(source, 0, -1, false, lines)
-require('codeit.markdown').enable(source)
+require('codeit.ui.markdown').enable(source)
 local origin = vim.api.nvim_get_current_win()
 for row = 2, 5 do
   vim.api.nvim_win_set_cursor(origin, { row, 1 })

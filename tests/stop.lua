@@ -60,5 +60,5 @@ assert(results.pending:find('Interrupted by user', 1, true))
 assert(results.remaining:find('Interrupted by user', 1, true))
 pending[#pending].reply({ role = 'assistant', content = 'Done' })
 tools.execute = execute
-assert(select(1, require('codeit.slash_commands').parse('/stop')).command == 'CodeitStop')
+assert(select(1, require('codeit.commands.slash').parse('/stop')).command == 'CodeitStop')
 print('codeit stop tests passed')

@@ -9,7 +9,7 @@ local tools = require('codeit.tools')
 local approval = require('codeit.tools.approval')
 local prompt = require('codeit.tools.approval.prompt')
 local writes = require('codeit.tools.approval.write')
-local files = require('codeit.context_files')
+local files = require('codeit.context.files')
 local asked, preview = 0, nil
 prompt.show = function(_, _, cb) asked = asked + 1; cb('once') end
 writes.show = function(diff, _, cb) preview = diff; cb('once') end

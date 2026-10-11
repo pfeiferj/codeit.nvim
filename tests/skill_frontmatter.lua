@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local description = require('codeit.skill_frontmatter').description
+local description = require('codeit.skills.frontmatter').description
 local function check(frontmatter, expected)
   local actual = description('---\n' .. frontmatter .. '\n---\nSkill body')
   assert(actual == expected, vim.inspect({ frontmatter = frontmatter, expected = expected, actual = actual }))
@@ -44,7 +44,7 @@ check('description: first\n  second', nil)
 check('description: "first"\n  second', nil)
 check('description: first\ndescription: second', nil)
 check('name: review', nil)
-local manual_only = require('codeit.skill_frontmatter').disable_model_invocation
+local manual_only = require('codeit.skills.frontmatter').disable_model_invocation
 local function check_manual(frontmatter, expected)
   assert(manual_only('---\n' .. frontmatter .. '\n---\nBody') == expected, frontmatter)
 end
@@ -60,7 +60,7 @@ end
 check_manual('disable-model-invocation: false\ndisable-model-invocation: false', true)
 assert(not manual_only('No frontmatter'))
 assert(manual_only('---\r\ndisable-model-invocation: true\r\n---\r\nBody'))
-local body = require('codeit.skill_frontmatter').body
+local body = require('codeit.skills.frontmatter').body
 assert(body('---\ndescription: Review\nallowed-tools: ignored\n---\n\n# Instructions\nDo the task.\n') == '\n# Instructions\nDo the task.\n')
 assert(body('---\r\ndescription: Review\r\n---\r\n\r\n# Instructions\r\n') == '\r\n# Instructions\r\n')
 assert(body('--- \ndescription: Review\n--- \nBody\n---\nMore body') == 'Body\n---\nMore body')

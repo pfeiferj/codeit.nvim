@@ -3,7 +3,7 @@ local temp = vim.fn.tempname()
 vim.fn.mkdir(temp .. '/one', 'p')
 vim.fn.mkdir(temp .. '/two', 'p')
 vim.fn.chdir(temp .. '/one')
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local workspace = history.workspace()
 local requests, callbacks = {}, {}
 package.loaded['codeit.providers'] = {

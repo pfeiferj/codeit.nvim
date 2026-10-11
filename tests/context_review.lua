@@ -4,7 +4,7 @@ local temp = vim.fn.tempname()
 vim.fn.mkdir(temp .. '/one', 'p')
 vim.fn.mkdir(temp .. '/two', 'p')
 vim.fn.chdir(temp .. '/one')
-local review = require('codeit.context_review')
+local review = require('codeit.context.review')
 local function call(id, name, args)
   return { id = id, type = 'function', ['function'] = { name = name, arguments = vim.json.encode(args or {}) } }
 end
@@ -68,7 +68,7 @@ local scoped = review.project(repeated, { { first = 1, last = #turn, replacement
 assert(scoped[#turn + 2].tool_calls[1].id == 'long' and scoped[#turn + 3].tool_call_id == 'long')
 assert(#review.restore({ { role = 'system', content = 'system' } }, { { first = 2, last = 99, replacements = decisions } }) == 0)
 
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local requests, callbacks = {}, {}
 package.loaded['codeit.providers'] = {
   chat = function(config, messages, specs, callback)

@@ -129,7 +129,7 @@ function M.show()
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = 'wipe'
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  require('codeit.markdown').enable(buf)
+  require('codeit.ui.markdown').enable(buf)
   vim.api.nvim_set_hl(0, 'CodeitTableHeader', { default = true, link = 'Title' })
   vim.api.nvim_set_hl(0, 'CodeitTableBorder', { default = true, link = 'Delimiter' })
   for _, span in ipairs(highlights) do

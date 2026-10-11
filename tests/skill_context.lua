@@ -17,16 +17,16 @@ local other_path = workspace .. '/.agents/skills/other/SKILL.md'
 vim.fn.mkdir(vim.fn.fnamemodify(other_path, ':h'), 'p')
 write_skill(other_path, 'OTHER_SKILL_BODY')
 vim.fn.chdir(workspace)
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local approval = require('codeit.tools.approval')
-local files = require('codeit.context_files')
+local files = require('codeit.context.files')
 local requests, callbacks = {}, {}
 package.loaded['codeit.providers'] = { chat = function(_, messages, specs, callback)
   requests[#requests + 1] = { messages = vim.deepcopy(messages), specs = specs }
   callbacks[#callbacks + 1] = callback
 end }
 local toggle_target, toggled
-package.loaded['codeit.context_files_picker'] = { show = function(_, list, toggle)
+package.loaded['codeit.context.picker'] = { show = function(_, list, toggle)
   for _, entry in ipairs(list()) do
     if entry.path == toggle_target then
       local ok, err = toggle(entry)

@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local picker = require('codeit.history_picker')
+local picker = require('codeit.chat.picker')
 local summary = 'Implemented the requested changes and verified that the long LLM summary remains readable.'
 local entries = {
   { id = 'first', updated_at = 1000000000, summary = summary },

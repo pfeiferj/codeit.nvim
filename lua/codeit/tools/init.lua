@@ -65,7 +65,7 @@ end
 
 function M.request_specs(workspace, mode, selected)
   local enabled = { load_skill = false, read_skill_resource = false }
-  for _, entry in ipairs(require('codeit.context_files').entries(workspace, mode, {}, selected)) do
+  for _, entry in ipairs(require('codeit.context.files').entries(workspace, mode, {}, selected)) do
     if entry.kind == 'skill' and entry.available then
       if not entry.manual_only then enabled.load_skill = true end
       if entry.included then enabled.read_skill_resource = true end
@@ -98,7 +98,7 @@ function M.execute(name, args, source, done, active, context)
   local function safe(action)
     return function(...)
       if completed or active and not active() then return end
-      local ok, err = pcall(require('codeit.managed_tab').assistant, action, ...)
+      local ok, err = pcall(require('codeit.ui.managed_tab').assistant, action, ...)
       if not ok then done('Error: tool execution failed: ' .. tostring(err)) end
     end
   end
@@ -111,17 +111,17 @@ function M.execute(name, args, source, done, active, context)
       return done('Error: tool is not available to subagents')
     end
     if subagents.names[name] then return subagents.execute(name, args, source, done, active, context) end
-    local visible = name == 'read_window_buffer' and require('codeit.managed_tab').buffer(args.window_id)
+    local visible = name == 'read_window_buffer' and require('codeit.ui.managed_tab').buffer(args.window_id)
     if name == 'read_window_buffer' and not visible then return done('Error: invalid Codeit file window') end
     if name == 'load_skill' then
-      local workspace = require('codeit.history').workspace()
-      local skill = require('codeit.context_files').skill(args.name, workspace, approval.workspace_trust(workspace))
+      local workspace = require('codeit.chat.storage').workspace()
+      local skill = require('codeit.context.files').skill(args.name, workspace, approval.workspace_trust(workspace))
       if not skill then return done('Error: skill is not available, is disabled or manual-only, or workspace is not trusted') end
-      local rendered, err = require('codeit.skill_invocation').render(require('codeit.skill_frontmatter').body(skill.content), args.arguments)
+      local rendered, err = require('codeit.skills.invocation').render(require('codeit.skills.frontmatter').body(skill.content), args.arguments)
       if not rendered then return done('Error: ' .. err) end
     end
     local resource, resource_err
-    local workspace = require('codeit.history').workspace()
+    local workspace = require('codeit.chat.storage').workspace()
     if name == 'read_skill_resource' then
       resource, resource_err = require('codeit.tools.skills.resources').resolve(args, workspace,
         approval.workspace_trust(workspace), context and context.skill_selections)
@@ -156,7 +156,7 @@ function M.execute(name, args, source, done, active, context)
     end
     if not gated[name] then
       return gate('Allow ' .. tostring(name) .. ' ' .. vim.json.encode(args) .. '?', function()
-        if visible and require('codeit.managed_tab').buffer(args.window_id) ~= visible then
+        if visible and require('codeit.ui.managed_tab').buffer(args.window_id) ~= visible then
           return done('Error: window buffer changed while awaiting approval; reissue the read')
         end
         execute_approved(name, args, source, done, active, gate, reads, prepare, context and context.background_origin)
@@ -179,8 +179,8 @@ execute_approved = function(name, args, source, done, active, gate, reads, prepa
     return done(vim.json.encode(file_buffer.list(source, args.include_external)))
   end
   if name == 'load_skill' then
-    local workspace = require('codeit.history').workspace()
-    local skill = require('codeit.context_files').skill(args.name, workspace,
+    local workspace = require('codeit.chat.storage').workspace()
+    local skill = require('codeit.context.files').skill(args.name, workspace,
       approval.workspace_trust(workspace))
     return done(skill and ('Skill ' .. args.name .. ' (' .. skill.path .. '):\nSkill activated; current instructions are provided separately in context.')
       or 'Error: skill is not available, is disabled or manual-only, or workspace is not trusted')

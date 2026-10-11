@@ -1,5 +1,5 @@
 local M = {}
-local markdown = require('codeit.markdown')
+local markdown = require('codeit.ui.markdown')
 
 local function pretty_json(value, depth)
   if type(value) ~= 'table' then return vim.json.encode(value) end

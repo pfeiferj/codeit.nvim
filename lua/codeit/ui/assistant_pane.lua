@@ -1,5 +1,5 @@
 local M = {}
-local markdown = require('codeit.markdown')
+local markdown = require('codeit.ui.markdown')
 local explanation
 
 -- Tool-only replies do not erase an explanation, but a new user turn does.

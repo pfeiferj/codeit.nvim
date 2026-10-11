@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local menu = require('codeit.settings_menu')
+local menu = require('codeit.settings.menu')
 local function press(buf, key)
   for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
     if map.lhs == key then return map.callback() end
@@ -50,7 +50,7 @@ package.loaded['codeit.providers'] = {
     callback({ { id = 'z-model' }, { id = 'a-model', description = 'A model\nwith description' } })
   end,
 }
-local picker = require('codeit.settings_picker')
+local picker = require('codeit.settings.picker')
 local base = { provider = 'openrouter', models = { openrouter = 'original', copilot = 'copilot' },
   request_options = { openrouter = {} } }
 local applied, scope

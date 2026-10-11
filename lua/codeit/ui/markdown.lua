@@ -2,9 +2,9 @@ local M = {}
 
 --- Enable Codeit's UI syntax without changing unrelated buffers.
 function M.enable(buf)
-  vim.keymap.set('n', 'gT', function() require('codeit.table_popup').show() end,
+  vim.keymap.set('n', 'gT', function() require('codeit.ui.table_popup').show() end,
     { buffer = buf, silent = true, desc = 'View formatted Markdown table' })
-  require('codeit.highlight').enable(buf)
+  require('codeit.ui.highlight').enable(buf)
 end
 
 --- Fence arbitrary text without closing the code block if it contains backticks.

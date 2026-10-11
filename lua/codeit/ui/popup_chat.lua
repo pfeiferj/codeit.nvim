@@ -23,7 +23,7 @@ function M.attach(win)
     chat_buf = vim.api.nvim_create_buf(false, true)
     vim.bo[chat_buf].bufhidden = 'wipe'
     vim.api.nvim_buf_set_lines(chat_buf, 0, -1, false, lines)
-    require('codeit.markdown').enable(chat_buf)
+    require('codeit.ui.markdown').enable(chat_buf)
     vim.bo[chat_buf].modifiable = false
     local width = math.max(1, vim.o.columns - 4)
     local height = math.max(1, vim.o.lines - 6)

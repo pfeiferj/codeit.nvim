@@ -3,7 +3,7 @@ local temp = vim.fn.tempname()
 vim.fn.mkdir(temp .. '/one', 'p')
 vim.fn.mkdir(temp .. '/two', 'p')
 vim.fn.chdir(temp .. '/one')
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local workspace = history.workspace()
 local requests, callbacks = {}, {}
 local endpoint_error
@@ -32,7 +32,7 @@ package.loaded['codeit.providers'] = {
 }
 local plugin = require('codeit')
 local settings = require('codeit.settings')
-local picker = require('codeit.settings_picker')
+local picker = require('codeit.settings.picker')
 local settings_path = vim.fn.stdpath('data') .. '/codeit/settings.json'
 vim.fn.delete(settings_path)
 plugin.setup({ max_context_tokens = false })
@@ -111,7 +111,7 @@ local steps = { 'model', 'vendor/beta', 'preferred_provider', 'anthropic', 'effo
 local inputs = {}
 local applied, scope
 vim.ui.input = function(_, callback) callback(table.remove(inputs, 1)) end
-require('codeit.settings_menu').select = function(items, _, callback)
+require('codeit.settings.menu').select = function(items, _, callback)
   local wanted = table.remove(steps, 1)
   for _, item in ipairs(items) do
     if (type(item) == 'table' and (item.slug or item.id) or item) == wanted then return callback(item) end
@@ -133,7 +133,7 @@ picker.show(applied, function(values) applied = values end)
 assert(applied.models.openrouter == 'vendor/beta', 'blank manual input preserves the main model')
 assert(baseline.models.openrouter ~= 'vendor/beta', 'draft edits must not mutate active settings')
 assert(vim.api.nvim_get_commands({}).CodeitSettings)
-assert(select(1, require('codeit.slash_commands').parse('/settings')).command == 'CodeitSettings')
+assert(select(1, require('codeit.commands.slash').parse('/settings')).command == 'CodeitSettings')
 
 assert(picker.endpoint_label(endpoint_catalog[1]) == 'Anthropic [anthropic] — input $3, output $15 / 1M tokens')
 assert(picker.endpoint_label({ tag = 'free', pricing = { prompt = '0', completion = 0, request = '0.01' } })
@@ -227,11 +227,11 @@ assert(history.load(workspace, copilot_id).messages[2].content == 'Copilot task'
 
 -- Cancelling and stale UI callbacks never apply a draft.
 local did_apply = false
-require('codeit.settings_menu').select = function(_, _, callback) callback(nil) end
+require('codeit.settings.menu').select = function(_, _, callback) callback(nil) end
 picker.show(baseline, function() did_apply = true end)
 assert(not did_apply)
 local held
-require('codeit.settings_menu').select = function(_, _, callback) held = callback end
+require('codeit.settings.menu').select = function(_, _, callback) held = callback end
 local live = true
 picker.show(baseline, function() did_apply = true end, function() return live end)
 live = false

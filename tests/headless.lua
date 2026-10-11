@@ -148,7 +148,7 @@ reply({ role = 'assistant', content = 'Understood.' },
   { cost = 0, prompt_tokens = 80, completion_tokens = 5 })
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000+ | In: 0m+ | Out: 0m+ | Context: 0.085k')
 contains(vim.fn.bufnr('codeit://chat'), '**You** · Turn cost: $0.000+')
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local reviewed_chat = history.list(history.workspace())[1]
 local reviewed_turn = reviewed_chat.turn_costs[#reviewed_chat.turn_costs]
 assert(reviewed_chat.messages[reviewed_turn.first].content == 'Check command')

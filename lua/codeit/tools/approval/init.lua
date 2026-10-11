@@ -48,7 +48,7 @@ local function buffer_path(id)
 end
 
 local function auto_read(name, args, workspace, source, context)
-  local layout = require('codeit.managed_tab')
+  local layout = require('codeit.ui.managed_tab')
   if require('codeit.tools.windows').names[name] and name ~= 'read_window_buffer' then return true end
   local id
   if name == 'read_window_buffer' then id = layout.buffer(args.window_id)
@@ -61,7 +61,7 @@ local function auto_read(name, args, workspace, source, context)
   local mode = M.workspace_trust(workspace)
   if not mode or not read_tools[name] then return false end
   if name == 'load_skill' then
-    return require('codeit.context_files').skill(args.name, workspace, mode) ~= nil
+    return require('codeit.context.files').skill(args.name, workspace, mode) ~= nil
   end
   local function allowed(path)
     local real = trusted_path(path, workspace)
@@ -251,7 +251,7 @@ local function workspace_read(name, args, context, workspace)
     return real and within(real, workspace) or false
   end
   if name == 'read_window_buffer' then
-    return local_buffer(buffer_path(require('codeit.managed_tab').buffer(args.window_id)))
+    return local_buffer(buffer_path(require('codeit.ui.managed_tab').buffer(args.window_id)))
   end
   if name == 'read_loaded_buffer' or name == 'read_source_buffer' then
     return local_buffer(buffer_path(args.buffer_id or context.source_buffer))

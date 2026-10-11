@@ -70,7 +70,7 @@ function M.cancel(id)
 end
 
 function M.start(args, source, context, done, parent_active)
-  local workspace = require('codeit.history').workspace()
+  local workspace = require('codeit.chat.storage').workspace()
   local run = { id = #runs + 1, title = args.title, mode = args.mode, workspace = workspace,
     origin = vim.deepcopy(context.background_origin), status = 'running', messages = {}, artifacts = {}, bytes = 0 }
   runs[run.id] = run
@@ -121,7 +121,7 @@ function M.start(args, source, context, done, parent_active)
           next_call(index + 1)
         end
         if not decoded then return result('Error: invalid tool arguments') end
-        if workspace ~= require('codeit.history').workspace() then
+        if workspace ~= require('codeit.chat.storage').workspace() then
           return finish(run, 'failed', 'Workspace changed; refusing to read a different workspace')
         end
         run.stop = tools.execute(fn.name, arguments, source, result, active, {

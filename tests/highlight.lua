@@ -12,7 +12,7 @@ local lines = {
   '```unknown-language', '# also literal', '```', '# After blocks',
 }
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-require('codeit.markdown').enable(buf)
+require('codeit.ui.markdown').enable(buf)
 vim.api.nvim_set_current_buf(buf)
 assert(vim.bo[buf].filetype == 'codeit' and vim.bo[buf].syntax == 'codeit')
 assert(vim.b[buf].current_syntax == 'codeit')
@@ -60,7 +60,7 @@ assert(group('# After edit') == 'CodeitHeading')
 -- A malformed string in a language block must not consume the closing fence.
 vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '```python', 'value = """unfinished', '```', '# Recovered' })
 assert(group('# Recovered') == 'CodeitHeading')
-require('codeit.markdown').enable(buf)
+require('codeit.ui.markdown').enable(buf)
 assert(group('# Recovered') == 'CodeitHeading', 'enabling twice should be harmless')
 
 -- Exercise the syntax runtime entry point with normal syntax loading enabled.
@@ -85,7 +85,7 @@ for _, background in ipairs({ 'dark', 'light' }) do
 end
 vim.api.nvim_set_hl(0, 'CodeitUser', { fg = '#123456' })
 vim.api.nvim_set_hl(0, 'CodeitAssistant', { link = 'Special' })
-require('codeit.highlight').load(fresh)
+require('codeit.ui.highlight').load(fresh)
 require('codeit.ui')
 assert(vim.api.nvim_get_hl(0, { name = 'CodeitUser', link = false }).fg == 0x123456)
 assert(vim.api.nvim_get_hl(0, { name = 'CodeitAssistant' }).link == 'Special')

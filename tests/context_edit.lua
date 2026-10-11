@@ -2,7 +2,7 @@ vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local temp = vim.fn.tempname()
 vim.fn.mkdir(temp, 'p')
 vim.fn.chdir(temp)
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local requests, callbacks = {}, {}
 package.loaded['codeit.providers'] = {
   chat = function(_, messages, _, callback)

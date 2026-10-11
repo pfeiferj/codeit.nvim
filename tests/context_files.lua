@@ -33,9 +33,9 @@ vim.fn.system({ 'git', '-C', workspace, 'init', '-q' })
 vim.fn.system({ 'git', '-C', workspace, 'add', 'AGENTS.md', 'src/CLAUDE.md', 'src/inner/AGENTS.md',
   '.agents/skills/review/SKILL.md', 'src/inner/main.lua' })
 vim.fn.chdir(workspace)
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local approval = require('codeit.tools.approval')
-local files = require('codeit.context_files')
+local files = require('codeit.context.files')
 local function text(messages)
   local parts = {}
   for _, message in ipairs(messages) do
@@ -100,7 +100,7 @@ end }
 local plugin = require('codeit')
 plugin.setup({ max_context_tokens = false, approval = { trusted_workspaces = { [workspace] = 'tracked' } } })
 assert(vim.fn.exists(':CodeitContextFiles') == 2)
-assert(require('codeit.slash_commands').parse('/contextFiles').command == 'CodeitContextFiles')
+assert(require('codeit.commands.slash').parse('/contextFiles').command == 'CodeitContextFiles')
 local function toggle_path(path)
   plugin.context_files()
   local buf = vim.fn.bufnr('codeit://context-files')

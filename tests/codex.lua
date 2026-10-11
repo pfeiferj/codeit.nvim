@@ -193,7 +193,7 @@ plugin.setup({ provider = 'codex', max_context_tokens = false, context_review = 
 plugin.open()
 assert(plugin.get_settings().models.codex == 'gpt-5.3-codex')
 plugin.send('save a Codex conversation')
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local saved
 assert(vim.wait(2000, function()
   for _, entry in ipairs(history.list(history.workspace())) do
@@ -212,7 +212,7 @@ plugin.new()
 assert(plugin.resume(saved.id))
 assert(plugin.get_settings().provider == 'codex')
 assert(vim.tbl_contains(vim.fn.getcompletion('CodeitProvider ', 'cmdline'), 'codex'))
-local command = require('codeit.slash_commands').parse('/provider codex')
+local command = require('codeit.commands.slash').parse('/provider codex')
 assert(vim.tbl_contains(command.choices, 'codex'))
 local previous_calls = #calls
 plugin.send('continue the saved Codex chat')
@@ -227,7 +227,7 @@ assert(vim.wait(2000, function()
   return chat and chat.tokens_out == 10
 end))
 
-local settings_menu = require('codeit.settings_menu')
+local settings_menu = require('codeit.settings.menu')
 local original_select = settings_menu.select
 local steps = { 'provider', 'codex', 'effort', 'low', 'model', 'gpt-5.3-codex',
   'tool_review', 'effort', 'high', 'back', 'session' }
@@ -243,7 +243,7 @@ settings_menu.select = function(items, _, callback)
 end
 local draft = plugin.get_settings()
 draft.provider = 'openrouter'
-require('codeit.settings_picker').show(draft, function(values) applied = values end)
+require('codeit.settings.picker').show(draft, function(values) applied = values end)
 assert(vim.wait(2000, function() return applied ~= nil end))
 assert(#steps == 0 and applied.provider == 'codex' and applied.request_options.codex.effort == 'low')
 assert(settings.feature_config(applied, 'tool_review').options.effort == 'high')

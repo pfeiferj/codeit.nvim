@@ -4,7 +4,7 @@ vim.fn.mkdir(temp .. '/one', 'p')
 vim.fn.mkdir(temp .. '/two', 'p')
 vim.fn.chdir(temp .. '/one')
 local settings = require('codeit.settings')
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local workspace = history.workspace()
 local path = vim.fn.stdpath('data') .. '/codeit/settings.json'
 vim.fn.delete(path)
@@ -239,10 +239,10 @@ assert(plugin.get_settings().model_presets.fast.model == 'fast-model', 'workspac
 plugin.setup({ max_context_tokens = false })
 assert(vim.deep_equal(plugin.get_settings().model_presets, presets), 'saved presets override setup')
 -- Real picker: presets share the override controls and feature selection stays draft-only.
-local picker = require('codeit.settings_picker')
+local picker = require('codeit.settings.picker')
 local steps, inputs, applied, scope = {}, {}, nil, nil
 vim.ui.input = function(_, callback) callback(table.remove(inputs, 1)) end
-require('codeit.settings_menu').select = function(items, _, callback)
+require('codeit.settings.menu').select = function(items, _, callback)
   local wanted = table.remove(steps, 1)
   for _, item in ipairs(items) do
     if (type(item) == 'table' and (item.slug or item.id or item.value or item.label) or item) == wanted then
@@ -289,7 +289,7 @@ pick(applied)
 assert(applied.feature_settings.tool_review == nil and applied.model_presets.fast == nil)
 -- Cancel after draft edits without applying; a stale async model callback is ignored.
 local held, did_apply = nil, false
-require('codeit.settings_menu').select = function(_, _, callback) held = callback end
+require('codeit.settings.menu').select = function(_, _, callback) held = callback end
 picker.show(base, function() did_apply = true end)
 held({ id = 'preset_fast' })
 held({ id = 'reset' })

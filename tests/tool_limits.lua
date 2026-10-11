@@ -12,7 +12,7 @@ tools.execute = function(name, _, _, callback)
   callback('Completed ' .. name)
 end
 local plugin = require('codeit')
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local prompts, pending, input = {}, nil, nil
 require('codeit.tools.approval.prompt').show = function(text, options, cb, config)
   assert(text:find('Tool limit reached', 1, true) and config.dismiss == 'Decline additional tools')

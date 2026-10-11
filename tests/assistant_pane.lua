@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local pane = require('codeit.assistant_pane')
+local pane = require('codeit.ui.assistant_pane')
 local ui = require('codeit.ui')
 local prompt = require('codeit.tools.approval.prompt')
 local original = vim.api.nvim_get_current_win()

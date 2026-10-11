@@ -2,7 +2,7 @@ vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local temp = vim.fn.tempname()
 vim.fn.mkdir(temp, 'p')
 vim.fn.chdir(temp)
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local settings = require('codeit.settings')
 local workspace = history.workspace()
 local path = vim.fn.stdpath('data') .. '/codeit/settings.json'
@@ -154,10 +154,10 @@ chat = history.load(workspace, history.list(workspace)[1].id)
 assert(chat.cost == 0.5 and chat.missing_cost == 0)
 assert(table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n'):find('Cost: $0.5', 1, true))
 -- Drive feature menus with the real picker; all edits remain draft-only until apply.
-local picker = require('codeit.settings_picker')
+local picker = require('codeit.settings.picker')
 local steps, inputs, applied = {}, {}, nil
 vim.ui.input = function(_, callback) callback(table.remove(inputs, 1)) end
-require('codeit.settings_menu').select = function(items, _, callback)
+require('codeit.settings.menu').select = function(items, _, callback)
   local wanted = table.remove(steps, 1)
   for _, item in ipairs(items) do
     if (type(item) == 'table' and (item.slug or item.id or item.value or item.label) or item) == wanted then
@@ -194,7 +194,7 @@ picker.show(applied, function(values) applied = values end)
 assert(applied.feature_settings.tool_review.options == nil)
 -- A stale callback inside a feature submenu must not mutate/apply a draft.
 local held, live, did_apply = nil, true, false
-require('codeit.settings_menu').select = function(_, _, callback) held = callback end
+require('codeit.settings.menu').select = function(_, _, callback) held = callback end
 picker.show(base, function() did_apply = true end, function() return live end)
 held({ id = 'compaction' })
 held({ id = 'provider' })

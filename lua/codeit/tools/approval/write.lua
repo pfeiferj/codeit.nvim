@@ -117,7 +117,7 @@ function M.show(diff, options, callback)
   vim.bo[buf].modifiable = false
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local frame = geometry(diff.path)
-  local close_pane = require('codeit.assistant_pane').open(frame)
+  local close_pane = require('codeit.ui.assistant_pane').open(frame)
   local win = vim.api.nvim_open_win(buf, true, frame)
   vim.wo[win].wrap = false
   vim.wo[win].cursorline = false
@@ -170,7 +170,7 @@ function M.show(diff, options, callback)
   local cursor_autocmd = vim.api.nvim_create_autocmd('CursorMoved', {
     buffer = buf, callback = update_header,
   })
-  local close_chat = require('codeit.popup_chat').attach(win)
+  local close_chat = require('codeit.ui.popup_chat').attach(win)
   local finished = false
   local function finish(choice)
     if finished then return end

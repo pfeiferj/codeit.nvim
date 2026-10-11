@@ -1,5 +1,5 @@
 local M = {}
-local markdown = require('codeit.markdown')
+local markdown = require('codeit.ui.markdown')
 local risk_namespace = vim.api.nvim_create_namespace('codeit_approval_risk')
 
 local function geometry()
@@ -59,13 +59,13 @@ function M.show(prompt, options, callback, config)
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local win_config = geometry()
   win_config.title = config.title or ' Approve tool call '
-  local close_pane = require('codeit.assistant_pane').open(win_config)
+  local close_pane = require('codeit.ui.assistant_pane').open(win_config)
   local win = vim.api.nvim_open_win(buf, true, win_config)
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
   vim.wo[win].cursorline = true
   vim.api.nvim_win_set_cursor(win, { first_choice_line or #lines, 0 })
-  local close_chat = require('codeit.popup_chat').attach(win)
+  local close_chat = require('codeit.ui.popup_chat').attach(win)
   local finished = false
   local function finish(choice)
     if finished then return end
@@ -114,7 +114,7 @@ function M.ask_reviewer(name, args, on_question, on_back)
   vim.list_extend(header, { '', '## Conversation', '', 'Type below; <C-s> or normal-mode <Enter> to send. <Esc> to go back. <C-g> to view chat context.', '' })
   local frame = geometry()
   frame.title = ' Tool-call reviewer '
-  local close_pane = require('codeit.assistant_pane').open(frame)
+  local close_pane = require('codeit.ui.assistant_pane').open(frame)
   local chat = require('codeit.ui').new({
     name = 'codeit://reviewer',
     floating = true,
@@ -154,7 +154,7 @@ function M.ask_reviewer(name, args, on_question, on_back)
   end
   if vim.api.nvim_get_mode().mode:sub(1, 1) == 'i' then vim.cmd.stopinsert() end
   local win = chat.open(submit, finish)
-  close_chat = require('codeit.popup_chat').attach(win)
+  close_chat = require('codeit.ui.popup_chat').attach(win)
   on_close(win, finish)
   render()
   vim.cmd.startinsert()

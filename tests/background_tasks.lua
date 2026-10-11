@@ -50,7 +50,7 @@ choices[1]('Send results to assistant')
 vim.wait(300, function() return false end)
 assert(#requests == 3, 'approval must not send results to another chat')
 
-local origin = { workspace = require('codeit.history').workspace(), chat_id = 'test' }
+local origin = { workspace = require('codeit.chat.storage').workspace(), chat_id = 'test' }
 local idle, delivered = false, {}
 tasks.configure(function(t) return idle and t.origin == origin end,
   function(t, output) delivered[#delivered + 1] = { t, output } end)

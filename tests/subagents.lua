@@ -143,7 +143,7 @@ reply({ role = 'assistant', tool_calls = { call('start_subagent', { title = 'Bil
 reply({ role = 'assistant', content = 'Started' })
 await(14)
 assert(requests[14].config.provider == 'copilot' and requests[14].config.model == 'override-model')
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local origin_id = agents.list()[8].origin.chat_id
 local before_cost = history.load(temp, origin_id).cost
 plugin.new()

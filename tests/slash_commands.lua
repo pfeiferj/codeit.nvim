@@ -1,5 +1,5 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local slash = require('codeit.slash_commands')
+local slash = require('codeit.commands.slash')
 local requests, responses = {}, {}
 package.loaded['codeit.providers'] = {
   chat = function(_, messages, _, callback)
@@ -127,7 +127,7 @@ assert_order('## Command: `/trustStatus`', 'first question', 'first answer',
 assert(#requests == 2, 'display-only commands must not request an LLM response')
 assert(#requests[2] == 4 and requests[2][4].content == 'second question',
   'command output must not be sent to the assistant')
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local saved = history.list(history.workspace())[1]
 assert(#saved.command_results == 6, 'command results should be saved separately from messages')
 local expected_anchors = { 0, 0, 0, 3, 3, 4 }

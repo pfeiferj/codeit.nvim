@@ -57,8 +57,8 @@ function M.complete(text)
   if not command or not command.args then return {}, 0 end
   local items = {}
   if command.name == 'skill' and not args:find('%s') then
-    local workspace = require('codeit.history').workspace()
-    for _, entry in ipairs(require('codeit.context_files').entries(workspace, require('codeit.tools.approval').workspace_trust(workspace))) do
+    local workspace = require('codeit.chat.storage').workspace()
+    for _, entry in ipairs(require('codeit.context.files').entries(workspace, require('codeit.tools.approval').workspace_trust(workspace))) do
       if entry.kind == 'skill' and entry.available and entry.name:sub(1, #args) == args then
         items[#items + 1] = { word = entry.name, menu = entry.description }
       end

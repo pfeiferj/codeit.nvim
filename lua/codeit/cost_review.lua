@@ -1,9 +1,9 @@
 local M = {}
 local current
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 local costs = require('codeit.tools.cost')
 local usage_format = require('codeit.usage_format')
-local table_popup = require('codeit.table_popup')
+local table_popup = require('codeit.ui.table_popup')
 local cost_breakdown = require('codeit.cost_breakdown')
 local highlight_ns = vim.api.nvim_create_namespace('codeit_cost_review')
 

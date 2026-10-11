@@ -1,5 +1,5 @@
 local M = {}
-local markdown = require('codeit.markdown')
+local markdown = require('codeit.ui.markdown')
 
 --- Show saved chats in a wide, scrollable picker so summaries remain readable.
 function M.show(entries, workspace, callback, delete_chat, archive_chat)

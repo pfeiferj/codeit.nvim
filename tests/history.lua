@@ -5,7 +5,7 @@ vim.fn.mkdir(temp .. '/one', 'p')
 vim.fn.mkdir(temp .. '/two', 'p')
 vim.fn.chdir(temp .. '/one')
 local workspace = vim.uv.fs_realpath(vim.fn.getcwd())
-local history = require('codeit.history')
+local history = require('codeit.chat.storage')
 
 -- Large monotonic clock values must not turn IDs into scientific notation.
 do
@@ -113,7 +113,7 @@ for _, message in ipairs(requests[#requests].messages) do
 end
 
 local selected, selections = nil, 0
-require('codeit.history_picker').show = function(items, selected_workspace, callback)
+require('codeit.chat.picker').show = function(items, selected_workspace, callback)
   selections = selections + 1
   assert(#items >= 2 and selected_workspace == workspace)
   local summarized
@@ -322,7 +322,7 @@ plugin.send('chat to delete')
 responses[#responses]({ role = 'assistant', content = 'saved answer' })
 local active_id = history.list(workspace)[1].id
 local delete_active
-require('codeit.history_picker').show = function(items, _, _, delete)
+require('codeit.chat.picker').show = function(items, _, _, delete)
   for _, item in ipairs(items) do
     if item.id == active_id then delete_active = function() return delete(item) end end
   end
@@ -378,7 +378,7 @@ assert(vim.fn.filereadable(archive_dir .. '/move-failure.json') == 0)
 -- Archiving an active chat detaches it and prevents in-flight responses from recreating it.
 active_id = continued.id
 local archive_active
-require('codeit.history_picker').show = function(items, _, _, _, archive)
+require('codeit.chat.picker').show = function(items, _, _, _, archive)
   for _, item in ipairs(items) do
     if item.id == active_id then archive_active = function() return archive(item) end end
   end

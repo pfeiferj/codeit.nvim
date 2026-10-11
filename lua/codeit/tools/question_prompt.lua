@@ -1,5 +1,5 @@
 local M = {}
-local markdown = require('codeit.markdown')
+local markdown = require('codeit.ui.markdown')
 
 --- Display the question in the popup, never in a command-line input prompt.
 function M.show(question, choices, callback)
@@ -31,12 +31,12 @@ function M.show(question, choices, callback)
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
     style = 'minimal', border = 'rounded', title = ' Codeit question ', title_pos = 'center',
   }
-  local close_pane = require('codeit.assistant_pane').open(frame)
+  local close_pane = require('codeit.ui.assistant_pane').open(frame)
   local win = vim.api.nvim_open_win(buf, true, frame)
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
   vim.api.nvim_win_set_cursor(win, { draft_start + 1, 0 })
-  local close_chat = require('codeit.popup_chat').attach(win)
+  local close_chat = require('codeit.ui.popup_chat').attach(win)
   local finished = false
   local function finish(answer)
     if finished then return end

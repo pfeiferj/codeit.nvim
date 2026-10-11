@@ -13,7 +13,7 @@ function M.resolve(args, workspace, mode, selected)
   for part in args.path:gmatch('[^/\\]+') do
     if part == '..' then return nil, 'resource path must not contain parent traversal' end
   end
-  for _, entry in ipairs(require('codeit.context_files').entries(workspace, mode, {}, selected)) do
+  for _, entry in ipairs(require('codeit.context.files').entries(workspace, mode, {}, selected)) do
     if entry.kind == 'skill' and entry.name == args.skill and entry.included then
       local root = vim.uv.fs_realpath(vim.fn.fnamemodify(entry.path, ':h'))
       local path = root and vim.uv.fs_realpath(root .. '/' .. args.path)
