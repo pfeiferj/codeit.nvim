@@ -31,7 +31,7 @@ function M.context_limit(config, callback)
 end
 
 --- Send a chat request, normalizing provider responses. callback(message, error, usage).
-function M.chat(config, messages, tools, callback, on_text, active)
+function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   local function finish(message, err, usage, detail)
     if active and not active() then return end
     if err then log.error(config, err, detail) end
@@ -39,7 +39,7 @@ function M.chat(config, messages, tools, callback, on_text, active)
   end
   local implementation = backend(config.provider)
   if not implementation then return finish(nil, 'Unknown provider: ' .. tostring(config.provider)) end
-  implementation.chat(config, messages, tools, finish, on_text, active)
+  implementation.chat(config, messages, tools, finish, on_text, active, on_activity)
 end
 
 return M

@@ -1,7 +1,7 @@
 local M = {}
 
 -- Assemble SSE events into the same response shapes used by the non-streaming adapters.
-function M.new(responses, on_text)
+function M.new(responses, on_text, on_activity)
   local pending, headers, sse = '', true, false
   local failure, completed, result, usage, finish_reason
   local message = { role = 'assistant', content = '' }
@@ -107,7 +107,10 @@ function M.new(responses, on_text)
         for line in (block .. '\n'):gmatch('(.-)\n') do
           if line:sub(1, 5) == 'data:' then data[#data + 1] = line:sub(6):gsub('^ ', '') end
         end
-        if #data > 0 then event(table.concat(data, '\n')) end
+        if #data > 0 then
+          event(table.concat(data, '\n'))
+          if on_activity then on_activity() end
+        end
       end
     end
   end

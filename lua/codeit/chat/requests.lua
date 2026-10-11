@@ -61,7 +61,32 @@ function M.attach(api, session, helpers)
         vim.notify('codeit: context exceeds the safe prompt budget; fixed instructions or the active turn cannot be compacted', vim.log.levels.WARN)
       end
     end
-    helpers.set_status('Waiting for ' .. selected_config.provider .. '…')
+    helpers.set_status('Waiting')
+    local response_pending, last_stream_activity = true, nil
+    -- Treat brief gaps between chunks as streaming, but show longer provider pauses.
+    local function check_stream_idle()
+      if not response_pending or not active() then return end
+      local remaining = 1000 - (vim.uv.hrtime() - last_stream_activity) / 1e6
+      if remaining > 0 then
+        vim.defer_fn(check_stream_idle, math.ceil(remaining))
+      else
+        last_stream_activity = nil
+        helpers.set_status('Waiting')
+      end
+    end
+    local function stream_activity()
+      if not response_pending or not active() then return end
+      local was_idle = last_stream_activity == nil
+      last_stream_activity = vim.uv.hrtime()
+      if was_idle then vim.defer_fn(check_stream_idle, 1000) end
+      session.status = 'Thinking'
+      if session.stream_render_pending then return end
+      session.stream_render_pending = true
+      vim.defer_fn(function()
+        session.stream_render_pending = false
+        if active() then helpers.render() end
+      end, 50)
+    end
     local advertised = vim.json.encode(context_files.messages(session.workspace, approval.workspace_trust(session.workspace),
       session.context_paths, session.selected_skills))
     local subagent_workspace, subagent_chat = session.workspace, session.chat_id
@@ -92,6 +117,7 @@ function M.attach(api, session, helpers)
       history.save(subagent_workspace, subagent_chat, chat)
     end
     providers.chat(selected_config, helpers.request_messages(), specs, function(message, err, usage)
+      response_pending = false
       if not active() then return end
       session.stream_preview = nil
       if err then return helpers.fail(err) end
@@ -293,15 +319,10 @@ function M.attach(api, session, helpers)
       end
       process()
     end, function(text)
-      if not active() then return end
+      if not response_pending or not active() then return end
       session.stream_preview = text
-      if session.stream_render_pending then return end
-      session.stream_render_pending = true
-      vim.defer_fn(function()
-        session.stream_render_pending = false
-        if active() then helpers.render() end
-      end, 50)
-    end, active)
+      stream_activity()
+    end, active, stream_activity)
   end
 end
 

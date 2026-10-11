@@ -34,7 +34,7 @@ local function http_json(args, options, callback, metadata, streaming, active)
     local attempt_options = vim.tbl_extend('force', {}, options)
     if streaming then
       output = {}
-      parser = require('codeit.providers.protocols.stream').new(streaming.responses, streaming.on_text)
+      parser = require('codeit.providers.protocols.stream').new(streaming.responses, streaming.on_text, streaming.on_activity)
       attempt_options.stdout = function(err, chunk)
         if err or not chunk then return end
         output[#output + 1] = chunk

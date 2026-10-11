@@ -58,7 +58,7 @@ function M.models(callback, options)
   end)
 end
 
-function M.chat(config, messages, tools, callback, on_text, active)
+function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   local url, url_error = M.url(config.options)
   if not url then return callback(nil, url_error) end
   local function route()
@@ -93,7 +93,7 @@ function M.chat(config, messages, tools, callback, on_text, active)
           if message or truncated then billing = usage.copilot(response) end
         end
         callback(message, response_error, billing, response_detail)
-      end, on_text and { responses = endpoint == '/responses', on_text = on_text } or nil, active)
+      end, on_text and { responses = endpoint == '/responses', on_text = on_text, on_activity = on_activity } or nil, active)
     end)
   end
   if catalogs[url] then return route() end

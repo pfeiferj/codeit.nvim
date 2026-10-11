@@ -13,7 +13,7 @@ function M.models(callback)
   end)
 end
 
-function M.chat(config, messages, tools, callback, on_text, active)
+function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   local key = vim.env.OPENROUTER_API_KEY
   if not key or key == '' then return callback(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
   if active and not active() then return end
@@ -36,7 +36,7 @@ function M.chat(config, messages, tools, callback, on_text, active)
     if message then billing = usage.openrouter(response)
     elseif truncated then billing = response.usage end
     callback(message, failure, billing, response_detail)
-  end, on_text and { responses = false, on_text = on_text } or nil, active)
+  end, on_text and { responses = false, on_text = on_text, on_activity = on_activity } or nil, active)
 end
 
 --- Fetch model-specific OpenRouter upstream endpoints, including their pricing.

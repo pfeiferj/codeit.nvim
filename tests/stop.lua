@@ -1,18 +1,60 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local requests, pending = {}, {}
-package.loaded['codeit.providers'] = { chat = function(_, messages, _, callback, on_text, active)
+package.loaded['codeit.providers'] = { chat = function(_, messages, _, callback, on_text, active, on_activity)
   requests[#requests + 1] = vim.deepcopy(messages)
-  pending[#pending + 1] = { reply = callback, text = on_text, active = active }
+  pending[#pending + 1] = { reply = callback, text = on_text, active = active, activity = on_activity }
 end }
 local codeit = require('codeit')
 codeit.setup({ max_context_tokens = false, context_review_min_tokens = 100000 })
 assert(not codeit.stop(), 'stopping an idle chat should be a no-op')
+local ui = require('codeit.ui')
+local render, defer, hrtime = ui.render, vim.defer_fn, vim.uv.hrtime
+local status, now, timers = nil, 0, {}
+ui.render = function(messages, value, ...)
+  status = value
+  return render(messages, value, ...)
+end
+vim.uv.hrtime = function() return now * 1e6 end
+vim.defer_fn = function(fn, ms) timers[#timers + 1] = { fn = fn, due = now + ms } end
+local function advance(ms)
+  local target = now + ms
+  while true do
+    local next_index
+    for index, timer in ipairs(timers) do
+      if timer.due <= target and (not next_index or timer.due < timers[next_index].due) then next_index = index end
+    end
+    if not next_index then break end
+    local timer = table.remove(timers, next_index)
+    now = timer.due
+    timer.fn()
+  end
+  now = target
+end
 codeit.send('First question')
 local first = pending[#pending]
+assert(status == 'Waiting', 'no provider data should show Waiting')
+first.activity()
+advance(50)
+assert(status == 'Thinking', 'non-text response data should also show Thinking')
+advance(1000)
+assert(status == 'Waiting', 'non-text stream pauses should show Waiting')
 first.text('Partial answer')
+advance(50)
+assert(status == 'Thinking', 'streaming text should show Thinking')
+advance(400)
+first.text('Partial answer')
+advance(550)
+assert(status == 'Thinking', 'new data should extend the streaming activity window')
+advance(450)
+assert(status == 'Waiting', 'a one-second stream pause should show Waiting')
+first.text('Partial answer')
+advance(50)
+assert(status == 'Thinking', 'resumed streaming should show Thinking again')
 vim.cmd('CodeitStop')
 assert(not first.active())
 assert(not codeit.stop())
+advance(1000)
+assert(status == 'Turn interrupted', 'idle timers must not overwrite a stopped turn')
 codeit.send('Follow up')
 local follow = pending[#pending]
 local kept_preview = false
@@ -22,8 +64,14 @@ end
 assert(kept_preview, 'keep streamed text')
 first.text('Stale preview')
 first.reply({ role = 'assistant', content = 'Stale answer' })
+follow.text('Fresh')
+advance(50)
+assert(status == 'Thinking')
 follow.reply({ role = 'assistant', content = 'Fresh answer' })
+advance(1000)
+assert(status == 'Ready', 'idle timers must not overwrite a completed response')
 assert(not codeit.stop(), 'late callbacks must not revive the stopped turn')
+ui.render, vim.defer_fn, vim.uv.hrtime = render, defer, hrtime
 
 local tools = require('codeit.tools')
 local execute = tools.execute
@@ -40,7 +88,6 @@ codeit.send('Use tools')
 pending[#pending].reply({ role = 'assistant', tool_calls = { call('done'), call('pending'), call('remaining') } })
 assert(executed == 2 and tool_active())
 codeit.open()
-local ui = require('codeit.ui')
 local peek = ui.peek_input
 ui.peek_input = function() return '/stop' end
 codeit.send()

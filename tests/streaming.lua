@@ -7,6 +7,21 @@ local header = 'HTTP/1.1 200 Connection established\r\n\r\nHTTP/2 200\r\nContent
 local function chat(delta, finish)
   return event({ choices = { { index = 0, delta = delta, finish_reason = finish } } })
 end
+local activity = 0
+local activity_parser = stream.new(false, function() error('non-text events must not produce previews') end,
+  function() activity = activity + 1 end)
+activity_parser.push(header .. ': heartbeat\r\n\r\n')
+assert(activity == 0, 'headers and keepalive comments are not response data')
+activity_parser.push(chat({ reasoning_details = { { index = 0, type = 'reasoning.text', text = 'Thinking' } } }))
+activity_parser.push(chat({ tool_calls = { { index = 0, id = 'call',
+  ['function'] = { name = 'read_file', arguments = '{}' } } } }))
+assert(activity == 2, 'reasoning and tool-call data should signal streaming activity')
+activity = 0
+activity_parser = stream.new(true, function() error('non-text events must not produce previews') end,
+  function() activity = activity + 1 end)
+activity_parser.push(header .. event({ type = 'response.reasoning_summary_text.delta', delta = 'Thinking' }))
+activity_parser.push(event({ type = 'response.function_call_arguments.delta', delta = '{}' }))
+assert(activity == 2, 'Responses reasoning and tool-call data should signal streaming activity')
 local previews = {}
 local parser = stream.new(false, function(text) previews[#previews + 1] = text end)
 local wire = header .. ': heartbeat\r\n\r\n' .. chat({ content = 'hé' }) .. chat({ content = 'llo' })
@@ -72,11 +87,13 @@ vim.system = function(args, options, callback)
     callback({ code = 0 })
   end)
 end
+activity = 0
 require('codeit.providers').chat({ provider = 'openrouter', model = 'test' }, {}, {}, function(value, failure, usage)
   assert(not failure and value.content == 'Hello' and usage.total_tokens == 9)
   done = done + 1
-end, function(text) live[#live + 1] = text end)
+end, function(text) live[#live + 1] = text end, nil, function() activity = activity + 1 end)
 assert(vim.wait(2000, function() return done > 0 end))
+assert(activity > 0, 'provider adapters should forward streaming activity')
 assert(done == 1 and attempts == 2 and waits[1] == 0 and body.stream and body.stream_options.include_usage)
 vim.env.COPILOT_GITHUB_TOKEN = 'test-token'
 for _, endpoint in ipairs({ '/chat/completions', '/responses' }) do

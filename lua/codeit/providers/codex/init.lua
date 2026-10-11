@@ -16,7 +16,7 @@ function M.models(callback)
   end)
 end
 
-function M.chat(config, messages, tools, callback, on_text, active)
+function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   local credentials, err = auth.credentials()
   if not credentials then return callback(nil, err) end
   if active and not active() then return end
@@ -44,7 +44,7 @@ function M.chat(config, messages, tools, callback, on_text, active)
     local message, response_error = responses.message(response, 'Codex')
     local response_detail = response_error and vim.json.encode(response) or nil
     callback(message, auth.redact(response_error, credentials), usage.codex(response), auth.redact(response_detail, credentials))
-  end, { responses = true, on_text = on_text or function() end }, active)
+  end, { responses = true, on_text = on_text or function() end, on_activity = on_activity }, active)
 end
 
 return M

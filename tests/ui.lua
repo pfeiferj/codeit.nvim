@@ -123,8 +123,8 @@ end
 ui.render(messages, 'Ready', 'copilot', 'model-b', nil)
 assert(vim.wo[win].winbar == '', 'providers without usage must not display a usage header')
 scroll(1)
-assert(hint():find('Ready · Ctrl-S: send', 1, true) == 1,
-  'status should appear alongside the virtual send instructions')
+assert(hint() == 'Ready · Ctrl-S: send · / commands',
+  'ready hint should show only a short status and shortcuts')
 assert(not vim.tbl_contains(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '* Ready'),
   'status should not be a transcript line')
 assert(not vim.tbl_contains(ui.chat_lines(), '* Ready'),
@@ -138,9 +138,9 @@ for _, mark in ipairs(marks()) do
 end
 
 local long_status = 'Working on 界面 é ' .. string.rep('界', 30) .. ' ' .. string.rep('x', 90)
-local discovery = ' · Type / for commands · // sends a literal /'
-local send_hint = 'Ctrl-S: send · Enter: newline (insert mode) · normal Enter: send' .. discovery
-local busy_hint = 'Sending unavailable while busy · Your draft is kept' .. discovery
+local discovery = '/ commands'
+local send_hint = 'Ctrl-S: send · ' .. discovery
+local busy_hint = discovery
 local function check_wrapped(expected, windows)
   local lines = hint_lines()
   assert(#lines > 1, 'long status should wrap into multiple virtual lines')
@@ -198,8 +198,8 @@ ui.render(messages, 'Waiting', 'copilot', 'model-b', nil, nil, false)
 assert(vim.api.nvim_win_get_cursor(win)[2] == 4)
 assert(vim.tbl_contains(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '## Message'),
   'the draft heading should remain visible while sending is blocked')
-assert(hint():find('Waiting · Sending unavailable', 1, true) == 1,
-  'virtual status should update while sending is blocked')
+assert(hint() == 'Waiting · / commands',
+  'blocked hint should show a concise status without send or draft explanations')
 assert(ui.peek_input() == 'first line\nsecond line', 'blocked sending must preserve the draft')
 local function check_message_highlight(disabled)
   for _, mark in ipairs(marks()) do

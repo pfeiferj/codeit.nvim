@@ -34,13 +34,15 @@ function M.attach(api, state, options, helpers)
       end
     end
     if not width then return end
-    local hint = state.can_send_message and 'Ctrl-S: send · Enter: newline (insert mode) · normal Enter: send'
-      or 'Sending unavailable while busy · Your draft is kept'
-    if state.draft_status and state.draft_status ~= '' then hint = state.draft_status .. ' · ' .. hint end
-    if options.slash_commands ~= false then
-      if state.slash_error or state.slash_hint then hint = (state.slash_error or state.slash_hint) .. ' · ' .. hint
-      else hint = hint .. ' · Type / for commands · // sends a literal /' end
+    local hints = {}
+    if state.draft_status and state.draft_status ~= '' then hints[#hints + 1] = state.draft_status end
+    if options.slash_commands ~= false and (state.slash_error or state.slash_hint) then
+      hints[#hints + 1] = state.slash_error or state.slash_hint
+    else
+      if state.can_send_message then hints[#hints + 1] = 'Ctrl-S: send' end
+      if options.slash_commands ~= false then hints[#hints + 1] = '/ commands' end
     end
+    local hint = table.concat(hints, ' · ')
     local heading = vim.api.nvim_buf_get_lines(state.transcript, state.draft_start - 2, state.draft_start - 1, false)[1]
     state.draft_hint_id = vim.api.nvim_buf_set_extmark(state.transcript, state.ui_ns, state.draft_start - 2, 0, {
       id = state.draft_hint_id,

@@ -100,10 +100,10 @@ function M.attach(api, state, options, helpers)
       helpers.suppress_completion()
       helpers.paint_palette()
       state.slash_hint = (hint and (hint .. ' · ') or '')
-        .. 'Tab / Shift-Tab or Ctrl-N / Ctrl-P: navigate · Enter: select · Esc: dismiss'
+        .. 'Tab/S-Tab: move · Enter: select · Esc: close'
     elseif text:sub(1, 1) == '/' and text:sub(1, 2) ~= '//' then
       local command, args = slash_commands.parse(text)
-      state.slash_hint = command and (slash_commands.validate(command, args) or 'Enter: run command')
+      state.slash_hint = command and (slash_commands.validate(command, args) or 'Enter: run')
         or (args or hint)
     end
     helpers.draft_hint()
