@@ -470,10 +470,20 @@ function M.open(on_send, on_close)
   vim.wo[transcript_win].number = false
   vim.wo[transcript_win].relativenumber = false
   vim.keymap.set('n', '<CR>', on_send, { buffer = transcript, desc = 'Send codeit message' })
-  vim.keymap.set(options.floating and { 'n', 'i' } or 'i', '<C-s>', function()
-    vim.cmd('stopinsert')
-    on_send()
-  end, { buffer = transcript, desc = 'Send codeit message' })
+  vim.keymap.set('n', '<Plug>(codeit-send)', on_send, { buffer = transcript, silent = true })
+  if options.slash_commands == false then
+    vim.keymap.set('i', '<C-s>', function()
+      vim.cmd('stopinsert')
+      on_send()
+    end, { buffer = transcript, desc = 'Send codeit message' })
+  else
+    -- stopinsert inside a callback takes effect only after popup focus has changed.
+    vim.keymap.set('i', '<C-s>', '<C-\\><C-n><Plug>(codeit-send)',
+      { buffer = transcript, silent = true, desc = 'Send codeit message' })
+  end
+  if options.floating then
+    vim.keymap.set('n', '<C-s>', on_send, { buffer = transcript, desc = 'Send codeit message' })
+  end
   if options.slash_commands ~= false then
   vim.keymap.set('i', '<CR>', function()
     if completion then return '<Plug>(codeit-accept-slash)' end
@@ -485,7 +495,7 @@ function M.open(on_send, on_close)
   end, { buffer = transcript, expr = true, desc = 'Select or run slash command; otherwise newline' })
   vim.keymap.set('i', '<Plug>(codeit-accept-slash)', M.accept_slash,
     { buffer = transcript, silent = true })
-  vim.keymap.set('i', '<Plug>(codeit-run-slash)', on_send,
+  vim.keymap.set('i', '<Plug>(codeit-run-slash)', '<C-\\><C-n><Plug>(codeit-send)',
     { buffer = transcript, silent = true })
   local function navigate(direction, fallback)
     return function()

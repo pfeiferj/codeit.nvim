@@ -224,6 +224,26 @@ keys('A' .. refresh .. '<CR><Esc>')
 assert(draft() == '/send', 'free-text argument command must not execute on selection')
 assert(vim.api.nvim_get_current_line() == '/send ', 'argument commands insert a trailing space')
 
+-- Popup buffers must not inherit Insert mode and trigger completion on entry.
+for _, case in ipairs({
+  { '/settings', '<CR><CR>' }, { '/contextFiles', '<CR><CR>' }, { '/settings', '<C-s>' },
+}) do
+  local command, submit_keys = unpack(case)
+  set_draft(command)
+  local popup_mode
+  local entry = vim.api.nvim_create_autocmd('BufEnter', {
+    callback = function()
+      if vim.api.nvim_get_current_buf() ~= buf then popup_mode = vim.api.nvim_get_mode().mode end
+    end,
+  })
+  keys('A' .. refresh .. submit_keys)
+  vim.api.nvim_del_autocmd(entry)
+  assert(popup_mode == 'n', command .. ' must leave Insert mode before focusing its popup (got '
+    .. tostring(popup_mode) .. ')')
+  assert(draft() == nil and not palette(), 'running a popup command must clear its draft and palette')
+  vim.cmd('close')
+end
+
 -- Help opens the searchable palette rather than sending an LLM message.
 set_draft('/help')
 codeit.send()
