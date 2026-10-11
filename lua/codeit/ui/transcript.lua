@@ -238,8 +238,8 @@ function M.attach(api, state, options, helpers)
       helpers.restore_folds(win, win == state.transcript_win and active_expanded or sidebar_expanded)
     end
     fill_lines(lines, hunks)
-    if valid(state.transcript_win) then M.decorate_chat(state.transcript_win, active_expanded) end
-    if valid(state.sidebar_win) then M.decorate_chat(state.sidebar_win, sidebar_expanded) end
+    if valid(state.transcript_win) then M.decorate_chat(state.transcript_win, active_expanded, true) end
+    if valid(state.sidebar_win) then M.decorate_chat(state.sidebar_win, sidebar_expanded, true) end
     helpers.update_header()
     for win, view_state in pairs(views) do
       if view_state.draft_row then

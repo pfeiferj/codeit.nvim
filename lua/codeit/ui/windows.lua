@@ -180,6 +180,8 @@ function M.attach(api, state, options, helpers)
     helpers.close_palette()
     state.slash_hint, state.slash_error, state.dismissed = nil, nil, nil
     local active, sidebar = state.transcript_win, state.sidebar_win
+    if active then helpers.release_chat_foldopen(active) end
+    if sidebar then helpers.release_chat_foldopen(sidebar) end
     state.transcript_win, state.sidebar_win = nil, nil
     if valid(active) then vim.api.nvim_win_close(active, true) end
     if valid(sidebar) then vim.api.nvim_win_close(sidebar, true) end

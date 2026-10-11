@@ -466,7 +466,7 @@ do
   end
   local set_lines, set_text = vim.api.nvim_buf_set_lines, vim.api.nvim_buf_set_text
   local text_height, cmd = vim.api.nvim_win_text_height, vim.cmd
-  local writes, buffer_writes, refreshing = 0, 0, false
+  local writes, buffer_writes, refreshing, fold_resets = 0, 0, false, 0
   local window_count = #vim.api.nvim_list_wins()
   vim.cmd = setmetatable({}, { __index = cmd, __call = function(_, command)
     local current = vim.api.nvim_get_current_win()
@@ -476,7 +476,25 @@ do
       assert(not command:find('zE', 1, true),
         'live fold decoration must never delete and rebuild populated folds')
     end
-    return cmd(command)
+    local resetting = (current == win or current == popup) and command:find('zX', 1, true)
+    if resetting then
+      fold_resets = fold_resets + 1
+      assert(vim.wo[current].foldlevel == 0, 'fold recomputation must start closed, even after zR')
+      assert(vim.o.foldopen == '', 'chat folds must not open automatically')
+    end
+    local result = cmd(command)
+    if resetting then
+      for row, level in pairs(vim.w[current].codeit_fold_levels) do
+        if level == '>1' then
+          assert(vim.fn.foldclosed(tonumber(row)) ~= -1,
+            'recomputation must never briefly open activity before state restoration')
+          local summary = vim.w[current].codeit_fold_summaries[row]
+          assert(summary and summary.preview:find('Activity', 1, true),
+            'safe summaries must exist before recomputation can request foldtext')
+        end
+      end
+    end
+    return result
   end })
   vim.api.nvim_win_text_height = function(target, range)
     assert(vim.api.nvim_win_get_config(target).hide,
@@ -535,6 +553,15 @@ do
   end
   local ok, err = pcall(function()
     ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
+    assert(fold_resets == 2, 'each chat view must be recomputed only once per structural render')
+    for _, view in ipairs({ win, popup }) do
+      vim.api.nvim_win_call(view, function()
+        vim.wo[view].foldlevel = 1
+        for row, line in ipairs(vim.api.nvim_buf_get_lines(chat, 0, -1, false)) do
+          if line == '**Activity**' then vim.cmd(row .. 'foldclose') end
+        end
+      end)
+    end
     activity[3].content = activity[3].content .. '\nfold test growing output' .. string.rep('\nfold test extra row', 30)
     activity[2].reasoning_details[1].text = 'fold test revised reasoning\nsecond line\nthird line'
     activity[2].tool_calls[1]['function'].arguments = '{"path":"fold test revised input"}'
@@ -548,9 +575,10 @@ do
     table.remove(activity, 3)
     results[1].after_message = 3
     ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
-    local unchanged_writes = buffer_writes
+    local unchanged_writes, unchanged_resets = buffer_writes, fold_resets
     ui.render(activity, 'Waiting', 'test', 'test', nil, results, false)
     assert(buffer_writes == unchanged_writes, 'status changes must leave the transcript buffer untouched')
+    assert(fold_resets == unchanged_resets, 'status changes must not recompute existing folds')
     refreshing = true
     vim.api.nvim_exec_autocmds('WinResized', {})
     vim.api.nvim_exec_autocmds('VimResized', {})

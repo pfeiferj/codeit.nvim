@@ -1,6 +1,9 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local ui = require('codeit.ui')
+vim.o.foldopen = 'search,insert,undo'
+local original_foldopen = vim.o.foldopen
 ui.open(function() error('must not send') end, ui.close)
+assert(vim.o.foldopen == '', 'focused chat must suppress automatic fold opening')
 local win = vim.api.nvim_get_current_win()
 local buf = vim.api.nvim_get_current_buf()
 local call = { id = 'read', ['function'] = { name = 'read_file', arguments = '{}' } }
@@ -46,6 +49,21 @@ for _, line in ipairs({ thought, input, output, command, row('Ready to answer.')
   assert(vim.fn.foldlevel(line) == 1, 'activity items must not have nested folds')
 end
 assert(vim.fn.foldtextresult(section):find('Activity · 5 items', 1, true))
+local summaries = vim.w[win].codeit_fold_summaries
+vim.w[win].codeit_fold_summaries = {}
+assert(not vim.fn.foldtextresult(section):find('**Activity**', 1, true),
+  'a missing summary must not display underlying buffer text')
+vim.w[win].codeit_fold_summaries = summaries
+vim.api.nvim_feedkeys('/Inspect the file first.' .. vim.api.nvim_replace_termcodes('<CR>', true, false, true), 'xt', false)
+assert(vim.fn.foldclosed(thought) == section, 'searching chat must not open activity')
+local other_win
+for _, candidate in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+  if candidate ~= win then other_win = candidate; break end
+end
+vim.api.nvim_set_current_win(other_win)
+assert(vim.o.foldopen == original_foldopen, 'file windows must retain their foldopen setting')
+vim.api.nvim_set_current_win(win)
+assert(vim.o.foldopen == '', 'returning to chat must suppress automatic fold opening')
 for _, line in ipairs({ row('Request'), row('Answer'), row('Next request'), row('## Message') }) do
   assert(vim.fn.foldlevel(line) == 0, 'messages and draft must remain outside activity folds')
 end
@@ -90,4 +108,5 @@ assert(vim.fn.foldlevel(row('Explanation')) == 0 and vim.fn.foldlevel(row('Follo
 assert(vim.fn.foldclosed(row('**Reasoning**')) == groups[1])
 assert(vim.fn.foldclosed(row('*Calling `read_file`…*')) == groups[2])
 ui.close()
+assert(vim.o.foldopen == original_foldopen, 'closing chat must restore automatic fold opening')
 vim.cmd('qa!')

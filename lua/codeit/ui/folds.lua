@@ -1,7 +1,31 @@
 local M = {}
+local saved_foldopen, guarded_win
+
+local function release_foldopen(win)
+  if guarded_win ~= win then return end
+  vim.o.foldopen = saved_foldopen
+  saved_foldopen, guarded_win = nil, nil
+end
 
 function M.attach(api, state, options, helpers)
   local M = api
+  function helpers.guard_chat_foldopen()
+    local win = vim.api.nvim_get_current_win()
+    if (win ~= state.transcript_win and win ~= state.sidebar_win)
+      or vim.api.nvim_get_current_buf() ~= state.transcript then return end
+    -- foldopen is global: suppress it only while the user is in a chat view.
+    if saved_foldopen == nil then saved_foldopen = vim.o.foldopen end
+    guarded_win, vim.o.foldopen = win, ''
+  end
+
+  helpers.release_chat_foldopen = release_foldopen
+  vim.api.nvim_create_autocmd({ 'WinEnter', 'BufEnter' }, {
+    group = state.slash_group, callback = helpers.guard_chat_foldopen,
+  })
+  vim.api.nvim_create_autocmd({ 'WinLeave', 'BufLeave' }, {
+    group = state.slash_group,
+    callback = function() release_foldopen(vim.api.nvim_get_current_win()) end,
+  })
   -- Measure activity bodies in a hidden copy without exposing them in the chat.
   local function with_fold_probe(win, callback)
     return vim.api.nvim_win_call(win, function()
@@ -37,7 +61,7 @@ function M.attach(api, state, options, helpers)
 
   function M.tool_foldtext()
     local summary = (vim.w.codeit_fold_summaries or {})[tostring(vim.v.foldstart)]
-    if not summary then return vim.fn.getline(vim.v.foldstart) end
+    if not summary then return '  Activity … (za: expand)' end
     local suffix = ' … (' .. summary.count .. ' lines · za: expand)'
     local preview = summary.preview:gsub('\t', ' ')
     local width = math.max(0, vim.api.nvim_win_get_width(0) - vim.fn.strdisplaywidth(suffix) - 2)
@@ -50,21 +74,31 @@ function M.attach(api, state, options, helpers)
 
   -- Fold ranges are available before buffer updates, without deleting live folds.
   function helpers.configure_folds(win)
-    local levels = {}
+    local levels, summaries = {}, {}
     for _, fold in ipairs(state.section_folds) do
       for row = fold.first, fold.last do levels[tostring(row)] = 1 end
       levels[tostring(fold.first)], levels[tostring(fold.last)] = '>1', '<1'
+      summaries[tostring(fold.first)] = {
+        preview = fold.preview, count = fold.last - fold.first + 1 - 2 * fold.padding,
+      }
     end
-    vim.w[win].codeit_fold_levels = levels
     local expr = 'get(get(w:, "codeit_fold_levels", {}), v:lnum, 0)'
-    -- Row reservation temporarily uses manual folds but retains this expression.
-    local initialized = vim.wo[win].foldexpr == expr
+    local changed = vim.wo[win].foldexpr ~= expr or vim.wo[win].foldmethod ~= 'expr'
+      or not vim.deep_equal(vim.w[win].codeit_fold_levels, levels) or vim.wo[win].foldlevel ~= 0
+    -- Publish safe summaries before a rebuild can request foldtext. Wrapped line
+    -- counts are measured after the reserved rows have their final text.
+    vim.w[win].codeit_fold_summaries = summaries
+    vim.w[win].codeit_fold_levels = levels
+    -- Recomputing must start closed, even after zR or a manual close at a higher
+    -- foldlevel. Explicit expansions are restored separately by section key.
+    vim.wo[win].foldlevel = 0
+    helpers.guard_chat_foldopen()
     vim.wo[win].foldexpr = expr
     vim.wo[win].foldmethod = 'expr'
     vim.wo[win].foldenable = true
-    if not initialized then vim.wo[win].foldlevel = 0 end
     vim.wo[win].foldminlines = 0
     vim.wo[win].foldtext = 'v:lua.require("codeit.ui").tool_foldtext()'
+    if not changed then return end
     -- Insert mode defers expression-fold updates; materialize reserved ranges
     -- before restoring expansion state or writing their activity text.
     vim.api.nvim_win_call(win, function()
@@ -99,10 +133,12 @@ function M.attach(api, state, options, helpers)
   end
 
   --- Configure folds and role styling in both interactive and read-only chat windows.
-  function M.decorate_chat(win, expanded)
+  function M.decorate_chat(win, expanded, folds_ready)
     local buf = vim.api.nvim_win_get_buf(win)
-    helpers.configure_folds(win)
-    helpers.restore_folds(win, expanded)
+    if not folds_ready then
+      helpers.configure_folds(win)
+      helpers.restore_folds(win, expanded)
+    end
     helpers.update_fold_summaries(win)
     vim.api.nvim_buf_clear_namespace(buf, state.ui_ns, 0, -1)
     if buf == state.transcript then state.draft_hint_id = nil end
