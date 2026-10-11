@@ -1,5 +1,6 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local requests, callbacks, executed = {}, {}, {}
+local current_round, last_round
 package.loaded['codeit.providers'] = {
   chat = function(config, messages, specs, callback, on_text)
     requests[#requests + 1] = { config = config, messages = vim.deepcopy(messages), specs = specs, on_text = on_text }
@@ -7,7 +8,14 @@ package.loaded['codeit.providers'] = {
   end,
 }
 local tools = require('codeit.tools')
-tools.execute = function(name, _, _, callback)
+tools.execute = function(name, _, _, callback, _, context)
+  assert(type(context.approval_round) == 'table', 'tool dispatch must provide an approval round')
+  if current_round then
+    assert(context.approval_round == current_round, 'all tools in one assistant round must share a notification batch')
+  else
+    assert(context.approval_round ~= last_round, 'each new assistant tool round must get a fresh notification batch')
+    current_round, last_round = context.approval_round, context.approval_round
+  end
   executed[#executed + 1] = name
   callback('Completed ' .. name)
 end
@@ -37,6 +45,7 @@ local function enter(value)
   cb(value)
 end
 local function reply(message)
+  current_round = nil
   local callback = table.remove(callbacks, 1)
   assert(callback, 'missing provider callback')
   callback(message)

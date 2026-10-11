@@ -469,7 +469,7 @@ if not save_tools[name] and (verdict == 'approve' or (verdict ~= 'ask' and (reme
   end
   approval_queue.enqueue(choose, live, function(err)
     if live() then done('Error: could not show approval prompt: ' .. tostring(err)) end
-  end)
+  end, context.approval_round)
 end
 
 return M

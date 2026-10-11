@@ -1,5 +1,9 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local defer, hrtime, on_key, get_mode = vim.defer_fn, vim.uv.hrtime, vim.on_key, vim.api.nvim_get_mode
+local defer, hrtime, on_key, get_mode, notify = vim.defer_fn, vim.uv.hrtime, vim.on_key, vim.api.nvim_get_mode, vim.notify
+local notifications = {}
+vim.notify = function(message, level, opts)
+  notifications[#notifications + 1] = { message = message, level = level, opts = opts }
+end
 local now, timers, input = 0, {}, nil
 local mode, blocking = 'n', false
 vim.uv.hrtime = function() return now * 1e6 end
@@ -33,8 +37,12 @@ assert(shown == 1, 'idle normal-mode requests should not needlessly wait')
 input('j', '')
 queue.enqueue(show)
 assert(shown == 2, 'generated renderer keys must not reset user idle time')
+assert(#notifications == 0, 'immediate approvals should not send delay notifications')
 input('j', 'j')
 queue.enqueue(show)
+assert(#notifications == 1, 'delayed approvals should notify immediately')
+assert(notifications[1].message == 'Approval required' and notifications[1].level == vim.log.levels.INFO
+  and notifications[1].opts.title == 'Codeit', 'delay notifications should identify the required approval')
 advance(750)
 assert(shown == 2, 'navigation should postpone approvals')
 input('k', 'k')
@@ -42,10 +50,13 @@ advance(750)
 assert(shown == 2, 'continued navigation must extend the idle delay')
 advance(250)
 assert(shown == 3, 'approvals should appear after one second without input')
+assert(#notifications == 1, 'polling and continued input must not repeat the notification')
 
 for _, held_mode in ipairs({ 'i', 'v', 'c', 'no' }) do
   mode = held_mode
+  local notified = #notifications
   queue.enqueue(show)
+  assert(#notifications == notified + 1, 'mode delays should notify')
   local before = shown
   advance(2000)
   assert(shown == before, 'approvals must not interrupt mode ' .. held_mode)
@@ -63,10 +74,12 @@ advance(250)
 assert(shown == before + 1)
 
 vim.api.nvim_set_current_tabpage(other_tab)
+local notified = #notifications
 queue.enqueue(show, function()
   assert(vim.api.nvim_get_current_tabpage() == codeit_tab, 'workspace-sensitive active checks must wait for the owning tab')
   return true
 end)
+assert(#notifications == notified + 1, 'approvals delayed in another tab should notify')
 before = shown
 advance(3000)
 assert(shown == before and vim.api.nvim_get_current_tabpage() == other_tab,
@@ -79,9 +92,10 @@ local function check_popup(open)
   local win = open()
   assert(win and vim.api.nvim_win_get_config(win).relative ~= '')
   local current = vim.api.nvim_get_current_win()
-  local count = shown
+  local count, notified = shown, #notifications
   queue.enqueue(show)
   advance(2000)
+  assert(#notifications == notified + 1, 'popup delays should notify only once')
   assert(shown == count and vim.api.nvim_get_current_win() == current, 'feature popups must not be covered by approvals')
   vim.api.nvim_win_close(win, true)
   vim.wait(10)
@@ -118,8 +132,10 @@ queue.enqueue(function()
   first_win = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), true,
     { relative = 'editor', row = 1, col = 1, width = 10, height = 2 })
 end)
+notified = #notifications
 queue.enqueue(function() order[#order + 1] = 2 end)
 advance(1000)
+assert(#notifications == notified + 1, 'approvals waiting behind another prompt should notify only once')
 assert(vim.deep_equal(order, { 1 }), 'queued approvals must not overlap an existing prompt')
 vim.api.nvim_win_close(first_win, true)
 advance(250)
@@ -129,6 +145,25 @@ queue.enqueue(function() error('test prompt error') end, nil, function(err) fail
 assert(failure and failure:find('test prompt error', 1, true), 'display failures must be reported')
 queue.enqueue(show)
 assert(shown == before + 2, 'a failed display must not jam the queue')
+
+local approval_round = {}
+mode = 'i'
+notified, before = #notifications, shown
+for _ = 1, 5 do queue.enqueue(show, nil, nil, approval_round) end
+advance(2000)
+assert(#notifications == notified + 1, 'five delayed approvals in one round should notify once')
+mode = 'n'
+advance(250)
+assert(shown == before + 5, 'batching notifications must not drop approvals')
+mode = 'i'
+queue.enqueue(show, nil, nil, approval_round)
+advance(1000)
+assert(#notifications == notified + 1, 'a later approval in the same round must stay quiet after the queue drains')
+queue.enqueue(show, nil, nil, {})
+assert(#notifications == notified + 2, 'a new tool round should notify independently')
+mode = 'n'
+advance(250)
+approval_round = {}
 
 -- The dispatcher must use current assessments when a deferred approval finally opens.
 local approval = require('codeit.tools.approval')
@@ -147,7 +182,8 @@ end } })
 mode = 'i'
 approval.request('run_command', { argv = { 'echo', 'queued' } }, 'command', function() return true end,
   function(value) result = value end, function() actions = actions + 1 end,
-  { review = function() end, assessment = function(listener) assessment = listener end })
+  { review = function() end, assessment = function(listener) assessment = listener end, approval_round = approval_round })
+notified = #notifications
 assert(not displayed and assessment, 'assessments may run while the prompt is queued')
 assessment('Ready assessment', 1)
 advance(2000)
@@ -165,7 +201,8 @@ approval.request('run_command', { argv = { 'automatic' } }, 'automatic', nil,
 assert(actions == 2, 'explicit policy approvals should not be delayed by UI scheduling')
 local diff = { before = 'old\n', after = 'new\n', path = 'example.lua' }
 approval.request('edit_file', { path = 'example.lua' }, 'edit', function() return true end,
-  function(value) result = value end, function() actions = actions + 1 end, { diff = diff })
+  function(value) result = value end, function() actions = actions + 1 end, { diff = diff, approval_round = approval_round })
+assert(#notifications == notified, 'the dispatcher should share notification state across approvals in a round')
 advance(2000)
 assert(not diff_seen and actions == 2, 'write approvals must also wait')
 mode = 'n'
@@ -182,5 +219,5 @@ mode = 'n'
 advance(2000)
 assert(not displayed and actions == 3, 'cancelled dispatch requests must not display or execute')
 prompt.show, write.show = original_show, original_write
-vim.defer_fn, vim.uv.hrtime, vim.api.nvim_get_mode = defer, hrtime, get_mode
+vim.defer_fn, vim.uv.hrtime, vim.api.nvim_get_mode, vim.notify = defer, hrtime, get_mode, notify
 print('codeit approval queue tests passed')

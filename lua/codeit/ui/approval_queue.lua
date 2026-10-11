@@ -47,6 +47,12 @@ local function pump()
     end
   end
   pumping = false
+  for _, entry in ipairs(pending) do
+    if not entry.approval_round.notified then
+      entry.approval_round.notified = true
+      vim.notify('Approval required', vim.log.levels.INFO, { title = 'Codeit' })
+    end
+  end
   if #pending > 0 and not timer_pending then
     timer_pending = true
     vim.defer_fn(function()
@@ -57,9 +63,10 @@ local function pump()
 end
 
 --- Defer tool approvals until the user is idle, in their chat tab, with no other popup open.
-function M.enqueue(show, active, on_error)
+function M.enqueue(show, active, on_error, approval_round)
   pending[#pending + 1] = {
     show = show, active = active, on_error = on_error,
+    approval_round = approval_round or {},
     managed = managed_tab.tab() ~= nil, tab = vim.api.nvim_get_current_tabpage(),
   }
   pump()

@@ -218,6 +218,7 @@ function M.attach(api, session, helpers)
             end
           end
         end
+        local approval_round = {}
         local function next_call(index)
           if id ~= session.generation then return end
           if index > #calls then return helpers.request(round + 1, id, false, nil, nil, budget) end
@@ -290,6 +291,7 @@ function M.attach(api, session, helpers)
             next_call(index + 1)
           end, function() return id == session.generation and session.workspace == history.workspace() end, {
             user_request = user_request,
+            approval_round = approval_round,
             background_origin = { workspace = session.workspace, chat_id = session.chat_id },
             subagent_config = subagent_config,
             subagent_messages = helpers.request_messages(),
