@@ -2,6 +2,28 @@ local M = {}
 
 function M.attach(api, state, options, helpers)
   local M = api
+  function helpers.update_fold_summaries(win)
+    vim.api.nvim_win_call(win, function()
+      local view = vim.fn.winsaveview()
+      local enabled = vim.wo[win].foldenable
+      -- Measure wrapped content without deleting the folds that already contain it.
+      vim.wo[win].foldenable = false
+      local summaries = {}
+      for _, folds in ipairs({ state.tool_folds, state.section_folds }) do
+        for _, fold in ipairs(folds) do
+          local height = vim.api.nvim_win_text_height(win, {
+            start_row = fold.first - 1 + fold.padding,
+            end_row = fold.last - 1 - fold.padding,
+          })
+          summaries[tostring(fold.first)] = { preview = fold.preview, count = height.all - height.fill }
+        end
+      end
+      vim.w[win].codeit_fold_summaries = summaries
+      vim.wo[win].foldenable = enabled
+      vim.fn.winrestview(view)
+    end)
+  end
+
   function M.tool_foldtext()
     local summary = (vim.w.codeit_fold_summaries or {})[tostring(vim.v.foldstart)]
     if not summary then return vim.fn.getline(vim.v.foldstart) end
@@ -18,7 +40,6 @@ function M.attach(api, state, options, helpers)
   --- Configure folds and role styling in both interactive and read-only chat windows.
   function M.decorate_chat(win, expanded)
     local buf = vim.api.nvim_win_get_buf(win)
-    local summaries = {}
     vim.wo[win].foldmethod = 'manual'
     vim.wo[win].foldenable = true
     vim.wo[win].foldlevel = 0
@@ -27,16 +48,6 @@ function M.attach(api, state, options, helpers)
     vim.api.nvim_win_call(win, function()
       local view = vim.fn.winsaveview()
       vim.cmd('silent! normal! zE')
-      -- Measure before creating any folds so nested content is counted in full.
-      for _, folds in ipairs({ state.tool_folds, state.section_folds }) do
-        for _, fold in ipairs(folds) do
-          local height = vim.api.nvim_win_text_height(win, {
-            start_row = fold.first - 1 + fold.padding,
-            end_row = fold.last - 1 - fold.padding,
-          })
-          summaries[tostring(fold.first)] = { preview = fold.preview, count = height.all - height.fill }
-        end
-      end
       for _, folds in ipairs({ state.tool_folds, state.section_folds }) do
         for _, fold in ipairs(folds) do
           vim.cmd(fold.first .. ',' .. fold.last .. 'fold')
@@ -44,7 +55,7 @@ function M.attach(api, state, options, helpers)
           if fold_state and fold_state[fold.key] then vim.cmd(fold.first .. 'foldopen') end
         end
       end
-      vim.w[win].codeit_fold_summaries = summaries
+      helpers.update_fold_summaries(win)
       vim.fn.winrestview(view)
     end)
     vim.api.nvim_buf_clear_namespace(buf, state.ui_ns, 0, -1)

@@ -327,6 +327,72 @@ vim.api.nvim_win_call(win, function()
   end
 end)
 
+-- Activity bodies must be inserted into folds that already exist in every chat view.
+do
+  local activity = {
+    { role = 'user', content = 'Run the tools' },
+    { role = 'assistant', reasoning_details = { { text = 'fold test reasoning\nsecond line' } },
+      tool_calls = { { id = 'fold_test', ['function'] = {
+        name = 'read_file', arguments = '{"path":"fold test input"}',
+      } } } },
+    { role = 'tool', tool_call_id = 'fold_test', content = 'fold test output\n' .. string.rep('wrapped ', 100) },
+  }
+  local results = { { after_message = 3, command = '/context', output = 'fold test command\nsecond line' } }
+  ui.toggle_popup()
+  local popup = vim.api.nvim_get_current_win()
+  local before = {}
+  for _, view in ipairs({ win, popup }) do
+    vim.api.nvim_win_call(view, function()
+      vim.api.nvim_win_set_cursor(view, { 1, 0 })
+      vim.fn.winrestview({ topline = 1 })
+      before[view] = vim.fn.winsaveview()
+    end)
+  end
+  local set_lines, set_text = vim.api.nvim_buf_set_lines, vim.api.nvim_buf_set_text
+  local writes = 0
+  vim.api.nvim_buf_set_lines = function(buf, first, last, strict, replacement)
+    if buf == chat then
+      assert(not table.concat(replacement, '\n'):find('fold test', 1, true),
+        'the initial layout must not expose activity bodies before their folds exist')
+    end
+    return set_lines(buf, first, last, strict, replacement)
+  end
+  vim.api.nvim_buf_set_text = function(buf, first, col, last, end_col, replacement)
+    if buf == chat then
+      writes = writes + 1
+      for _, view in ipairs({ win, popup }) do
+        vim.api.nvim_win_call(view, function()
+          assert(vim.fn.foldlevel(first + 1) == 2, 'nested folds must precede body insertion')
+          assert(vim.fn.foldclosed(first + 1) ~= -1 and vim.fn.foldclosedend(first + 1) >= last + 1,
+            'new activity bodies must already be hidden in both sidebar and popup')
+        end)
+      end
+    end
+    return set_text(buf, first, col, last, end_col, replacement)
+  end
+  local ok, err = pcall(function()
+    ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
+    activity[3].content = activity[3].content .. '\nfold test growing output'
+    ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
+  end)
+  vim.api.nvim_buf_set_lines, vim.api.nvim_buf_set_text = set_lines, set_text
+  assert(ok, err)
+  assert(writes == 8, 'reasoning, input, output, and command bodies should each be filled on both renders')
+  local text = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
+  for _, body in ipairs({ 'fold test reasoning', 'fold test input', 'fold test output',
+    'fold test command', 'fold test growing output' }) do
+    assert(text:find(body, 1, true), 'fold staging must retain all activity content')
+  end
+  for _, view in ipairs({ win, popup }) do
+    vim.api.nvim_win_call(view, function()
+      local after = vim.fn.winsaveview()
+      assert(after.topline == before[view].topline and after.lnum == before[view].lnum,
+        'adding folded activity must preserve a scrolled-back viewport')
+    end)
+  end
+  ui.toggle_popup()
+end
+
 -- Tool output is literal display data, even when it contains unclosed Markdown.
 local output = table.concat({
   '# Heading inside output', '```lua', 'local value = 1', '```',

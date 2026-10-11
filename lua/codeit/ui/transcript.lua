@@ -186,10 +186,26 @@ function M.attach(api, state, options, helpers)
     table.insert(lines, '')
     table.insert(lines, '## ' .. (options.draft_label or 'Message'))
     table.insert(lines, '')
-    vim.api.nvim_buf_set_lines(state.transcript, 0, state.draft_start, false, lines)
+    local staged = next(views) and #state.tool_folds > 0
+    local structure = staged and vim.list_slice(lines) or lines
+    if staged then
+      -- Reserve body rows, but establish the enclosing folds before inserting content.
+      for _, fold in ipairs(state.tool_folds) do
+        for row = fold.first + 1, fold.last do structure[row] = '' end
+      end
+    end
+    vim.api.nvim_buf_set_lines(state.transcript, 0, state.draft_start, false, structure)
     state.draft_start = #lines
     if valid(state.transcript_win) then M.decorate_chat(state.transcript_win, active_expanded) end
     if valid(state.sidebar_win) then M.decorate_chat(state.sidebar_win, sidebar_expanded) end
+    if staged then
+      for _, fold in ipairs(state.tool_folds) do
+        -- Keep fold boundaries intact; replacing whole lines can delete manual folds.
+        vim.api.nvim_buf_set_text(state.transcript, fold.first, 0, fold.last - 1, 0,
+          vim.list_slice(lines, fold.first + 1, fold.last))
+      end
+      for win in pairs(views) do helpers.update_fold_summaries(win) end
+    end
     helpers.update_header()
     for win, view_state in pairs(views) do
       if view_state.draft_row then
