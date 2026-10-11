@@ -137,6 +137,67 @@ for _, mark in ipairs(marks()) do
   end
 end
 
+-- Thinking dots advance independently of transcript renders and reserve three columns.
+do
+  local animated = ui.new({ floating = true, name = 'codeit://thinking-test', slash_commands = false })
+  local defer, timers = vim.defer_fn, {}
+  vim.defer_fn = function(callback, delay)
+    assert(delay == 1000, 'thinking dots should tick once per second')
+    timers[#timers + 1] = callback
+  end
+  local ok, err = pcall(function()
+    local animation_win, animation_buf = animated.open(function() end, function() end)
+    local function animation_hint()
+      local text, count = nil, 0
+      for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(animation_buf, ns, 0, -1, { details = true })) do
+        if mark[4].virt_lines then
+          text, count = mark[4].virt_lines[1][1][1], count + 1
+        end
+      end
+      assert(count == 1, 'animation should update a single hint')
+      return text
+    end
+    local function check_dots(dots)
+      assert(animation_hint() == 'Thinking' .. string.rep('.', dots) .. string.rep(' ', 3 - dots)
+        .. ' · Ctrl-S: send', 'dot padding must keep subsequent hints aligned')
+    end
+    animated.render({}, 'Thinking', 'test', 'test')
+    check_dots(0)
+    local content = vim.api.nvim_buf_get_lines(animation_buf, 0, -1, false)
+    local cursor = vim.api.nvim_win_get_cursor(animation_win)
+    for tick = 1, 4 do
+      assert(#timers == 1, 'rerenders must not start additional animation loops')
+      table.remove(timers, 1)()
+      check_dots(tick % 4)
+      if tick == 1 then
+        animated.render({}, 'Thinking', 'test', 'test')
+        check_dots(1)
+      end
+      assert(vim.deep_equal(content, vim.api.nvim_buf_get_lines(animation_buf, 0, -1, false)),
+        'animation must not rewrite the transcript or draft')
+      assert(vim.deep_equal(cursor, vim.api.nvim_win_get_cursor(animation_win)),
+        'animation must not move the cursor')
+    end
+    local stale = table.remove(timers, 1)
+    animated.render({}, 'Waiting', 'test', 'test')
+    assert(animation_hint() == 'Waiting · Ctrl-S: send')
+    animated.render({}, 'Thinking', 'test', 'test', nil, nil, false)
+    assert(animation_hint() == 'Thinking   ', 'padding must survive even without following shortcuts')
+    stale()
+    assert(#timers == 1 and animation_hint() == 'Thinking   ', 'old callbacks must not advance a new animation')
+    stale = table.remove(timers, 1)
+    animated.close()
+    stale()
+    assert(#timers == 0, 'closing the chat must stop the animation loop')
+    animation_win, animation_buf = animated.open(function() end, function() end)
+    assert(animation_hint() == 'Thinking   ', 'reopening should start with zero dots')
+    assert(#timers == 1)
+  end)
+  animated.destroy()
+  vim.defer_fn = defer
+  assert(ok, err)
+end
+
 local long_status = 'Working on 界面 é ' .. string.rep('界', 30) .. ' ' .. string.rep('x', 90)
 local discovery = '/ commands'
 local send_hint = 'Ctrl-S: send · ' .. discovery

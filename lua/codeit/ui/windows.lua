@@ -167,6 +167,7 @@ function M.attach(api, state, options, helpers)
   end
 
   function M.close()
+    helpers.stop_thinking_animation()
     helpers.close_palette()
     state.slash_hint, state.slash_error, state.dismissed = nil, nil, nil
     local active, sidebar = state.transcript_win, state.sidebar_win

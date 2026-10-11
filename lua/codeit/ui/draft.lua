@@ -2,10 +2,15 @@ local M = {}
 
 function M.attach(api, state, options, helpers)
   local M = api
+  local thinking_animation
+  function helpers.stop_thinking_animation()
+    thinking_animation = nil
+  end
+
   local function wrap_hint(text, width)
     local lines, line = {}, ''
-    for word in text:gmatch('%S+') do
-      local candidate = line == '' and word or (line .. ' ' .. word)
+    for gap, word in text:gmatch('(%s*)(%S+)') do
+      local candidate = line == '' and word or (line .. gap .. word)
       if vim.fn.strdisplaywidth(candidate) <= width then
         line = candidate
       else
@@ -19,12 +24,21 @@ function M.attach(api, state, options, helpers)
         end
       end
     end
+    for _ = 1, #(text:match('%s+$') or '') do
+      if vim.fn.strdisplaywidth(line .. ' ') > width then
+        lines[#lines + 1], line = { { line, 'Comment' } }, ''
+      end
+      line = line .. ' '
+    end
     if line ~= '' then lines[#lines + 1] = { { line, 'Comment' } } end
     return lines
   end
 
   helpers.draft_hint = function()
-    if not state.transcript or not vim.api.nvim_buf_is_valid(state.transcript) then return end
+    if not state.transcript or not vim.api.nvim_buf_is_valid(state.transcript) then
+      helpers.stop_thinking_animation()
+      return
+    end
     local width
     -- Virtual lines are buffer-wide, so they must fit both the sidebar and popup.
     for _, win in ipairs({ state.transcript_win, state.sidebar_win }) do
@@ -33,9 +47,30 @@ function M.attach(api, state, options, helpers)
         width = math.min(width or available, available)
       end
     end
-    if not width then return end
+    if not width then
+      helpers.stop_thinking_animation()
+      return
+    end
+    local status = state.draft_status
+    if status == 'Thinking' then
+      if not thinking_animation then
+        local animation = { dots = 0 }
+        thinking_animation = animation
+        local function tick()
+          if thinking_animation ~= animation then return end
+          animation.dots = (animation.dots + 1) % 4
+          helpers.draft_hint()
+          if thinking_animation == animation then vim.defer_fn(tick, 1000) end
+        end
+        vim.defer_fn(tick, 1000)
+      end
+      local dots = thinking_animation.dots
+      status = status .. string.rep('.', dots) .. string.rep(' ', 3 - dots)
+    else
+      helpers.stop_thinking_animation()
+    end
     local hints = {}
-    if state.draft_status and state.draft_status ~= '' then hints[#hints + 1] = state.draft_status end
+    if status and status ~= '' then hints[#hints + 1] = status end
     if options.slash_commands ~= false and (state.slash_error or state.slash_hint) then
       hints[#hints + 1] = state.slash_error or state.slash_hint
     else
