@@ -35,7 +35,28 @@ function M.attach(api, state, options, helpers)
     end)
   end
 
-  function M.render(messages, status, provider, model, billing, command_results, can_send, turn_costs, last_agent_activity)
+  local function update_lines(lines)
+    local old = vim.api.nvim_buf_get_lines(state.transcript, 0, state.draft_start, false)
+    local hunks = vim.diff(table.concat(old, '\n') .. '\n', table.concat(lines, '\n') .. '\n',
+      { result_type = 'indices', algorithm = 'minimal' })
+    -- Apply from the bottom so unchanged activity and draft rows keep their folds and marks.
+    for index = #hunks, 1, -1 do
+      local first, count, next_first, next_count = unpack(hunks[index])
+      local replacement = vim.list_slice(lines, next_first, next_first + next_count - 1)
+      if count == 0 then
+        vim.api.nvim_buf_set_lines(state.transcript, first, first, false, replacement)
+      elseif next_count == 0 then
+        vim.api.nvim_buf_set_lines(state.transcript, first - 1, first + count - 1, false, {})
+      else
+        vim.api.nvim_buf_set_text(state.transcript, first - 1, 0, first + count - 2,
+          #old[first + count - 1], replacement)
+      end
+    end
+  end
+
+  local function render(messages, status, provider, model, billing, command_results, can_send, turn_costs, last_agent_activity)
+    local existing_tools = {}
+    for _, fold in ipairs(state.tool_folds) do existing_tools[fold.key] = true end
     local costs_by_message = {}
     for _, turn in ipairs(turn_costs or {}) do costs_by_message[turn.first] = turn end
     local views = {}
@@ -187,24 +208,27 @@ function M.attach(api, state, options, helpers)
     table.insert(lines, '')
     table.insert(lines, '## ' .. (options.draft_label or 'Message'))
     table.insert(lines, '')
-    local staged = next(views) and #state.tool_folds > 0
-    local structure = staged and vim.list_slice(lines) or lines
-    if staged then
-      -- Reserve body rows, but establish the enclosing folds before inserting content.
+    local pending = {}
+    local structure = vim.list_slice(lines)
+    if next(views) then
       for _, fold in ipairs(state.tool_folds) do
-        for row = fold.first + 1, fold.last do structure[row] = '' end
+        local body = vim.list_slice(lines, fold.first + 1, fold.last)
+        if not existing_tools[fold.key] then
+          pending[#pending + 1] = { fold = fold, body = body }
+          for row = fold.first + 1, fold.last do structure[row] = '' end
+        end
       end
     end
-    vim.api.nvim_buf_set_lines(state.transcript, 0, state.draft_start, false, structure)
+    for win in pairs(views) do helpers.configure_folds(win) end
+    update_lines(structure)
     state.draft_start = #lines
     if valid(state.transcript_win) then M.decorate_chat(state.transcript_win, active_expanded) end
     if valid(state.sidebar_win) then M.decorate_chat(state.sidebar_win, sidebar_expanded) end
-    if staged then
-      for _, fold in ipairs(state.tool_folds) do
-        -- Keep fold boundaries intact; replacing whole lines can delete manual folds.
-        vim.api.nvim_buf_set_text(state.transcript, fold.first, 0, fold.last - 1, 0,
-          vim.list_slice(lines, fold.first + 1, fold.last))
-      end
+    for _, item in ipairs(pending) do
+      local fold = item.fold
+      vim.api.nvim_buf_set_text(state.transcript, fold.first, 0, fold.last - 1, 0, item.body)
+    end
+    if #pending > 0 then
       for win in pairs(views) do helpers.update_fold_summaries(win) end
     end
     helpers.update_header()
@@ -220,6 +244,14 @@ function M.attach(api, state, options, helpers)
         vim.api.nvim_win_call(win, function() vim.fn.winrestview(view_state.view) end)
       end
     end
+  end
+
+  function M.render(...)
+    local lazyredraw = vim.o.lazyredraw
+    vim.o.lazyredraw = true
+    local ok, err = pcall(render, ...)
+    vim.o.lazyredraw = lazyredraw
+    if not ok then error(err) end
   end
 
   --- A read-only chat preview excludes the editable message draft.

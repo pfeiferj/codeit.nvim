@@ -2,7 +2,7 @@ local M = {}
 
 function M.attach(api, state, options, helpers)
   local M = api
-  -- A same-buffer window inherits the source's manual folds, including child state.
+  -- A same-buffer window inherits the source's folds, including child state.
   -- Inspect and measure that hidden copy without ever exposing live activity bodies.
   local function with_fold_probe(win, callback)
     return vim.api.nvim_win_call(win, function()
@@ -11,6 +11,8 @@ function M.attach(api, state, options, helpers)
         relative = 'editor', row = 0, col = 0, width = math.max(1, width), height = 1,
         hide = true, noautocmd = true, focusable = false, style = 'minimal',
       })
+      vim.w[probe].codeit_fold_levels = vim.w[win].codeit_fold_levels
+      vim.wo[probe].foldmethod = 'manual'
       local ok, result = pcall(vim.api.nvim_win_call, probe, function() return callback(probe) end)
       vim.cmd('noautocmd call nvim_win_close(' .. probe .. ', v:true)')
       if not ok then error(result) end
@@ -49,26 +51,66 @@ function M.attach(api, state, options, helpers)
     return '  ' .. preview .. suffix
   end
 
+  -- Fold ranges are available before buffer updates, without deleting live folds.
+  function helpers.configure_folds(win)
+    local levels = {}
+    for _, fold in ipairs(state.section_folds) do
+      for row = fold.first, fold.last do levels[tostring(row)] = 1 end
+      levels[tostring(fold.first)], levels[tostring(fold.last)] = '>1', '<1'
+    end
+    for _, fold in ipairs(state.tool_folds) do
+      for row = fold.first, fold.last do levels[tostring(row)] = 2 end
+      levels[tostring(fold.first)], levels[tostring(fold.last)] = '>2', '<2'
+    end
+    vim.w[win].codeit_fold_levels = levels
+    local expr = 'get(get(w:, "codeit_fold_levels", {}), v:lnum, 0)'
+    local initialized = vim.wo[win].foldmethod == 'expr' and vim.wo[win].foldexpr == expr
+    vim.wo[win].foldexpr = expr
+    vim.wo[win].foldmethod = 'expr'
+    vim.wo[win].foldenable = true
+    if not initialized then vim.wo[win].foldlevel = 0 end
+    vim.wo[win].foldminlines = 0
+    vim.wo[win].foldtext = 'v:lua.require("codeit.ui").tool_foldtext()'
+  end
+
   --- Configure folds and role styling in both interactive and read-only chat windows.
   function M.decorate_chat(win, expanded)
     local buf = vim.api.nvim_win_get_buf(win)
-    vim.wo[win].foldmethod = 'manual'
-    vim.wo[win].foldenable = true
-    vim.wo[win].foldlevel = 0
-    vim.wo[win].foldminlines = 0
-    vim.wo[win].foldtext = 'v:lua.require("codeit.ui").tool_foldtext()'
+    helpers.configure_folds(win)
+    local current = expanded and helpers.expanded_folds(win)
     vim.api.nvim_win_call(win, function()
       local view = vim.fn.winsaveview()
-      vim.cmd('silent! normal! zE')
-      for _, folds in ipairs({ state.tool_folds, state.section_folds }) do
-        for _, fold in ipairs(folds) do
-          vim.cmd(fold.first .. ',' .. fold.last .. 'fold')
-          local fold_state = folds == state.section_folds and expanded and expanded.sections or expanded
-          if fold_state and fold_state[fold.key] then vim.cmd(fold.first .. 'foldopen') end
+      local lazyredraw = vim.o.lazyredraw
+      vim.o.lazyredraw = true
+      local ok, err = pcall(function()
+        if expanded then
+          for _, section in ipairs(state.section_folds) do
+            local changes = {}
+            for _, fold in ipairs(state.tool_folds) do
+              if fold.first > section.first and fold.last <= section.last
+                and (current[fold.key] == true) ~= (expanded[fold.key] == true) then
+                changes[#changes + 1] = fold
+              end
+            end
+            local open = expanded.sections and expanded.sections[section.key]
+            if open or #changes > 0 then
+              if vim.fn.foldclosed(section.first) ~= -1 then
+                vim.cmd('noautocmd ' .. section.first .. 'foldopen')
+              end
+              for _, fold in ipairs(changes) do
+                vim.cmd('noautocmd ' .. fold.first .. (expanded[fold.key] and 'foldopen' or 'foldclose'))
+              end
+            end
+            if not open and vim.fn.foldclosed(section.first) == -1 then
+              vim.cmd('noautocmd ' .. section.first .. 'foldclose')
+            end
+          end
         end
-      end
-      helpers.update_fold_summaries(win)
-      vim.fn.winrestview(view)
+        helpers.update_fold_summaries(win)
+        vim.fn.winrestview(view)
+      end)
+      vim.o.lazyredraw = lazyredraw
+      if not ok then error(err) end
     end)
     vim.api.nvim_buf_clear_namespace(buf, state.ui_ns, 0, -1)
     if buf == state.transcript then state.draft_hint_id = nil end

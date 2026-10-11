@@ -27,7 +27,8 @@ function M.attach(win)
     vim.bo[chat_buf].modifiable = false
     local width = math.max(1, vim.o.columns - 4)
     local height = math.max(1, vim.o.lines - 6)
-    chat_win = vim.api.nvim_open_win(chat_buf, true, {
+    chat_win = vim.api.nvim_open_win(chat_buf, false, {
+      hide = true, noautocmd = true,
       relative = 'editor', width = width, height = height,
       row = math.max(0, math.floor((vim.o.lines - height - 2) / 2) - 1),
       col = math.max(0, math.floor((vim.o.columns - width) / 2)),
@@ -48,6 +49,8 @@ function M.attach(win)
       vim.keymap.set('n', key, hide, { buffer = chat_buf, silent = true, nowait = true,
         desc = 'Return to pending popup' })
     end
+    vim.api.nvim_win_set_config(chat_win, { hide = false })
+    vim.api.nvim_set_current_win(chat_win)
   end
   vim.keymap.set({ 'n', 'i' }, '<C-g>', toggle, { buffer = buf, silent = true,
     desc = 'View chat context (Ctrl-G to return)' })

@@ -25,7 +25,32 @@ local update = prompt.show('Allow?', options, function(choice)
 end)
 local win = vim.api.nvim_get_current_win()
 local cursor = vim.api.nvim_win_get_cursor(win)
-press(win, '<C-g>')
+local open_win, set_config = vim.api.nvim_open_win, vim.api.nvim_win_set_config
+local created_hidden, revealed = false, false
+vim.api.nvim_open_win = function(buf, enter, config)
+  if config.title and config.title:find('Chat context', 1, true) then
+    assert(config.hide and not enter, 'chat context must be created hidden and unfocused')
+    created_hidden = true
+  end
+  return open_win(buf, enter, config)
+end
+vim.api.nvim_win_set_config = function(target, config)
+  if config.hide == false then
+    vim.api.nvim_win_call(target, function()
+      for row, line in ipairs(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(target), 0, -1, false)) do
+        if line == 'Tool output' or line:find('Wrapped output ', 1, true) == 1 then
+          assert(vim.fn.foldclosed(row) ~= -1, 'preview activity must be folded before the window is shown')
+        end
+      end
+    end)
+    revealed = true
+  end
+  return set_config(target, config)
+end
+local ok, err = pcall(press, win, '<C-g>')
+vim.api.nvim_open_win, vim.api.nvim_win_set_config = open_win, set_config
+assert(ok, err)
+assert(created_hidden and revealed, 'preview should be prepared offscreen before reveal')
 local chat = vim.api.nvim_get_current_win()
 local chat_buf = vim.api.nvim_win_get_buf(chat)
 assert(chat ~= win and vim.api.nvim_win_is_valid(win) and calls == 0)
@@ -47,7 +72,7 @@ press(chat, '}')
 assert(vim.api.nvim_win_get_cursor(chat)[1] == turns[2], 'read-only preview should skip assistant and tools')
 press(chat, '{')
 assert(vim.api.nvim_win_get_cursor(chat)[1] == turns[1])
-assert(vim.wo[chat].linebreak and vim.wo[chat].foldmethod == 'manual')
+assert(vim.wo[chat].linebreak and vim.wo[chat].foldmethod == 'expr')
 local tool_row, activity_row
 for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do
   if line == '**Activity**' then activity_row = row end

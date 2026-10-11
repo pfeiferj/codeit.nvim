@@ -54,6 +54,11 @@ function M.attach(api, state, options, helpers)
     }
   end
 
+  local function hidden_popup()
+    local config = vim.tbl_extend('force', helpers.popup_config(), { hide = true, noautocmd = true })
+    return vim.api.nvim_open_win(state.transcript, false, config)
+  end
+
   function helpers.restore_sidebar()
     local popup = state.transcript_win
     local expanded = helpers.expanded_folds(popup)
@@ -62,12 +67,12 @@ function M.attach(api, state, options, helpers)
       vim.api.nvim_win_call(popup, function() view = vim.fn.winsaveview() end)
     end
     state.transcript_win, state.sidebar_win = state.sidebar_win, nil
-    if valid(popup) then vim.api.nvim_win_close(popup, true) end
     if valid(state.transcript_win) then
-      vim.api.nvim_set_current_win(state.transcript_win)
       M.decorate_chat(state.transcript_win, expanded)
-      if view then vim.fn.winrestview(view) end
+      if view then vim.api.nvim_win_call(state.transcript_win, function() vim.fn.winrestview(view) end) end
     end
+    if valid(popup) then vim.api.nvim_win_close(popup, true) end
+    if valid(state.transcript_win) then vim.api.nvim_set_current_win(state.transcript_win) end
     helpers.update_header()
   end
 
@@ -76,13 +81,15 @@ function M.attach(api, state, options, helpers)
     if state.sidebar_win then return helpers.restore_sidebar() end
     local view
     vim.api.nvim_win_call(state.transcript_win, function() view = vim.fn.winsaveview() end)
-    local popup = vim.api.nvim_open_win(state.transcript, true, helpers.popup_config())
+    local popup = hidden_popup()
     state.sidebar_win, state.transcript_win = state.transcript_win, popup
     vim.wo[popup].wrap = true
     vim.wo[popup].linebreak = true
     M.decorate_chat(popup, helpers.expanded_folds(state.sidebar_win))
-    vim.fn.winrestview(view)
+    vim.api.nvim_win_call(popup, function() vim.fn.winrestview(view) end)
     helpers.update_header()
+    vim.api.nvim_win_set_config(popup, { hide = false })
+    vim.api.nvim_set_current_win(popup)
   end
 
   function helpers.refresh_chat_folds()
@@ -123,13 +130,14 @@ function M.attach(api, state, options, helpers)
       state.transcript = scratch()
     end
     if options.floating then
-      state.transcript_win = vim.api.nvim_open_win(state.transcript, true, helpers.popup_config())
+      state.transcript_win = hidden_popup()
     else
       vim.cmd('botright 80vsplit')
       state.transcript_win = vim.api.nvim_get_current_win()
+      helpers.configure_folds(state.transcript_win)
       vim.api.nvim_win_set_buf(state.transcript_win, state.transcript)
     end
-    helpers.disable_plugin_completion()
+    vim.api.nvim_win_call(state.transcript_win, helpers.disable_plugin_completion)
     vim.bo[state.transcript].completeopt = 'menuone,noselect'
     vim.wo[state.transcript_win].wrap = true
     vim.wo[state.transcript_win].linebreak = true
@@ -162,6 +170,7 @@ function M.attach(api, state, options, helpers)
     vim.keymap.set('n', 'q', on_close, { buffer = state.transcript, desc = 'Close codeit chat' })
     M.decorate_chat(state.transcript_win)
     helpers.update_header()
+    if options.floating then vim.api.nvim_win_set_config(state.transcript_win, { hide = false }) end
     helpers.focus_draft()
     return state.transcript_win, state.transcript
   end

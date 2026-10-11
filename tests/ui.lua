@@ -225,9 +225,9 @@ do
     stale()
     assert(#timers == 1, 'resumed activity must cancel the waiting counter loop')
     stale = table.remove(timers, 1)
-    now = 125
+    now = 131
     waiting.render({}, 'Waiting', 'test', 'test', nil, nil, false, nil, 121 * 1e9)
-    assert(waiting_hint() == 'Waiting ( 4s )', 'Waiting must include time spent in Thinking')
+    assert(waiting_hint() == 'Waiting ( 10s )', 'Waiting must include time spent in Thinking')
     stale()
     assert(#timers == 1, 'transitioning to Waiting should leave only one active timer')
     local content = vim.api.nvim_buf_get_lines(waiting_buf, 0, -1, false)
@@ -468,15 +468,15 @@ do
   end
   local set_lines, set_text = vim.api.nvim_buf_set_lines, vim.api.nvim_buf_set_text
   local text_height, cmd = vim.api.nvim_win_text_height, vim.cmd
-  local writes, refreshing = 0, false
+  local writes, buffer_writes, refreshing = 0, 0, false
   local window_count = #vim.api.nvim_list_wins()
   vim.cmd = setmetatable({}, { __index = cmd, __call = function(_, command)
     local current = vim.api.nvim_get_current_win()
     if current == win or current == popup then
       assert(not command:find('foldopen', 1, true),
         'fold-state capture must not temporarily open live activity sections')
-      assert(not refreshing or not command:find('zE', 1, true),
-        'resizing must not delete and rebuild populated folds')
+      assert(not command:find('zE', 1, true),
+        'live fold decoration must never delete and rebuild populated folds')
     end
     return cmd(command)
   end })
@@ -489,14 +489,22 @@ do
   end
   vim.api.nvim_buf_set_lines = function(buf, first, last, strict, replacement)
     if buf == chat then
-      assert(not table.concat(replacement, '\n'):find('fold test', 1, true),
-        'the initial layout must not expose activity bodies before their folds exist')
+      buffer_writes = buffer_writes + 1
+      if table.concat(replacement, '\n'):find('fold test', 1, true) then
+        for _, view in ipairs({ win, popup }) do
+          vim.api.nvim_win_call(view, function()
+            assert(vim.fn.foldclosed(first + 1) ~= -1,
+              'existing activity updates must stay within an established closed fold')
+          end)
+        end
+      end
     end
     return set_lines(buf, first, last, strict, replacement)
   end
   vim.api.nvim_buf_set_text = function(buf, first, col, last, end_col, replacement)
-    if buf == chat then
-      writes = writes + 1
+    if buf == chat then buffer_writes = buffer_writes + 1 end
+    if buf == chat and table.concat(replacement, '\n'):find('fold test', 1, true) then
+      if replacement[1] == '' then writes = writes + 1 end
       for _, view in ipairs({ win, popup }) do
         vim.api.nvim_win_call(view, function()
           assert(vim.fn.foldlevel(first + 1) == 2, 'nested folds must precede body insertion')
@@ -511,6 +519,9 @@ do
     ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
     activity[3].content = activity[3].content .. '\nfold test growing output'
     ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
+    local unchanged_writes = buffer_writes
+    ui.render(activity, 'Waiting', 'test', 'test', nil, results, false)
+    assert(buffer_writes == unchanged_writes, 'status changes must leave the transcript buffer untouched')
     refreshing = true
     vim.api.nvim_exec_autocmds('WinResized', {})
     vim.api.nvim_exec_autocmds('VimResized', {})
@@ -521,7 +532,7 @@ do
   assert(ok, err)
   assert(#vim.api.nvim_list_wins() == window_count, 'fold probes must not leak windows')
   assert(vim.api.nvim_get_current_win() == popup, 'fold probes must not change the focused window')
-  assert(writes == 8, 'reasoning, input, output, and command bodies should each be filled on both renders')
+  assert(writes == 4, 'only new activity should need staged bodies; existing bodies must never be blanked')
   local text = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
   for _, body in ipairs({ 'fold test reasoning', 'fold test input', 'fold test output',
     'fold test command', 'fold test growing output' }) do
@@ -555,6 +566,43 @@ do
     end)
   end
   ui.toggle_popup()
+end
+
+-- Interactive popups must also have their activity folds before they become visible.
+do
+  local open_win, set_config, cmd = vim.api.nvim_open_win, vim.api.nvim_win_set_config, vim.cmd
+  local created_hidden, revealed = false, false
+  vim.api.nvim_open_win = function(buf, enter, config)
+    if buf == chat and config.title and config.title:find('Codeit chat', 1, true) then
+      assert(config.hide and not enter, 'interactive popup must be created hidden and unfocused')
+      created_hidden = true
+    end
+    return open_win(buf, enter, config)
+  end
+  vim.api.nvim_win_set_config = function(target, config)
+    if config.hide == false and vim.api.nvim_win_get_buf(target) == chat then
+      vim.api.nvim_win_call(target, function()
+        for row, line in ipairs(vim.api.nvim_buf_get_lines(chat, 0, -1, false)) do
+          if line:find('fold test', 1, true) then
+            assert(vim.fn.foldclosed(row) ~= -1, 'interactive popup must contain folded activity before reveal')
+          end
+        end
+      end)
+      revealed = true
+    end
+    return set_config(target, config)
+  end
+  vim.cmd = setmetatable({}, { __index = cmd, __call = function(_, command)
+    assert(not command:find('zE', 1, true), 'popup switching must never delete live folds')
+    return cmd(command)
+  end })
+  local ok, err = pcall(function()
+    ui.toggle_popup()
+    ui.toggle_popup()
+  end)
+  vim.api.nvim_open_win, vim.api.nvim_win_set_config, vim.cmd = open_win, set_config, cmd
+  assert(ok, err)
+  assert(created_hidden and revealed, 'interactive popup should be prepared before reveal')
 end
 
 -- Tool output is literal display data, even when it contains unclosed Markdown.

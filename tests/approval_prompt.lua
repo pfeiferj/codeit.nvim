@@ -174,7 +174,7 @@ assert(transcript():find('normal-mode <Enter> to send', 1, true), transcript())
 assert(vim.bo[reviewer_buf].modifiable and vim.bo[reviewer_buf].filetype == 'codeit')
 assert(vim.b[reviewer_buf].current_syntax == 'codeit')
 assert(mapping(reviewer_buf, '{') and mapping(reviewer_buf, '}'), 'reviewer should share turn navigation')
-assert(vim.wo[reviewer_win].foldmethod == 'manual', 'reviewer should share chat folding')
+assert(vim.wo[reviewer_win].foldmethod == 'expr', 'reviewer should share chat folding')
 for _, map in ipairs(vim.api.nvim_buf_get_keymap(reviewer_buf, 'i')) do
   assert(map.lhs ~= '<Tab>' and map.lhs ~= '<CR>', 'reviewer should not interpret main-chat slash commands')
 end
@@ -198,8 +198,7 @@ local function draft_hint()
   end
   return table.concat(parts, ' ')
 end
-assert(draft_hint():find('Waiting for reviewer…', 1, true))
-assert(draft_hint():find('Sending unavailable', 1, true))
+assert(draft_hint() == 'Waiting for reviewer…', 'busy reviewer hint should contain only the concise status')
 assert_question_footer()
 assert(vim.api.nvim_win_get_cursor(reviewer_win)[1] == draft_line(), 'sending should focus the draft')
 vim.api.nvim_buf_set_lines(reviewer_buf, -2, -1, false, { 'Follow up' })

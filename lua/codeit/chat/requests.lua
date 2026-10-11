@@ -8,7 +8,7 @@ local cost_breakdown = require('codeit.cost_breakdown')
 local context_files = require('codeit.context.files')
 local settings = require('codeit.settings')
 local tool_limit_prompt = require('codeit.tools.limit_prompt')
-local stream_idle_ms = 4000
+local stream_idle_ms = 10000
 
 function M.attach(api, session, helpers)
   local M = api
