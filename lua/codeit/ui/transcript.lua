@@ -63,6 +63,26 @@ function M.attach(api, state, options, helpers)
     return hunks
   end
 
+  local function clear_stale_fold_text(lines, views)
+    local covered = {}
+    for _, fold in ipairs(state.section_folds) do
+      for row = fold.first, fold.last do covered[row] = true end
+    end
+    local current = vim.api.nvim_buf_get_lines(state.transcript, 0, #lines, false)
+    -- New boundaries can uncover old bodies before fill_lines replaces them.
+    -- Clear only changed text leaving a fold, while the old folds still hide it.
+    for win in pairs(views) do
+      vim.api.nvim_win_call(win, function()
+        for row, text in ipairs(current) do
+          if not covered[row] and text ~= '' and text ~= lines[row] and vim.fn.foldclosed(row) ~= -1 then
+            vim.api.nvim_buf_set_text(state.transcript, row - 1, 0, row - 1, #text, { '' })
+            current[row] = ''
+          end
+        end
+      end)
+    end
+  end
+
   local function fill_lines(lines, hunks)
     local ranges = {}
     for _, fold in ipairs(state.section_folds) do
@@ -121,6 +141,10 @@ function M.attach(api, state, options, helpers)
     local section
     local function finish_section()
       if not section then return end
+      lines[#lines] = '<!-- codeit:activity-end -->'
+      -- A blank guard row absorbs temporary Insert-mode boundary shortening,
+      -- keeping the marker hidden until sync_fold_boundaries repairs the cache.
+      table.insert(lines, '')
       section.last = #lines
       section.preview = 'Activity · ' .. section.count .. ' items'
       state.section_folds[#state.section_folds + 1] = section
@@ -232,12 +256,16 @@ function M.attach(api, state, options, helpers)
     table.insert(lines, '## ' .. (options.draft_label or 'Message'))
     table.insert(lines, '')
     local hunks = reserve_lines(lines, views)
+    clear_stale_fold_text(lines, views)
     state.draft_start = #lines
     for win in pairs(views) do
       helpers.configure_folds(win)
       helpers.restore_folds(win, win == state.transcript_win and active_expanded or sidebar_expanded)
     end
     fill_lines(lines, hunks)
+    for win in pairs(views) do
+      helpers.sync_fold_boundaries(win, win == state.transcript_win and active_expanded or sidebar_expanded)
+    end
     if valid(state.transcript_win) then M.decorate_chat(state.transcript_win, active_expanded, true) end
     if valid(state.sidebar_win) then M.decorate_chat(state.sidebar_win, sidebar_expanded, true) end
     helpers.update_header()

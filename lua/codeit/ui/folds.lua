@@ -72,6 +72,14 @@ function M.attach(api, state, options, helpers)
     return '  ' .. preview .. suffix
   end
 
+  local function recompute_folds(win)
+    vim.api.nvim_win_call(win, function()
+      local view = vim.fn.winsaveview()
+      vim.cmd('noautocmd normal! zX')
+      vim.fn.winrestview(view)
+    end)
+  end
+
   -- Fold ranges are available before buffer updates, without deleting live folds.
   function helpers.configure_folds(win)
     local levels, summaries = {}, {}
@@ -101,11 +109,7 @@ function M.attach(api, state, options, helpers)
     if not changed then return end
     -- Insert mode defers expression-fold updates; materialize reserved ranges
     -- before restoring expansion state or writing their activity text.
-    vim.api.nvim_win_call(win, function()
-      local view = vim.fn.winsaveview()
-      vim.cmd('noautocmd normal! zX')
-      vim.fn.winrestview(view)
-    end)
+    recompute_folds(win)
   end
 
   function helpers.restore_folds(win, expanded)
@@ -129,6 +133,20 @@ function M.attach(api, state, options, helpers)
       end)
       vim.o.lazyredraw = lazyredraw
       if not ok then error(err) end
+    end)
+  end
+
+  function helpers.sync_fold_boundaries(win, expanded)
+    vim.api.nvim_win_call(win, function()
+      for _, fold in ipairs(state.section_folds) do
+        -- Insert-mode text writes can leave a cached boundary one row short.
+        -- Rebuild only when it drifted, then restore this view's expansion state.
+        if vim.fn.foldlevel(fold.first) ~= 1 or vim.fn.foldlevel(fold.last) ~= 1 then
+          recompute_folds(win)
+          helpers.restore_folds(win, expanded)
+          return
+        end
+      end
     end)
   end
 
