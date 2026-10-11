@@ -487,37 +487,68 @@ do
       'summary measurements must never disable live folds')
     return text_height(target, range)
   end
-  vim.api.nvim_buf_set_lines = function(buf, first, last, strict, replacement)
-    if buf == chat then
-      buffer_writes = buffer_writes + 1
-      if table.concat(replacement, '\n'):find('fold test', 1, true) then
+  local function check_activity_write(first, replacement)
+    for offset, line in ipairs(replacement) do
+      if line:find('fold test', 1, true) or line:find('wrapped ', 1, true)
+        or line == '**Activity**' or line == '**Reasoning**'
+        or line == '*Calling `read_file`…*' or line == '**Tool: read_file**'
+        or line == '## Command: `/context`' then
+        local row = first + offset
         for _, view in ipairs({ win, popup }) do
           vim.api.nvim_win_call(view, function()
-            assert(vim.fn.foldclosed(first + 1) ~= -1,
-              'existing activity updates must stay within an established closed fold')
+            assert(vim.fn.foldlevel(row) == (line == '**Activity**' and 1 or 2),
+              'activity headings and bodies must have their folds before being written')
+            assert(vim.fn.foldclosed(row) ~= -1,
+              'activity must already be hidden in both sidebar and popup when written')
           end)
         end
       end
     end
-    return set_lines(buf, first, last, strict, replacement)
   end
-  vim.api.nvim_buf_set_text = function(buf, first, col, last, end_col, replacement)
-    if buf == chat then buffer_writes = buffer_writes + 1 end
-    if buf == chat and table.concat(replacement, '\n'):find('fold test', 1, true) then
-      if replacement[1] == '' then writes = writes + 1 end
-      for _, view in ipairs({ win, popup }) do
-        vim.api.nvim_win_call(view, function()
-          assert(vim.fn.foldlevel(first + 1) == 2, 'nested folds must precede body insertion')
-          assert(vim.fn.foldclosed(first + 1) ~= -1 and vim.fn.foldclosedend(first + 1) >= last + 1,
-            'new activity bodies must already be hidden in both sidebar and popup')
-        end)
+  vim.api.nvim_buf_set_lines = function(buf, first, last, strict, replacement)
+    if buf == chat then
+      buffer_writes = buffer_writes + 1
+      check_activity_write(first, replacement)
+    end
+    local result = set_lines(buf, first, last, strict, replacement)
+    if buf == chat then
+      for row, line in ipairs(vim.api.nvim_buf_get_lines(chat, 0, -1, false)) do
+        if line:find('fold test', 1, true) then
+          for _, view in ipairs({ win, popup }) do
+            vim.api.nvim_win_call(view, function()
+              assert(vim.fn.foldclosed(row) ~= -1,
+                'reserving rows must not expose existing hidden activity')
+            end)
+          end
+        end
       end
     end
-    return set_text(buf, first, col, last, end_col, replacement)
+    return result
+  end
+  vim.api.nvim_buf_set_text = function(buf, first, col, last, end_col, replacement)
+    if buf == chat then
+      buffer_writes = buffer_writes + 1
+      check_activity_write(first, replacement)
+      if table.concat(replacement, '\n'):find('fold test', 1, true) then writes = writes + 1 end
+    end
+    local result = set_text(buf, first, col, last, end_col, replacement)
+    if buf == chat then check_activity_write(first, replacement) end
+    return result
   end
   local ok, err = pcall(function()
     ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
-    activity[3].content = activity[3].content .. '\nfold test growing output'
+    activity[3].content = activity[3].content .. '\nfold test growing output' .. string.rep('\nfold test extra row', 30)
+    activity[2].reasoning_details[1].text = 'fold test revised reasoning\nsecond line\nthird line'
+    activity[2].tool_calls[1]['function'].arguments = '{"path":"fold test revised input"}'
+    ui.render(activity, 'Thinking', 'test', 'test', 'Changed billing', results, false)
+    activity[3].content = 'fold test output\nfold test growing output'
+    activity[1].content = 'Run the tools\nwith a longer prompt'
+    ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
+    table.insert(activity, 3, { role = 'tool', name = 'read_file', content = 'fold test inserted output' })
+    results[1].after_message = 4
+    ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
+    table.remove(activity, 3)
+    results[1].after_message = 3
     ui.render(activity, 'Thinking', 'test', 'test', nil, results, false)
     local unchanged_writes = buffer_writes
     ui.render(activity, 'Waiting', 'test', 'test', nil, results, false)
@@ -532,9 +563,9 @@ do
   assert(ok, err)
   assert(#vim.api.nvim_list_wins() == window_count, 'fold probes must not leak windows')
   assert(vim.api.nvim_get_current_win() == popup, 'fold probes must not change the focused window')
-  assert(writes == 4, 'only new activity should need staged bodies; existing bodies must never be blanked')
+  assert(writes >= 4, 'new and updated activity must be written after fold preparation')
   local text = table.concat(vim.api.nvim_buf_get_lines(chat, 0, -1, false), '\n')
-  for _, body in ipairs({ 'fold test reasoning', 'fold test input', 'fold test output',
+  for _, body in ipairs({ 'fold test revised reasoning', 'fold test revised input', 'fold test output',
     'fold test command', 'fold test growing output' }) do
     assert(text:find(body, 1, true), 'fold staging must retain all activity content')
   end

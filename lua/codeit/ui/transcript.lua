@@ -35,28 +35,58 @@ function M.attach(api, state, options, helpers)
     end)
   end
 
-  local function update_lines(lines)
+  local function reserve_lines(lines, views)
     local old = vim.api.nvim_buf_get_lines(state.transcript, 0, state.draft_start, false)
     local hunks = vim.diff(table.concat(old, '\n') .. '\n', table.concat(lines, '\n') .. '\n',
       { result_type = 'indices', algorithm = 'minimal' })
-    -- Apply from the bottom so unchanged activity and draft rows keep their folds and marks.
+    -- Keep closed ranges attached to their text during structural edits; an
+    -- expression keyed by the old rows would briefly expose shifted bodies.
+    for _, hunk in ipairs(hunks) do
+      if hunk[2] ~= hunk[4] then
+        for win in pairs(views) do vim.wo[win].foldmethod = 'manual' end
+        break
+      end
+    end
+    -- Reserve rows without writing activity text. Existing bodies remain untouched
+    -- until the final fold ranges and their expansion state are established.
     for index = #hunks, 1, -1 do
-      local first, count, next_first, next_count = unpack(hunks[index])
-      local replacement = vim.list_slice(lines, next_first, next_first + next_count - 1)
-      if count == 0 then
-        vim.api.nvim_buf_set_lines(state.transcript, first, first, false, replacement)
-      elseif next_count == 0 then
-        vim.api.nvim_buf_set_lines(state.transcript, first - 1, first + count - 1, false, {})
-      else
-        vim.api.nvim_buf_set_text(state.transcript, first - 1, 0, first + count - 2,
-          #old[first + count - 1], replacement)
+      local first, count, _, next_count = unpack(hunks[index])
+      local start = count == 0 and first or first - 1
+      if next_count > count then
+        local blanks = {}
+        for row = 1, next_count - count do blanks[row] = '' end
+        vim.api.nvim_buf_set_lines(state.transcript, start + count, start + count, false, blanks)
+      elseif next_count < count then
+        vim.api.nvim_buf_set_lines(state.transcript, start + next_count, start + count, false, {})
+      end
+    end
+    return hunks
+  end
+
+  local function fill_lines(lines, hunks)
+    local ranges = {}
+    for _, folds in ipairs({ state.section_folds, state.tool_folds }) do
+      for _, fold in ipairs(folds) do
+        for row = fold.first, fold.last do ranges[row] = fold end
+      end
+    end
+    for _, hunk in ipairs(hunks) do
+      local _, _, first, count = unpack(hunk)
+      local last = first + count - 1
+      while first <= last do
+        local finish = first
+        while finish < last and ranges[finish + 1] == ranges[first] do finish = finish + 1 end
+        local replacement = vim.list_slice(lines, first, finish)
+        local current = vim.api.nvim_buf_get_lines(state.transcript, first - 1, finish, false)
+        if not vim.deep_equal(current, replacement) then
+          vim.api.nvim_buf_set_text(state.transcript, first - 1, 0, finish - 1, #current[#current], replacement)
+        end
+        first = finish + 1
       end
     end
   end
 
   local function render(messages, status, provider, model, billing, command_results, can_send, turn_costs, last_agent_activity)
-    local existing_tools = {}
-    for _, fold in ipairs(state.tool_folds) do existing_tools[fold.key] = true end
     local costs_by_message = {}
     for _, turn in ipairs(turn_costs or {}) do costs_by_message[turn.first] = turn end
     local views = {}
@@ -208,29 +238,15 @@ function M.attach(api, state, options, helpers)
     table.insert(lines, '')
     table.insert(lines, '## ' .. (options.draft_label or 'Message'))
     table.insert(lines, '')
-    local pending = {}
-    local structure = vim.list_slice(lines)
-    if next(views) then
-      for _, fold in ipairs(state.tool_folds) do
-        local body = vim.list_slice(lines, fold.first + 1, fold.last)
-        if not existing_tools[fold.key] then
-          pending[#pending + 1] = { fold = fold, body = body }
-          for row = fold.first + 1, fold.last do structure[row] = '' end
-        end
-      end
-    end
-    for win in pairs(views) do helpers.configure_folds(win) end
-    update_lines(structure)
+    local hunks = reserve_lines(lines, views)
     state.draft_start = #lines
+    for win in pairs(views) do
+      helpers.configure_folds(win)
+      helpers.restore_folds(win, win == state.transcript_win and active_expanded or sidebar_expanded)
+    end
+    fill_lines(lines, hunks)
     if valid(state.transcript_win) then M.decorate_chat(state.transcript_win, active_expanded) end
     if valid(state.sidebar_win) then M.decorate_chat(state.sidebar_win, sidebar_expanded) end
-    for _, item in ipairs(pending) do
-      local fold = item.fold
-      vim.api.nvim_buf_set_text(state.transcript, fold.first, 0, fold.last - 1, 0, item.body)
-    end
-    if #pending > 0 then
-      for win in pairs(views) do helpers.update_fold_summaries(win) end
-    end
     helpers.update_header()
     for win, view_state in pairs(views) do
       if view_state.draft_row then

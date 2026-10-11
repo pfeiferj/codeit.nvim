@@ -64,7 +64,8 @@ function M.attach(api, state, options, helpers)
     end
     vim.w[win].codeit_fold_levels = levels
     local expr = 'get(get(w:, "codeit_fold_levels", {}), v:lnum, 0)'
-    local initialized = vim.wo[win].foldmethod == 'expr' and vim.wo[win].foldexpr == expr
+    -- Row reservation temporarily uses manual folds but retains this expression.
+    local initialized = vim.wo[win].foldexpr == expr
     vim.wo[win].foldexpr = expr
     vim.wo[win].foldmethod = 'expr'
     vim.wo[win].foldenable = true
@@ -73,10 +74,7 @@ function M.attach(api, state, options, helpers)
     vim.wo[win].foldtext = 'v:lua.require("codeit.ui").tool_foldtext()'
   end
 
-  --- Configure folds and role styling in both interactive and read-only chat windows.
-  function M.decorate_chat(win, expanded)
-    local buf = vim.api.nvim_win_get_buf(win)
-    helpers.configure_folds(win)
+  function helpers.restore_folds(win, expanded)
     local current = expanded and helpers.expanded_folds(win)
     vim.api.nvim_win_call(win, function()
       local view = vim.fn.winsaveview()
@@ -106,12 +104,19 @@ function M.attach(api, state, options, helpers)
             end
           end
         end
-        helpers.update_fold_summaries(win)
         vim.fn.winrestview(view)
       end)
       vim.o.lazyredraw = lazyredraw
       if not ok then error(err) end
     end)
+  end
+
+  --- Configure folds and role styling in both interactive and read-only chat windows.
+  function M.decorate_chat(win, expanded)
+    local buf = vim.api.nvim_win_get_buf(win)
+    helpers.configure_folds(win)
+    helpers.restore_folds(win, expanded)
+    helpers.update_fold_summaries(win)
     vim.api.nvim_buf_clear_namespace(buf, state.ui_ns, 0, -1)
     if buf == state.transcript then state.draft_hint_id = nil end
     for _, mark in ipairs(state.role_marks) do
