@@ -49,10 +49,15 @@ for i = #messages - 3, #messages - 1 do assert(messages[i].content:find('not ava
 local artifact = vim.json.decode(messages[#messages].content)
 assert(vim.fn.readfile(artifact.path)[1] == 'findings')
 assert(vim.fn.filereadable(temp .. '/bad') == 0)
-reply({ role = 'assistant', content = 'Found useful information' }, { cost = 0.25, prompt_tokens = 10, completion_tokens = 5 })
+reply({ role = 'assistant', content = 'Found useful information',
+  reasoning = 'private reasoning', reasoning_details = { { text = 'private reasoning details' } },
+  _codex_reasoning = { { encrypted_content = 'private encrypted reasoning' } },
+}, { cost = 0.25, prompt_tokens = 10, completion_tokens = 5 })
 assert(agents.list()[1].status == 'completed')
 assert(#requests == 4, 'wait result resumes main agent')
-assert(requests[4].messages[#requests[4].messages].content:find('Found useful information', 1, true))
+local wait_result = vim.json.decode(requests[4].messages[#requests[4].messages].content)
+assert(wait_result.result == 'Found useful information' and not wait_result.messages)
+assert(not vim.json.encode(wait_result):find('private', 1, true))
 reply({ role = 'assistant', content = 'Done' })
 local result
 local function execute(name, args, context)
@@ -85,13 +90,21 @@ agents.start({ title = 'Notify', task = 'Summarize', mode = 'background_notify' 
   function(value) returned = value end, function() return false end)
 assert(returned and agents.list()[2].status == 'running')
 await(5)
-reply({ role = 'assistant', content = 'Background results' })
+reply({ role = 'assistant', content = {
+  { type = 'text', text = 'Background results' },
+  { type = 'reasoning', text = 'private structured reasoning' },
+  { type = 'tool_call', name = 'private tool', arguments = 'private arguments' },
+  { type = 'text', text = 'Second finding' },
+} })
 vim.wait(250, function() return false end)
 assert(#sent == 0)
 idle = true
 assert(vim.wait(1000, function() return #sent == 1 end))
 vim.wait(250, function() return false end)
 assert(#sent == 1)
+assert(sent[1]:find('Background results\\nSecond finding', 1, true))
+assert(not sent[1]:find('private', 1, true))
+assert(vim.json.decode(execute('get_subagent', { run_id = 2 })).result == 'Background results\nSecond finding')
 agents.start({ title = 'Quiet', task = 'Summarize', mode = 'background' }, nil, context, function() end)
 await(6)
 reply({ role = 'assistant', content = 'Quiet results' })
@@ -163,6 +176,49 @@ vim.fn.chdir(vim.fn.fnamemodify(temp, ':h'))
 reply({ role = 'assistant', tool_calls = { call('read_file', { path = 'private.txt' }) } })
 assert(agents.list()[9].status == 'failed')
 vim.fn.chdir(temp)
+-- Every result delivery path exposes display text only, including failures.
+local function start_result_case(mode)
+  local count = #requests + 1
+  local id = #agents.list() + 1
+  local delivered
+  agents.start({ title = 'Display only', task = 'Summarize', mode = mode }, nil, context,
+    function(value) delivered = value end)
+  await(count)
+  return id, function() return delivered end
+end
+local id, delivered = start_result_case('wait')
+reply({ role = 'assistant', content = vim.NIL, refusal = 'Cannot help with that',
+  reasoning = 'private refusal reasoning' })
+assert(vim.json.decode(delivered()).result == 'Cannot help with that')
+assert(vim.json.decode(execute('get_subagent', { run_id = id })).result == 'Cannot help with that')
+
+local raw_failure = vim.json.encode({ messages = requests[#requests].messages,
+  reasoning = 'private failure reasoning', tool_calls = { call('get_diagnostics', {}) } })
+id, delivered = start_result_case('wait')
+table.remove(callbacks, 1)(nil, raw_failure, nil, raw_failure)
+local failure_result = vim.json.decode(delivered())
+assert(failure_result.status == 'failed' and failure_result.result == 'Subagent provider request failed')
+assert(execute('get_subagent', { run_id = id }) == delivered())
+assert(not delivered():find('private', 1, true) and not failure_result.messages)
+
+local notification_count = #sent
+id = start_result_case('background_notify')
+table.remove(callbacks, 1)(nil, raw_failure)
+assert(vim.wait(1000, function() return #sent > notification_count end))
+assert(sent[#sent]:find('Subagent provider request failed', 1, true))
+assert(not sent[#sent]:find('private', 1, true))
+
+-- Exceptions must not dump request context into wait results either.
+local provider = package.loaded['codeit.providers']
+local chat = provider.chat
+provider.chat = function() error(raw_failure) end
+local exception_result
+agents.start({ title = 'Exception', task = 'Fail', mode = 'wait' }, nil, context,
+  function(value) exception_result = value end)
+assert(vim.wait(1000, function() return exception_result ~= nil end))
+assert(vim.json.decode(exception_result).result == 'Subagent provider request failed')
+assert(not exception_result:find('private', 1, true))
+provider.chat = chat
 agents.shutdown()
 assert(vim.fn.filereadable(artifact.path) == 0 and vim.fn.isdirectory(vim.fn.fnamemodify(artifact.path, ':h')) == 0)
 vim.fn.chdir(vim.fn.fnamemodify(temp, ':h'))

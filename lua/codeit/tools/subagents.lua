@@ -53,6 +53,21 @@ local function tick()
   end
 end
 
+local function display_text(message)
+  local content = message.content
+  if type(content) == 'table' then
+    local parts = {}
+    for _, part in ipairs(content) do
+      if type(part) == 'table' and part.type == 'text' and type(part.text) == 'string' then
+        parts[#parts + 1] = part.text
+      end
+    end
+    content = table.concat(parts, '\n')
+  end
+  if type(content) == 'string' and content ~= '' then return content end
+  return type(message.refusal) == 'string' and message.refusal or ''
+end
+
 local function finish(run, status, result)
   if run.status ~= 'running' then return end
   run.status, run.result = status, result
@@ -99,15 +114,16 @@ function M.start(args, source, context, done, parent_active)
     if not active() then return end
     rounds = rounds + 1
     if rounds > (config.max_tool_rounds or 20) + 1 then return finish(run, 'failed', 'Subagent tool round limit reached') end
-    local ok, err = pcall(require('codeit.providers').chat, config, messages, specs, function(message, failure, usage)
+    local ok = pcall(require('codeit.providers').chat, config, messages, specs, function(message, failure, usage)
       if not active() then return end
       if (usage or not failure) and context.subagent_usage then context.subagent_usage(usage) end
-      if failure then return finish(run, 'failed', tostring(failure)) end
+      -- Provider errors may contain raw responses or request context, not display text.
+      if failure then return finish(run, 'failed', 'Subagent provider request failed') end
       if type(message) ~= 'table' then return finish(run, 'failed', 'Invalid subagent response') end
       messages[#messages + 1] = message
       local calls = message.tool_calls
       if type(calls) ~= 'table' or #calls == 0 then
-        return finish(run, 'completed', message.content or message.refusal or '')
+        return finish(run, 'completed', display_text(message))
       end
       local function next_call(index)
         if not active() then return end
@@ -130,7 +146,7 @@ function M.start(args, source, context, done, parent_active)
       end
       next_call(1)
     end, nil, active)
-    if not ok then finish(run, 'failed', tostring(err)) end
+    if not ok then finish(run, 'failed', 'Subagent provider request failed') end
   end
   if not timer then timer = vim.uv.new_timer(); timer:start(200, 200, vim.schedule_wrap(tick)) end
   vim.schedule(advance)
