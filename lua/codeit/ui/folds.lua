@@ -2,8 +2,7 @@ local M = {}
 
 function M.attach(api, state, options, helpers)
   local M = api
-  -- A same-buffer window inherits the source's folds, including child state.
-  -- Inspect and measure that hidden copy without ever exposing live activity bodies.
+  -- Measure activity bodies in a hidden copy without exposing them in the chat.
   local function with_fold_probe(win, callback)
     return vim.api.nvim_win_call(win, function()
       local width = vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff
@@ -24,14 +23,12 @@ function M.attach(api, state, options, helpers)
     local summaries = with_fold_probe(win, function(probe)
       vim.wo[probe].foldenable = false
       local summaries = {}
-      for _, folds in ipairs({ state.tool_folds, state.section_folds }) do
-        for _, fold in ipairs(folds) do
-          local height = vim.api.nvim_win_text_height(probe, {
-            start_row = fold.first - 1 + fold.padding,
-            end_row = fold.last - 1 - fold.padding,
-          })
-          summaries[tostring(fold.first)] = { preview = fold.preview, count = height.all - height.fill }
-        end
+      for _, fold in ipairs(state.section_folds) do
+        local height = vim.api.nvim_win_text_height(probe, {
+          start_row = fold.first - 1 + fold.padding,
+          end_row = fold.last - 1 - fold.padding,
+        })
+        summaries[tostring(fold.first)] = { preview = fold.preview, count = height.all - height.fill }
       end
       return summaries
     end)
@@ -58,10 +55,6 @@ function M.attach(api, state, options, helpers)
       for row = fold.first, fold.last do levels[tostring(row)] = 1 end
       levels[tostring(fold.first)], levels[tostring(fold.last)] = '>1', '<1'
     end
-    for _, fold in ipairs(state.tool_folds) do
-      for row = fold.first, fold.last do levels[tostring(row)] = 2 end
-      levels[tostring(fold.first)], levels[tostring(fold.last)] = '>2', '<2'
-    end
     vim.w[win].codeit_fold_levels = levels
     local expr = 'get(get(w:, "codeit_fold_levels", {}), v:lnum, 0)'
     -- Row reservation temporarily uses manual folds but retains this expression.
@@ -82,7 +75,6 @@ function M.attach(api, state, options, helpers)
   end
 
   function helpers.restore_folds(win, expanded)
-    local current = expanded and helpers.expanded_folds(win)
     vim.api.nvim_win_call(win, function()
       local view = vim.fn.winsaveview()
       local lazyredraw = vim.o.lazyredraw
@@ -90,21 +82,9 @@ function M.attach(api, state, options, helpers)
       local ok, err = pcall(function()
         if expanded then
           for _, section in ipairs(state.section_folds) do
-            local changes = {}
-            for _, fold in ipairs(state.tool_folds) do
-              if fold.first > section.first and fold.last <= section.last
-                and (current[fold.key] == true) ~= (expanded[fold.key] == true) then
-                changes[#changes + 1] = fold
-              end
-            end
             local open = expanded.sections and expanded.sections[section.key]
-            if open or #changes > 0 then
-              if vim.fn.foldclosed(section.first) ~= -1 then
-                vim.cmd('noautocmd ' .. section.first .. 'foldopen')
-              end
-              for _, fold in ipairs(changes) do
-                vim.cmd('noautocmd ' .. fold.first .. (expanded[fold.key] and 'foldopen' or 'foldclose'))
-              end
+            if open and vim.fn.foldclosed(section.first) ~= -1 then
+              vim.cmd('noautocmd ' .. section.first .. 'foldopen')
             end
             if not open and vim.fn.foldclosed(section.first) == -1 then
               vim.cmd('noautocmd ' .. section.first .. 'foldclose')
@@ -159,20 +139,10 @@ function M.attach(api, state, options, helpers)
   function helpers.expanded_folds(win)
     local expanded = { sections = {} }
     if win and vim.api.nvim_win_is_valid(win) then
-      with_fold_probe(win, function()
-        -- Expose children only in the hidden copy to retain their independent state.
+      vim.api.nvim_win_call(win, function()
         for _, fold in ipairs(state.section_folds) do
-          if vim.fn.foldlevel(fold.first) > 0 then
-            if vim.fn.foldclosed(fold.first) == fold.first then
-              vim.cmd(fold.first .. 'foldopen')
-            else
-              expanded.sections[fold.key] = true
-            end
-          end
-        end
-        for _, fold in ipairs(state.tool_folds) do
           if vim.fn.foldlevel(fold.first) > 0 and vim.fn.foldclosed(fold.first) == -1 then
-            expanded[fold.key] = true
+            expanded.sections[fold.key] = true
           end
         end
       end)

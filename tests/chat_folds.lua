@@ -43,33 +43,30 @@ local output = row('**Tool: read_file**')
 local command = row('## Command: `CodeitTrustStatus`')
 for _, line in ipairs({ thought, input, output, command, row('Ready to answer.') }) do
   assert(vim.fn.foldclosed(line) == section, 'consecutive activity should share one outer fold')
-  assert(vim.fn.foldlevel(line) == 2, 'each activity item should have an inner fold')
+  assert(vim.fn.foldlevel(line) == 1, 'activity items must not have nested folds')
 end
 assert(vim.fn.foldtextresult(section):find('Activity · 5 items', 1, true))
 for _, line in ipairs({ row('Request'), row('Answer'), row('Next request'), row('## Message') }) do
   assert(vim.fn.foldlevel(line) == 0, 'messages and draft must remain outside activity folds')
 end
 toggle(section)
-for _, line in ipairs({ thought, input, output, command }) do
-  assert(vim.fn.foldclosed(line) == line, 'opening the outer fold must leave inner folds collapsed')
+for _, line in ipairs({ thought, input, output, command, row('Inspect the file first.'), row('Short result') }) do
+  assert(vim.fn.foldclosed(line) == -1, 'opening activity must reveal every item')
 end
-toggle(thought)
-assert(vim.fn.foldclosed(row('Inspect the file first.')) == -1)
-assert(vim.fn.foldclosed(input) == input, 'reasoning should expand independently')
 toggle(section)
 render('New billing line')
 section, thought, input = row('**Activity**'), row('**Reasoning**'), row('*Calling `read_file`…*')
 assert(vim.fn.foldclosed(thought) == section, 'closed outer folds should survive renders')
 toggle(section)
-assert(vim.fn.foldclosed(thought) == -1, 'hidden inner expansion state should survive renders')
-assert(vim.fn.foldclosed(input) == input)
--- Newly appended tool items default to closed without closing an expanded group.
+assert(vim.fn.foldclosed(thought) == -1 and vim.fn.foldclosed(input) == -1)
+-- Newly appended tool items remain visible in an expanded group.
 table.insert(messages, 4, { role = 'tool', name = 'extra', content = 'New result' })
 results[1].after_message = 4
 render()
 section, thought = row('**Activity**'), row('**Reasoning**')
 assert(vim.fn.foldclosed(section) == -1 and vim.fn.foldclosed(thought) == -1)
-assert(vim.fn.foldclosed(row('**Tool: extra**')) == row('**Tool: extra**'))
+assert(vim.fn.foldclosed(row('**Tool: extra**')) == -1)
+assert(vim.fn.foldlevel(row('New result')) == 1)
 ui.toggle_popup()
 assert(vim.fn.foldclosed(thought) == -1)
 toggle(section)
@@ -77,7 +74,7 @@ ui.toggle_popup()
 assert(vim.api.nvim_get_current_win() == win)
 assert(vim.fn.foldclosed(thought) == section, 'outer state should transfer back from popup')
 toggle(section)
-assert(vim.fn.foldclosed(thought) == -1, 'popup switches should retain hidden child state')
+assert(vim.fn.foldclosed(thought) == -1, 'popup switches should retain expanded activity')
 -- Assistant prose splits activity into separate groups, even with tools in the same message.
 messages = { { role = 'assistant', reasoning_details = vim.deepcopy(reasoning), content = 'Explanation', tool_calls = { call } },
   { role = 'tool', tool_call_id = 'read', content = 'Result' },

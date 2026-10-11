@@ -80,17 +80,17 @@ for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do
 end
 assert(tool_row and vim.fn.foldclosed(tool_row) == activity_row, 'read-only previews should fold activity')
 vim.cmd(activity_row .. 'foldopen')
-assert(vim.fn.foldclosed(tool_row) == tool_row, 'read-only previews should retain individual folds')
+assert(vim.fn.foldclosed(tool_row) == -1, 'opening preview activity should reveal tool results')
+assert(vim.fn.foldlevel(tool_row) == 1, 'read-only previews must not have individual folds')
 for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do
   if line:find('Wrapped output ', 1, true) == 1 then
-    assert(vim.fn.foldclosed(row) == row - 3, 'read-only previews should fold wrapped single-line output')
+    assert(vim.fn.foldclosed(row) == -1, 'opening preview activity should reveal wrapped output')
   end
 end
-assert(vim.fn.foldtextresult(tool_row):find('Tool output', 1, true))
+assert(not vim.bo[chat_buf].modifiable, 'expanding activity must keep the transcript read-only')
 vim.api.nvim_win_set_cursor(chat, { tool_row, 0 })
 vim.cmd('normal! za')
-assert(vim.fn.foldclosed(tool_row) == -1 and not vim.bo[chat_buf].modifiable,
-  'read-only tool results should expand without making the transcript editable')
+assert(vim.fn.foldclosed(tool_row) == activity_row, 'toggling a tool row should close its activity group')
 for _, map in ipairs(vim.api.nvim_buf_get_keymap(chat_buf, 'n')) do
   assert(map.lhs ~= '1' and map.lhs ~= '<CR>', 'preview must not inherit approval mappings')
 end

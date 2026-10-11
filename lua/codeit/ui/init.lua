@@ -7,7 +7,7 @@ local function new(options)
   next_instance = next_instance + 1
   local M = {}
   local state = {
-    chat_lines = {}, draft_start = 2, tool_folds = {}, section_folds = {}, role_marks = {},
+    chat_lines = {}, draft_start = 2, section_folds = {}, role_marks = {},
     can_send_message = true,
     ui_ns = vim.api.nvim_create_namespace('codeit_chat_ui'),
     palette_ns = vim.api.nvim_create_namespace('codeit_slash_' .. next_instance),

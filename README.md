@@ -381,16 +381,16 @@ colors adapt to dark or light backgrounds and can also be overridden.
 
 #### Activity folds
 
-Readable provider reasoning, tool calls/results, and slash-command results start
-collapsed in individual folds. Consecutive items are bundled inside a collapsed
-outer **Activity** fold; user messages and assistant prose remain outside it.
-Press `za` on an activity preview to reveal its item folds, then `za` on an item
-to expand or collapse it. Standard Vim fold commands also work.
+Readable provider reasoning, tool calls/results, and slash-command results are
+bundled into collapsed **Activity** folds. User messages and assistant prose
+remain outside them. Press `za` on an activity preview to reveal all its items;
+there are no individual reasoning or tool folds. Standard Vim fold commands
+also work.
 
 Full text remains searchable and copyable, but encrypted provider reasoning is
 not displayed. Fold state survives streamed updates, resizing, and switches
 between the sidebar and interactive popup. Read-only chat previews support the
-same nested folds.
+same activity folds.
 
 #### Table previews
 

@@ -65,10 +65,8 @@ function M.attach(api, state, options, helpers)
 
   local function fill_lines(lines, hunks)
     local ranges = {}
-    for _, folds in ipairs({ state.section_folds, state.tool_folds }) do
-      for _, fold in ipairs(folds) do
-        for row = fold.first, fold.last do ranges[row] = fold end
-      end
+    for _, fold in ipairs(state.section_folds) do
+      for row = fold.first, fold.last do ranges[row] = fold end
     end
     for _, hunk in ipairs(hunks) do
       local _, _, first, count = unpack(hunk)
@@ -104,7 +102,7 @@ function M.attach(api, state, options, helpers)
     if not options.floating then require('codeit.ui.assistant_pane').set_messages(messages) end
     local active_expanded = helpers.expanded_folds(state.transcript_win)
     local sidebar_expanded = helpers.expanded_folds(state.sidebar_win)
-    state.tool_folds, state.section_folds, state.role_marks = {}, {}, {}
+    state.section_folds, state.role_marks = {}, {}
     state.can_send_message = can_send ~= false
     state.draft_status = status
     state.last_agent_activity = last_agent_activity
@@ -135,22 +133,18 @@ function M.attach(api, state, options, helpers)
         table.insert(lines, '')
       end
       section.count = section.count + 1
-      local first = #lines + 1
       state.role_marks[#state.role_marks + 1] = { row = #lines, text = label, group = 'CodeitTool' }
       table.insert(lines, label)
       table.insert(lines, '')
-      return first
     end
-    local function finish_item(first, key, preview)
-      state.tool_folds[#state.tool_folds + 1] = { first = first, last = #lines, key = key,
-        preview = preview or lines[first], padding = 0 }
+    local function finish_item()
       table.insert(lines, '')
     end
     local function render_results(index)
       for _, result in ipairs(results_by_message[index] or {}) do
-        local first = start_item(result, '## Command: `' .. result.command .. '`')
+        start_item(result, '## Command: `' .. result.command .. '`')
         vim.list_extend(lines, vim.split(result.output, '\n', { plain = true }))
-        finish_item(first, result)
+        finish_item()
       end
     end
     render_results(0)
@@ -179,9 +173,9 @@ function M.attach(api, state, options, helpers)
           end
           if #reasoning > 0 then
             local key = message.reasoning_details or message._copilot_reasoning or message._codex_reasoning
-            local first = start_item(key, '**Reasoning**')
+            start_item(key, '**Reasoning**')
             vim.list_extend(lines, vim.split(table.concat(reasoning, '\n'), '\n', { plain = true }))
-            finish_item(first, key)
+            finish_item()
           end
         end
         if message.role == 'user' or (message.role == 'assistant' and type(content) == 'string' and content ~= '') then
@@ -209,25 +203,24 @@ function M.attach(api, state, options, helpers)
         elseif message.role ~= 'assistant' then
           local name = message.name or tool_names[message.tool_call_id] or message.tool_call_id or ''
           local label = message.role == 'tool' and ('**Tool: ' .. name .. '**') or ('**' .. message.role .. '**')
-          local first = start_item(message, label)
+          start_item(message, label)
           if type(content) == 'string' and content ~= '' then
             vim.list_extend(lines, markdown.fence(content, tool_output_language(name, content)))
           end
-          finish_item(first, message, label .. (type(content) == 'string' and content ~= ''
-            and (' · ' .. vim.split(content, '\n', { plain = true })[1]) or ''))
+          finish_item()
         end
         for _, call in ipairs(message.tool_calls or {}) do
           local fn = call['function'] or {}
           local name = fn.name or 'unknown tool'
           if call.id then tool_names[call.id] = name end
-          local first = start_item(call, '*Calling `' .. name .. '`…*')
+          start_item(call, '*Calling `' .. name .. '`…*')
           local input = fn.arguments
           if type(input) == 'string' and input ~= '' then
             local ok, decoded = pcall(vim.json.decode, input)
             if ok then input = require('codeit.tools.approval.format').pretty_json(decoded) end
             vim.list_extend(lines, markdown.fence(input, ok and 'json' or 'text'))
           end
-          finish_item(first, call)
+          finish_item()
         end
       end
       render_results(index)
