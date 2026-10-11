@@ -151,7 +151,13 @@ function M.entries(workspace, mode, paths, selected)
   for _, name in ipairs(names) do
     local skill = available[name]
     local available = not excluded(workspace, skill.path)
-    local active = available and vim.tbl_contains(selected or {}, name)
+    local active = false
+    for _, selection in ipairs(selected or {}) do
+      if type(selection) == 'table' and selection.name == name and selection.path == skill.path then
+        active = available
+        break
+      end
+    end
     entries[#entries + 1] = { kind = 'skill', name = name, path = skill.path,
       description = skill.description, content = skill.content,
       included = active, available = available, manual_only = skill.manual_only,
@@ -179,6 +185,14 @@ function M.messages(workspace, mode, paths, selected)
     end
   end
   return result
+end
+
+function M.skill_snapshot(workspace, mode, paths, selected)
+  local snapshot = {}
+  for _, entry in ipairs(M.entries(workspace, mode, paths, selected)) do
+    if entry.kind == 'skill' and entry.included then snapshot[entry.path] = vim.fn.sha256(entry.content) end
+  end
+  return snapshot
 end
 
 return M

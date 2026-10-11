@@ -226,7 +226,7 @@ execute_approved = function(name, args, source, done, active, gate, reads, prepa
     local workspace = require('codeit.history').workspace()
     local skill = require('codeit.context_files').skill(args.name, workspace,
       approval.workspace_trust(workspace))
-    return done(skill and ('Skill ' .. args.name .. ' (' .. skill.path .. '):\n' .. skill.content)
+    return done(skill and ('Skill ' .. args.name .. ' (' .. skill.path .. '):\nSkill activated; current instructions are provided separately in context.')
       or 'Error: skill is not available, is disabled or manual-only, or workspace is not trusted')
   end
   return agent_tools.execute(name, args, done, active, gate, reads, prepare, source, origin)

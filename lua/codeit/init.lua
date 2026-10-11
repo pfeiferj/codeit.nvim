@@ -65,7 +65,7 @@ local base_settings = { provider = config.provider, models = vim.deepcopy(config
 local messages, command_results = {}, {}
 local stream_preview, stream_render_pending
 local session_prompt
-local context_summary, compacted_until
+local context_summary, compacted_until, context_summary_skills
 local context_reviews, review_revision = {}, 0
 local context_paths, selected_skills, disabled_context_files = {}, {}, {}
 local read_versions = {}
@@ -117,6 +117,7 @@ local function save(clear_summary)
     tokens_in = tokens_in, tokens_out = tokens_out, missing_in = missing_in,
     missing_out = missing_out, context_tokens = context_tokens, context_estimated = context_estimated,
     context_summary = context_summary, compacted_until = compacted_until,
+    context_summary_skills = context_summary_skills,
     context_stats = context_stats,
     context_reviews = context_reviews,
     context_paths = context_paths, selected_skills = selected_skills,
@@ -137,7 +138,7 @@ local function sync_workspace()
   context_files.set_disabled(workspace, disabled_context_files)
   messages = {}
   session_prompt = nil
-  context_summary, compacted_until = nil, nil
+  context_summary, compacted_until, context_summary_skills = nil, nil, nil
   context_reviews = {}
   context_paths, selected_skills = {}, {}
   read_versions = {}
@@ -258,10 +259,12 @@ local function redact_disabled_skill_results(items)
       end
     end
     local state = message.role == 'tool' and skill_calls[message.tool_call_id]
-    if state and state ~= 'active' and type(message.content) == 'string'
+    if state and type(message.content) == 'string'
       and message.content:match('^Skill [^\n]* %((.-)%)%:\n') then
       projected = vim.tbl_extend('force', {}, message, {
-        content = state == 'off' and 'Skill disabled for this chat.' or 'Skill instructions unloaded for this chat.',
+        content = state == 'off' and 'Skill disabled for this chat.'
+          or state == 'active' and 'Skill activation recorded; current instructions are provided separately in context.'
+          or 'Skill instructions unloaded for this chat.',
       })
     end
     result[#result + 1] = projected
@@ -269,7 +272,26 @@ local function redact_disabled_skill_results(items)
   return result
 end
 
+local function validate_context_summary()
+  if not context_summary then return end
+  local current = context_files.skill_snapshot(workspace or history.workspace(),
+    approval.workspace_trust(workspace), context_paths, selected_skills)
+  local valid = type(context_summary_skills) == 'table'
+  if valid then
+    for path, digest in pairs(context_summary_skills) do
+      if current[path] ~= digest then valid = false; break end
+    end
+  end
+  if not valid then
+    -- Restore the original transcript rather than keep a summary influenced by unloaded instructions.
+    context_summary, compacted_until, context_summary_skills = nil, nil, nil
+    review_revision = review_revision + 1
+    save()
+  end
+end
+
 local function request_messages()
+  validate_context_summary()
   local result = {}
   if messages[1] then result[1] = messages[1] end
   vim.list_extend(result, context_files.messages(workspace or history.workspace(),
@@ -428,6 +450,7 @@ end
 
 function M.context_full()
   sync_workspace()
+  validate_context_summary()
   local guard = context_guard()
   local effective = vim.deepcopy(request_messages())
   if #effective == 0 then effective = { { role = 'system', content = current_prompt() } } end
@@ -439,7 +462,7 @@ function M.context_full()
     messages = edited
     command_results = {}
     session_prompt = edited[1].content
-    context_summary, compacted_until = nil, nil
+    context_summary, compacted_until, context_summary_skills = nil, nil, nil
     context_reviews = {}
     review_revision = review_revision + 1
     context_paths, selected_skills, disabled_context_files = {}, {}, {}
@@ -497,9 +520,11 @@ function M.context_files()
     if current.kind == 'skill' then
       local next_state = ({ off = 'on', on = 'active', active = 'off' })[current.state]
       for index = #selected_skills, 1, -1 do
-        if selected_skills[index] == current.name then table.remove(selected_skills, index) end
+        if type(selected_skills[index]) == 'table' and selected_skills[index].name == current.name then
+          table.remove(selected_skills, index)
+        end
       end
-      if next_state == 'active' then selected_skills[#selected_skills + 1] = current.name end
+      if next_state == 'active' then selected_skills[#selected_skills + 1] = { name = current.name, path = current.path } end
       disabled_context_files[current.path] = next_state == 'off' and true or nil
     else
       disabled_context_files[current.path] = current.included and true or nil
@@ -516,6 +541,7 @@ end
 
 function M.context()
   sync_workspace()
+  validate_context_summary()
   local selected_workspace, selected_chat = workspace, chat_id
   local checkpoint, message_count = compacted_until, #messages
   local view_generation, original_summary = generation, context_summary
@@ -548,6 +574,8 @@ local function compact_through(checkpoint, id, done, main_limit)
   local function active()
     return id == generation and workspace == selected_workspace and history.workspace() == selected_workspace
   end
+  local summary_skills = context_files.skill_snapshot(workspace, approval.workspace_trust(workspace),
+    context_paths, selected_skills)
   local completed, indices = context_review.project(messages, turn_reviews or context_reviews,
     (compacted_until or 1) + 1, checkpoint)
   completed = vim.deepcopy(redact_disabled_skill_results(completed))
@@ -645,6 +673,7 @@ local function compact_through(checkpoint, id, done, main_limit)
         previous = content
         if position <= #groups then return step() end
         context_summary, compacted_until = previous, checkpoint
+        context_summary_skills = summary_skills
         context_reviews = vim.tbl_filter(function(review) return review.first > checkpoint end, context_reviews)
         if turn_reviews then
           turn_reviews = vim.tbl_filter(function(review) return review.first > checkpoint end, turn_reviews)
@@ -683,6 +712,7 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
     return true
   end
   if not active() then return end
+  validate_context_summary()
   if not skip_auto and not budget.long_context and config.max_context_tokens == nil and not limit_checked
     and type(providers.context_limit) == 'function' then
     return providers.context_limit(request_config(), function(limit, err)
@@ -857,9 +887,16 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
             if type(path) == 'string' and path ~= '' and not vim.tbl_contains(context_paths, path) then
               context_paths[#context_paths + 1] = path
             end
-            if fn.name == 'load_skill' and args and type(args.name) == 'string'
-              and result:match('^Skill ') and not vim.tbl_contains(selected_skills, args.name) then
-              selected_skills[#selected_skills + 1] = args.name
+            if fn.name == 'load_skill' and args and type(args.name) == 'string' then
+              local loaded_path = result:match('^Skill [^\n]* %((.-)%)%:\n')
+              if loaded_path then
+                for index = #selected_skills, 1, -1 do
+                  if type(selected_skills[index]) == 'table' and selected_skills[index].name == args.name then
+                    table.remove(selected_skills, index)
+                  end
+                end
+                selected_skills[#selected_skills + 1] = { name = args.name, path = loaded_path }
+              end
             end
           end
           local answered = fn.name == 'ask_user' and type(result) == 'string' and result:sub(1, 1) == '{'
@@ -937,6 +974,7 @@ function M.compact(all)
     vim.notify('codeit: finish a conversation turn before compacting', vim.log.levels.WARN)
     return
   end
+  validate_context_summary()
   local checkpoint, retained = #messages, 0
   if all ~= true then
     checkpoint = nil
@@ -1092,7 +1130,7 @@ function M.new()
   chat_id, chat_model = nil, nil
   messages = {}
   session_prompt = nil
-  context_summary, compacted_until = nil, nil
+  context_summary, compacted_until, context_summary_skills = nil, nil, nil
   context_reviews = {}
   context_paths, selected_skills, disabled_context_files = {}, {}, {}
   read_versions = {}
@@ -1198,9 +1236,15 @@ function M.resume(id)
   read_versions = {}
   session_prompt = nil
   context_summary, compacted_until = chat.context_summary, chat.compacted_until
+  context_summary_skills = chat.context_summary_skills
   context_reviews = context_review.restore(messages, chat.context_reviews)
   context_paths = type(chat.context_paths) == 'table' and vim.islist(chat.context_paths) and chat.context_paths or {}
-  selected_skills = type(chat.selected_skills) == 'table' and vim.islist(chat.selected_skills) and chat.selected_skills or {}
+  selected_skills = {}
+  for _, selection in ipairs(type(chat.selected_skills) == 'table' and vim.islist(chat.selected_skills) and chat.selected_skills or {}) do
+    if type(selection) == 'table' and type(selection.name) == 'string' and type(selection.path) == 'string' then
+      selected_skills[#selected_skills + 1] = selection
+    end
+  end
   disabled_context_files = type(chat.disabled_context_files) == 'table' and chat.disabled_context_files or {}
   context_files.set_disabled(workspace, disabled_context_files)
   cost, missing_cost = tonumber(chat.cost) or 0, tonumber(chat.missing_cost) or 0
