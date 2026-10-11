@@ -252,6 +252,10 @@ function M.models(provider, callback, options)
     end
     local models = {}
     for _, entry in ipairs(entries) do
+      if provider == 'codex' and type(entry) == 'table' and type(entry.slug) == 'string' then
+        entry = vim.tbl_extend('force', {}, entry, { id = entry.slug, name = entry.display_name,
+          context_length = entry.context_window })
+      end
       if type(entry) == 'table' and type(entry.id) == 'string' then models[#models + 1] = entry end
     end
     table.sort(models, function(a, b) return a.id < b.id end)
@@ -266,6 +270,15 @@ function M.models(provider, callback, options)
     local token = vim.env.OPENROUTER_API_KEY
     if not token or token == '' then return callback(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
     get_json('https://openrouter.ai/api/v1/models', { 'Authorization: Bearer ' .. token }, finish)
+  elseif provider == 'codex' then
+    local codex = require('codeit.codex')
+    local auth, err = codex.credentials()
+    if not auth then return callback(nil, err) end
+    local headers = codex.headers(auth)
+    headers[#headers + 1] = 'Authorization: Bearer ' .. auth.token
+    get_json(codex.url .. '/models?client_version=' .. codex.client_version, headers, function(response, failure, detail)
+      finish(response, codex.redact(failure, auth), codex.redact(detail, auth))
+    end)
   elseif provider == 'copilot' then
     local url, url_error = copilot_url(options)
     if not url then return callback(nil, url_error) end
@@ -347,7 +360,7 @@ function M.context_limit(config, callback)
     if type(models) ~= 'table' then return finish(nil) end
     for _, entry in ipairs(models) do
       if type(entry) == 'table' and entry.id == config.model then
-        if config.provider == 'openrouter' then
+        if config.provider == 'openrouter' or config.provider == 'codex' then
           return finish(tonumber(entry.context_length))
         end
         local limits_data = type(entry.capabilities) == 'table' and entry.capabilities.limits or nil
@@ -396,25 +409,44 @@ function M.chat(config, messages, tools, callback, on_text, active)
     if err then log_error(config, err, detail) end
     on_result(message, err, usage)
   end
-  local function send(url, token, extra_headers, endpoint)
+  local function send(url, token, extra_headers, endpoint, auth)
     if active and not active() then return end
+    local codex = config.provider == 'codex' and require('codeit.codex') or nil
     local headers = { 'Content-Type: application/json', 'Authorization: Bearer ' .. token }
     vim.list_extend(headers, extra_headers or {})
     local body = { model = config.model }
     if endpoint == '/responses' then
       local err
-      body, err = require('codeit.copilot_responses').body(config.model, messages, tools)
+      body, err = require('codeit.copilot_responses').body(config.model, messages, tools, codex and 'Codex' or nil)
       if err then return callback(nil, err) end
+      if codex then
+        local input, instructions = {}, {}
+        for _, item in ipairs(body.input) do
+          if item.role == 'system' then
+            if type(item.content) == 'string' then instructions[#instructions + 1] = item.content
+            else
+              for _, part in ipairs(item.content) do instructions[#instructions + 1] = part.text end
+            end
+          else input[#input + 1] = item end
+        end
+        body.input, body.instructions = input, table.concat(instructions, '\n\n')
+        -- The subscription backend requires SSE and rejects max_output_tokens.
+        body.stream = true
+        headers[#headers + 1] = 'Accept: text/event-stream'
+        local options = config.options or {}
+        if options.effort and options.effort ~= '' then body.reasoning = { effort = options.effort } end
+      end
     else
       body.messages = {}
       for _, message in ipairs(messages) do
         local copy = vim.tbl_extend('force', {}, message)
         -- Responses replay metadata is private, not a chat-completions message field.
         copy._copilot_reasoning = nil
+        copy._codex_reasoning = nil
         body.messages[#body.messages + 1] = copy
       end
     end
-    if config.max_output_tokens then
+    if config.max_output_tokens and not codex then
       if endpoint == '/responses' then body.max_output_tokens = config.max_output_tokens
       elseif config.provider == 'openrouter' then body.max_tokens = config.max_output_tokens
       else body.max_completion_tokens = config.max_output_tokens end
@@ -437,11 +469,21 @@ function M.chat(config, messages, tools, callback, on_text, active)
       if endpoint ~= '/responses' then body.stream_options = { include_usage = true } end
     end
     request(url, headers, body, function(response, err, detail)
+      if codex then
+        err, detail = codex.redact(err, auth), codex.redact(detail, auth)
+      end
       if err then return callback(nil, err, nil, detail) end
       if endpoint == '/responses' then
-        local message, failure = require('codeit.copilot_responses').message(response)
-        return callback(message, failure, (not failure or config.max_output_tokens) and copilot_usage(response) or nil,
-          failure and vim.json.encode(response) or nil)
+        local message, failure = require('codeit.copilot_responses').message(response, codex and 'Codex' or nil)
+        local usage
+        if codex then
+          local raw = type(response) == 'table' and type(response.usage) == 'table' and response.usage or nil
+          usage = raw and { prompt_tokens = raw.input_tokens, completion_tokens = raw.output_tokens,
+            total_tokens = raw.total_tokens, cached_tokens = cached_tokens(raw) } or nil
+        else usage = (not failure or config.max_output_tokens) and copilot_usage(response) or nil end
+        local response_detail = failure and vim.json.encode(response) or nil
+        return callback(message, codex and codex.redact(failure, auth) or failure, usage,
+          codex and codex.redact(response_detail, auth) or response_detail)
       end
       local choice = type(response) == 'table' and type(response.choices) == 'table' and response.choices[1]
       if type(choice) ~= 'table' or type(choice.message) ~= 'table' then
@@ -469,7 +511,7 @@ function M.chat(config, messages, tools, callback, on_text, active)
       else
         callback(message, nil, copilot_usage(response))
       end
-    end, on_text and { responses = endpoint == '/responses', on_text = on_text } or nil, active)
+    end, (on_text or codex) and { responses = endpoint == '/responses', on_text = on_text or function() end } or nil, active)
   end
 
   if config.provider == 'openrouter' then
@@ -479,6 +521,11 @@ function M.chat(config, messages, tools, callback, on_text, active)
       'HTTP-Referer: https://github.com/codeit-nvim/codeit.nvim',
       'X-Title: codeit.nvim',
     })
+  elseif config.provider == 'codex' then
+    local codex = require('codeit.codex')
+    local auth, err = codex.credentials()
+    if not auth then return callback(nil, err) end
+    send(codex.url .. '/responses', auth.token, codex.headers(auth), '/responses', auth)
   elseif config.provider == 'copilot' then
     local url, url_error = copilot_url(config.options)
     if not url then return callback(nil, url_error) end

@@ -1,6 +1,6 @@
 local M = {}
 
-local function content(value, role)
+local function content(value, role, provider)
   if value == nil or value == vim.NIL then return nil end
   if type(value) == 'string' then return value end
   if type(value) ~= 'table' or not vim.islist(value) then return nil, 'Invalid message content' end
@@ -12,21 +12,23 @@ local function content(value, role)
     elseif part.type == 'image_url' and role == 'user' and type(part.image_url) == 'table' then
       parts[#parts + 1] = { type = 'input_image', image_url = part.image_url.url, detail = part.image_url.detail }
     else
-      return nil, 'Unsupported Copilot Responses content part: ' .. tostring(part.type)
+      return nil, 'Unsupported ' .. provider .. ' Responses content part: ' .. tostring(part.type)
     end
   end
   return parts
 end
 
 --- Convert the shared chat-completions transcript to a stateless Responses request.
-function M.body(model, messages, tools)
+function M.body(model, messages, tools, provider)
+  provider = provider or 'Copilot'
+  local reasoning_key = provider == 'Codex' and '_codex_reasoning' or '_copilot_reasoning'
   local input = {}
   for _, message in ipairs(messages) do
-    local value, err = content(message.content, message.role)
+    local value, err = content(message.content, message.role, provider)
     if err then return nil, err end
     if message.role == 'assistant' then
       -- Reasoning models need their encrypted reasoning replayed across tool rounds.
-      vim.list_extend(input, message._copilot_reasoning or {})
+      vim.list_extend(input, message[reasoning_key] or {})
     end
     if message.role == 'tool' then
       input[#input + 1] = { type = 'function_call_output', call_id = message.tool_call_id, output = value or '' }
@@ -62,31 +64,32 @@ function M.body(model, messages, tools)
 end
 
 --- Normalize a Responses result for the existing chat/tool execution loop.
-function M.message(response)
-  if type(response) ~= 'table' then return nil, 'Invalid Copilot Responses result' end
+function M.message(response, provider)
+  provider = provider or 'Copilot'
+  if type(response) ~= 'table' then return nil, 'Invalid ' .. provider .. ' Responses result' end
   if response.status and response.status ~= 'completed' then
     local detail = type(response.error) == 'table' and response.error.message
       or type(response.incomplete_details) == 'table' and response.incomplete_details.reason
-    return nil, 'Copilot response ' .. tostring(response.status) .. (detail and ': ' .. detail or '')
+    return nil, provider .. ' response ' .. tostring(response.status) .. (detail and ': ' .. detail or '')
   end
   if type(response.output) ~= 'table' or not vim.islist(response.output) then
     return nil, 'Response has no assistant message'
   end
   local texts, calls, reasoning = {}, {}, {}
   for _, item in ipairs(response.output) do
-    if type(item) ~= 'table' then return nil, 'Malformed output item from Copilot Responses' end
+    if type(item) ~= 'table' then return nil, 'Malformed output item from ' .. provider .. ' Responses' end
     if item.type == 'message' and item.role == 'assistant' then
       if type(item.content) ~= 'table' or not vim.islist(item.content) then
-        return nil, 'Malformed message content from Copilot Responses'
+        return nil, 'Malformed message content from ' .. provider .. ' Responses'
       end
       local parts = {}
       for _, part in ipairs(item.content) do
-        if type(part) ~= 'table' then return nil, 'Malformed content part from Copilot Responses' end
+        if type(part) ~= 'table' then return nil, 'Malformed content part from ' .. provider .. ' Responses' end
         if part.type == 'output_text' then
-          if type(part.text) ~= 'string' then return nil, 'Malformed text from Copilot Responses' end
+          if type(part.text) ~= 'string' then return nil, 'Malformed text from ' .. provider .. ' Responses' end
           parts[#parts + 1] = part.text
         elseif part.type == 'refusal' then
-          if type(part.refusal) ~= 'string' then return nil, 'Malformed refusal from Copilot Responses' end
+          if type(part.refusal) ~= 'string' then return nil, 'Malformed refusal from ' .. provider .. ' Responses' end
           parts[#parts + 1] = part.refusal
         end
       end
@@ -94,7 +97,7 @@ function M.message(response)
     elseif item.type == 'function_call' then
       if type(item.call_id) ~= 'string' or item.call_id == ''
         or type(item.name) ~= 'string' or item.name == '' or type(item.arguments) ~= 'string' then
-        return nil, 'Malformed tool call from Copilot Responses'
+        return nil, 'Malformed tool call from ' .. provider .. ' Responses'
       end
       calls[#calls + 1] = {
         id = item.call_id, type = 'function', ['function'] = { name = item.name, arguments = item.arguments },
@@ -107,7 +110,7 @@ function M.message(response)
   return {
     role = 'assistant', content = #texts > 0 and table.concat(texts, '\n') or vim.NIL,
     tool_calls = #calls > 0 and calls or nil,
-    _copilot_reasoning = #reasoning > 0 and reasoning or nil,
+    [provider == 'Codex' and '_codex_reasoning' or '_copilot_reasoning'] = #reasoning > 0 and reasoning or nil,
   }
 end
 

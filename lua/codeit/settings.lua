@@ -18,10 +18,13 @@ M.option_providers = { preferred_provider = 'openrouter', service_tier = 'openro
   effort = 'openrouter', api_host = 'copilot' }
 
 function M.validate(settings)
-  if type(settings) ~= 'table' or not vim.tbl_contains({ 'openrouter', 'copilot' }, settings.provider)
+  if type(settings) ~= 'table' or not vim.tbl_contains({ 'openrouter', 'copilot', 'codex' }, settings.provider)
     or type(settings.models) ~= 'table' then return false, 'invalid provider settings' end
-  for _, provider in ipairs({ 'openrouter', 'copilot' }) do
-    if type(settings.models[provider]) ~= 'string' or vim.trim(settings.models[provider]) == '' then
+  for _, provider in ipairs({ 'openrouter', 'copilot', 'codex' }) do
+    local value = settings.models[provider]
+    -- Older snapshots have no Codex model; keep accepting them.
+    if (provider ~= 'codex' or value ~= nil or settings.provider == 'codex')
+      and (type(value) ~= 'string' or vim.trim(value) == '') then
       return false, 'model IDs must be nonempty strings'
     end
   end
@@ -29,13 +32,16 @@ function M.validate(settings)
   local options = settings.request_options
   if type(options) ~= 'table' then return false, 'invalid request options' end
   for provider, values in pairs(options) do
-    if not vim.tbl_contains({ 'openrouter', 'copilot' }, provider) or type(values) ~= 'table' then
+    if not vim.tbl_contains({ 'openrouter', 'copilot', 'codex' }, provider) or type(values) ~= 'table' then
       return false, 'invalid provider request options'
     end
     for key, value in pairs(values) do
       if provider == 'copilot' then
         if key ~= 'api_host' then return false, 'unknown Copilot request option: ' .. tostring(key) end
         if not vim.tbl_contains(M.copilot_hosts, value) then return false, 'invalid Copilot API host' end
+      elseif provider == 'codex' then
+        if key ~= 'effort' then return false, 'unknown Codex request option: ' .. tostring(key) end
+        if not vim.tbl_contains(M.efforts, value) then return false, 'invalid effort' end
       elseif key == 'preferred_provider' then
         if type(value) ~= 'string' or value:find('%c') then return false, 'invalid preferred provider slug' end
       elseif key == 'service_tier' then
@@ -68,7 +74,7 @@ local function validate_overrides(entries, names, label, allow_preset)
       if key == 'preset' and allow_preset then
         if value ~= '' and not vim.tbl_contains(M.presets, value) then return false, 'invalid feature preset' end
       elseif key == 'provider' then
-        if not vim.tbl_contains({ '', 'openrouter', 'copilot' }, value) then return false, 'invalid ' .. label .. ' provider' end
+        if not vim.tbl_contains({ '', 'openrouter', 'copilot', 'codex' }, value) then return false, 'invalid ' .. label .. ' provider' end
       elseif key == 'model' then
         if type(value) ~= 'string' or value:find('%c') or (value ~= '' and vim.trim(value) == '') then
           return false, 'invalid ' .. label .. ' model ID'
@@ -120,7 +126,7 @@ local function resolve_config(settings, preset, feature, main_model)
   local options = vim.deepcopy(settings.request_options[provider] or {})
   for _, overrides in ipairs({ preset, feature }) do
     for key, value in pairs(overrides.options or {}) do
-      if M.option_providers[key] == provider then options[key] = value end
+      if M.option_providers[key] == provider or (provider == 'codex' and key == 'effort') then options[key] = value end
     end
   end
   return { provider = provider, model = model or settings.models[provider], options = options }
@@ -165,7 +171,7 @@ function M.resolve(base, workspace)
       if ok then
         -- Legacy snapshots keep optional settings from the lower-precedence snapshot.
         local previous = result
-        result = { provider = saved.provider, models = vim.deepcopy(saved.models),
+        result = { provider = saved.provider, models = vim.tbl_extend('force', {}, previous.models, saved.models),
           request_options = vim.deepcopy(saved.request_options),
           feature_settings = vim.deepcopy(saved.feature_settings), model_presets = vim.deepcopy(saved.model_presets) }
         for _, key in ipairs({ 'feature_settings', 'model_presets' }) do

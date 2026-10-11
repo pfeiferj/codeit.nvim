@@ -149,6 +149,8 @@ function M.show(current, apply, live)
         { 'service_tier', 'Service tier' }, { 'effort', 'Reasoning effort' } }) do
         items[#items + 1] = { id = entry[1], label = entry[2] .. ': ' .. option_label(entry[1]) }
       end
+    elseif selected.provider == 'codex' then
+      items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. option_label('effort') }
     else
       items[#items + 1] = { id = 'api_host', label = 'Copilot API host: ' .. option_label('api_host') }
     end
@@ -186,7 +188,7 @@ function M.show(current, apply, live)
           back()
         end)
       elseif id == 'provider' then
-        select({ '', 'openrouter', 'copilot' }, { prompt = title .. ' backend',
+        select({ '', 'openrouter', 'copilot', 'codex' }, { prompt = title .. ' backend',
           format_item = function(value) return value == '' and '(inherit backend)' or value end }, function(value)
           if not valid() then return end
           if value ~= nil then store(); feature.provider = value end
@@ -238,6 +240,8 @@ function M.show(current, apply, live)
         { id = 'service_tier', label = 'Service tier: ' .. (options.service_tier or '') },
         { id = 'effort', label = 'Reasoning effort: ' .. (options.effort or '') },
       })
+    elseif draft.provider == 'codex' then
+      items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. (options.effort or '') }
     elseif draft.provider == 'copilot' then
       items[#items + 1] = { id = 'api_host', label = 'Copilot API host: '
         .. (options.api_host and options.api_host ~= '' and options.api_host or 'api.githubcopilot.com (default)') }
@@ -269,7 +273,7 @@ function M.show(current, apply, live)
       if not item or not valid() then return end
       local id = item.id
       if id == 'provider' then
-        select({ 'openrouter', 'copilot' }, { prompt = 'Backend' }, function(provider)
+        select({ 'openrouter', 'copilot', 'codex' }, { prompt = 'Backend' }, function(provider)
           if not valid() then return end
           if provider then draft.provider = provider end
           menu()
@@ -306,7 +310,7 @@ function M.show(current, apply, live)
           format_item = function(value) return value == '' and '(provider default)' or value end,
         }, function(value)
           if not valid() then return end
-          if value ~= nil then options[id] = value; draft.request_options.openrouter = options end
+          if value ~= nil then options[id] = value; draft.request_options[draft.provider] = options end
           menu()
         end)
       else

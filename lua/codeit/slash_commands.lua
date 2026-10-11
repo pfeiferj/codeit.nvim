@@ -22,7 +22,7 @@ local commands = {
   { name = 'untrust', command = 'CodeitUntrust', description = 'Revoke workspace read trust' },
   { name = 'trustStatus', command = 'CodeitTrustStatus', description = 'Show workspace trust status' },
   { name = 'provider', command = 'CodeitProvider', description = 'Switch provider', args = true,
-    required = true, choices = { 'openrouter', 'copilot' }, hint = 'Choose a provider' },
+    required = true, choices = { 'openrouter', 'copilot', 'codex' }, hint = 'Choose a provider' },
   { name = 'settings', command = 'CodeitSettings', description = 'Configure Codeit' },
   { name = 'help', description = 'Open the searchable command palette' },
 }

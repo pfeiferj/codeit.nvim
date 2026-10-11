@@ -147,7 +147,8 @@ function M.project(messages, reviews, first, last)
           and message.content ~= '' and (type(message.content) ~= 'table' or #message.content > 0)) then
           local retained = vim.deepcopy(message)
           retained.tool_calls = #calls > 0 and calls or nil
-          retained._copilot_reasoning = nil -- reasoning from the rewritten batch is no longer replayable
+          -- Reasoning from the rewritten batch is no longer replayable.
+          retained._copilot_reasoning, retained._codex_reasoning = nil, nil
           add(retained, i)
         end
       end

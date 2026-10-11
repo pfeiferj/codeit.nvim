@@ -1,6 +1,7 @@
 # codeit.nvim
 
-A Neovim chat assistant with OpenRouter and experimental GitHub Copilot support.
+A Neovim chat assistant with OpenRouter and experimental GitHub Copilot and
+OpenAI Codex (ChatGPT subscription) support.
 Chat in a Codeit sidebar, let the assistant inspect and edit your workspace with
 approval, and resume conversations from local history.
 
@@ -9,6 +10,9 @@ approval, and resume conversations from local history.
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Provider setup](#provider-setup)
+  - [OpenRouter](#openrouter)
+  - [GitHub Copilot](#github-copilot-experimental)
+  - [OpenAI Codex / ChatGPT login](#openai-codex-chatgpt-login-experimental)
 - [Per-feature models and presets](#per-feature-models-and-presets)
 - [Usage](#usage)
   - [Commands](#command-reference)
@@ -34,7 +38,7 @@ approval, and resume conversations from local history.
 - Neovim 0.10+ (developed with 0.12).
 - `curl` for provider requests and URL fetches.
 - `rg` (ripgrep) for workspace file listings and searches.
-- Credentials for OpenRouter or a Copilot-enabled GitHub account.
+- Credentials for OpenRouter, a Copilot-enabled GitHub account, or a Codex ChatGPT login.
 
 ## Quick start
 
@@ -53,7 +57,8 @@ approval, and resume conversations from local history.
    ```
 
 2. Set `OPENROUTER_API_KEY` before starting Neovim, or configure
-   [Copilot authentication](#github-copilot-experimental).
+   [Copilot authentication](#github-copilot-experimental) or a
+   [Codex ChatGPT login](#openai-codex-chatgpt-login-experimental).
 3. Open `:Codeit`, type below `## Message`, and send with `<CR>` in normal mode
    or `<C-s>` in insert mode.
 4. Review tool approvals as they appear. Optionally use `:CodeitTrust` to
@@ -75,10 +80,11 @@ provider, model, preset, and request settings through `:CodeitSettings`.
 
 ```lua
 require('codeit').setup({
-  provider = 'openrouter', -- or 'copilot'
+  provider = 'openrouter', -- or 'copilot' / 'codex'
   models = {
     openrouter = 'openai/gpt-4o-mini',
     copilot = 'gpt-4o',
+    codex = 'gpt-5.3-codex',
   },
   -- model_presets = {
   --   fast = { model = 'openai/gpt-4o-mini', options = { effort = 'low' } },
@@ -93,6 +99,7 @@ require('codeit').setup({
   -- request_options = {
   --   openrouter = { preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high' },
   --   copilot = { api_host = 'api.business.githubcopilot.com' }, -- default: api.githubcopilot.com
+  --   codex = { effort = 'high' }, -- optional; model-dependent
   -- },
   -- system_prompt = 'You are a helpful Neovim coding assistant.',
   -- max_tool_rounds = 12, -- tool-call batches per user turn; prompts before exceeding this
@@ -136,9 +143,48 @@ The plugin exchanges the OAuth credential for a short-lived Copilot token, then 
 
 To use Copilot behind a business network policy, set `request_options.copilot.api_host = 'api.business.githubcopilot.com'` in `setup()`, or choose **Copilot API host** in `:CodeitSettings` after selecting Copilot. The setting can be applied for the session or saved globally/per workspace, and is stored with chats. It routes Copilot chat requests, model searches, and context-limit metadata to the business host unless a feature overrides `options.api_host`; there is no fallback to the standard host. Unset or blank uses `api.githubcopilot.com`. Only these two hostnames are accepted, without a URL scheme or path. Authentication still exchanges credentials at `https://api.github.com/copilot_internal/v2/token`, so that endpoint must remain reachable. Saved settings override `setup()` options as described below.
 
+### OpenAI Codex (ChatGPT login, experimental)
+
+This provider uses your Codex/ChatGPT subscription, **not** an OpenAI API key or
+OpenAI's separately billed API. Sign in with `codex login`, then configure:
+
+```lua
+require('codeit').setup({
+  provider = 'codex',
+  models = { codex = 'gpt-5.3-codex' },
+  -- request_options = { codex = { effort = 'high' } },
+})
+```
+
+Codeit reads `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`) before each
+request. Only file-backed ChatGPT credentials are supported. If the CLI stores
+credentials in an OS keychain, set `cli_auth_credentials_store = "file"` in its
+`config.toml` and sign in again. API-key logins are rejected; Codeit does not fall
+back to `OPENAI_API_KEY`. Credentials are never saved in Codeit settings/history,
+and provider errors redact access, ID, and refresh tokens.
+
+Requests go to `https://chatgpt.com/backend-api/codex/responses` with your account
+ID, using stateless Responses requests (`store = false`). Tool calls/results and
+encrypted reasoning are replayed between rounds. Model browsing and context-window
+lookup use the same backend's model catalog. Choose an available model through
+`:CodeitSettings`, or enter its ID manually; access depends on your account.
+Reasoning effort is optional and model-dependent.
+
+Codeit does **not** refresh or overwrite the CLI's shared credentials. If they
+expire or the backend returns HTTP 401, run `codex login` again and retry; CLI
+credential changes are picked up without restarting Neovim. The backend requires
+streaming even for internal reviews/summaries, but those requests do not display
+live previews. It does not accept `max_output_tokens`, so internal summary token
+caps are not sent; summary-size targets still apply through the prompt. Token and
+cache usage are recorded when reported; dollar costs are unknown, not assumed
+free.
+
+**Compatibility warning:** This is the Codex CLI's subscription backend, not a
+stable public API. It may change independently of Codeit.
+
 ## Per-feature models and presets
 
-Three shared presets are available: **fast** (`fast`), **long context** (`long_context`), and **reasoning** (`reasoning`). Configure them in `model_presets`, with optional `provider` (`openrouter` or `copilot`), `model`, and `options` fields. Presets start empty: they do not pick fixed models or force request options. Unset or blank `provider` and `model` inherit the main backend/model (the current chat's model for the same backend, or the configured main model for another backend). Omitted request-option keys inherit from `request_options` for the resolved backend.
+Three shared presets are available: **fast** (`fast`), **long context** (`long_context`), and **reasoning** (`reasoning`). Configure them in `model_presets`, with optional `provider` (`openrouter`, `copilot`, or `codex`), `model`, and `options` fields. Presets start empty: they do not pick fixed models or force request options. Unset or blank `provider` and `model` inherit the main backend/model (the current chat's model for the same backend, or the configured main model for another backend). Omitted request-option keys inherit from `request_options` for the resolved backend.
 
 Each feature automatically uses a preset suited to its requests:
 
@@ -155,7 +201,7 @@ Entries in `feature_settings` can select a different `preset` using its key. Omi
 
 The former `secondary_models` setting is no longer used. Old settings and chats still load, but that field is ignored; move any desired model choices into `model_presets` or `feature_settings`.
 
-`options` override individual keys. Omitted keys inherit; `''` explicitly clears a key to the API default, even if the preset or main request has a value. OpenRouter supports `preferred_provider`, `service_tier`, and `effort`; Copilot supports `api_host`. Options belonging to the other backend are not sent. Presets and features may use a different backend from the main chat, so credentials/access for all selected backends are required. Explicit model IDs must match the resolved backend; if a feature overrides a preset's backend, also override its model when the preset has an explicit model.
+`options` override individual keys. Omitted keys inherit; `''` explicitly clears a key to the API default, even if the preset or main request has a value. OpenRouter supports `preferred_provider`, `service_tier`, and `effort`; Copilot supports `api_host`; Codex supports `effort`. Options belonging to the other backend are not sent. Presets and features may use a different backend from the main chat, so credentials/access for all selected backends are required. Explicit model IDs must match the resolved backend; if a feature overrides a preset's backend, also override its model when the preset has an explicit model.
 
 In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Preset reasoning** to edit shared settings. Select a feature to choose its preset and edit individual overrides. Model searches use the effective backend and API host; upstream-provider searches use the effective model. **Use inherited model** and **Inherit all request options** remove the current entry's overrides. **Reset preset to main chat settings** clears the shared preset; **Reset feature to its default preset** clears all of that feature's overrides and restores its default assignment. Return to the main menu and apply/save the draft. Changing only presets or feature settings preserves the conversation. Choose a long-context/compaction model with enough context capacity; automatic compaction thresholds still use the main model's limit. `context_review = false` remains the independent on/off switch for background pruning.
 
@@ -179,7 +225,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitContextFiles` | Toggle instruction files and skills |
 | `:CodeitSystemPrompt` | Edit the current conversation's system prompt |
 | `:CodeitSettings` | Configure providers, models, presets, and request options |
-| `:CodeitProvider openrouter` / `:CodeitProvider copilot` | Switch providers and start a fresh chat |
+| `:CodeitProvider {openrouter\|copilot\|codex}` | Switch providers and start a fresh chat |
 | `:CodeitTrust`, `:CodeitTrust all`, `:CodeitTrust tracked` | Trust workspace reads, interactively or directly |
 | `:CodeitTrustStatus` | Show the workspace's trust mode |
 | `:CodeitUntrust` | Revoke workspace trust |
@@ -441,7 +487,11 @@ Saved provider/model settings use this precedence: `setup()` defaults/options < 
 
 OpenRouter settings include **Preferred upstream provider** (loads endpoints for the selected model and lists provider names, routing tags, and input/output prices in USD per million tokens; nonzero per-request charges and quantization are also shown when reported). Selecting an endpoint uses its exact routing tag as `provider.order`; fallbacks remain enabled. Prices are current catalog rates, not a total quote: caching, media, other charges, tier selection, and fallback routing can change actual cost. Missing prices show as `unknown`. The picker also offers automatic routing (clear the preference) and manual slug entry, even if endpoint lookup fails. Other options include **Service tier** (`default`, `flex`, `priority`, `fast`, `ultrafast`), and **Reasoning effort** (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, sent as `reasoning.effort`). Blank values omit the parameter and use the provider default. These per-backend defaults apply to main chat and are inherited by features using that backend; per-feature `options` override individual keys. Support and pricing depend on the selected model/upstream provider; priority tiers can cost more, flex can be slower, and unsupported options may be ignored or rejected by the API. Copilot additionally offers **Copilot API host** for standard/business routing, but these OpenRouter-specific request options are not sent to its undocumented API.
 
-`:CodeitProvider openrouter` / `:CodeitProvider copilot` switches providers and starts a fresh conversation.
+Codex offers **Reasoning effort**, sent as `reasoning.effort` to the subscription
+backend. Main, preset, and feature settings can inherit or clear it just as with
+OpenRouter. Other OpenRouter/Copilot request options are not sent to Codex.
+
+`:CodeitProvider openrouter`, `:CodeitProvider copilot`, or `:CodeitProvider codex` switches providers and starts a fresh conversation.
 
 Chat and model-metadata requests automatically retry HTTP 429 rate-limit responses up to three times. Retries honor `Retry-After` (seconds or an HTTP date); absent or invalid headers use delays of 2, 4, and 8 seconds. If the server requests a wait longer than 60 seconds, or retries are exhausted, the request ends with an error so you can retry manually later. Other HTTP errors, transport failures, and invalid successful responses are not retried. Copilot credential exchange does not use these retries.
 
@@ -449,7 +499,7 @@ Chat and model-metadata requests automatically retry HTTP 429 rate-limit respons
 
 ### Workspace and chat persistence
 
-Closing the sidebar does not discard the conversation. `read_source_buffer` targets the ordinary buffer active when the sidebar was opened (including an unnamed buffer); `read_file` requires a workspace `path`, and `read_loaded_buffer` requires a loaded `buffer_id`. `edit_file` and `save_buffer` require a workspace path; `edit_loaded_buffer` / `save_loaded_buffer` take a loaded buffer ID, and `edit_source_buffer` / `save_source_buffer` use the source buffer. Agent workspace tools use Neovim's current working directory as the workspace root. Chats are saved automatically as they change under `stdpath('data')/codeit/chats/`, separated by resolved workspace path; files have mode `0600`. Changing workspaces starts a fresh chat without deleting the previous workspace's history. `:CodeitHistory` resumes a saved chat; incomplete tool-call batches from interrupted sessions are discarded on resume and are never re-executed. Main chat responses stream live text into the transcript and assistant pane. Partial responses are display-only: only complete responses are saved or used to execute tool calls. Failed or interrupted streams are not retried automatically. Compaction, reviews, and summaries remain non-streaming.
+Closing the sidebar does not discard the conversation. `read_source_buffer` targets the ordinary buffer active when the sidebar was opened (including an unnamed buffer); `read_file` requires a workspace `path`, and `read_loaded_buffer` requires a loaded `buffer_id`. `edit_file` and `save_buffer` require a workspace path; `edit_loaded_buffer` / `save_loaded_buffer` take a loaded buffer ID, and `edit_source_buffer` / `save_source_buffer` use the source buffer. Agent workspace tools use Neovim's current working directory as the workspace root. Chats are saved automatically as they change under `stdpath('data')/codeit/chats/`, separated by resolved workspace path; files have mode `0600`. Changing workspaces starts a fresh chat without deleting the previous workspace's history. `:CodeitHistory` resumes a saved chat; incomplete tool-call batches from interrupted sessions are discarded on resume and are never re-executed. Main chat responses stream live text into the transcript and assistant pane. Partial responses are display-only: only complete responses are saved or used to execute tool calls. Failed or interrupted streams are not retried automatically. Compaction, reviews, and summaries do not display streaming previews (Codex still uses streaming transport).
 
 ### Cost and token usage
 
@@ -457,7 +507,7 @@ Each user prompt displays its running **Turn cost** in USD. A turn includes its 
 
 Saved chats and turn records also contain `cost_by_function`: named buckets for `main_chat`, `context_review` (background pruning), `tool_assessment`, `tool_review`, `compaction`, `cost_review`, and `history_summary`. Each bucket stores full-precision USD `cost`, `requests`, and `missing_cost` (the number of requests without a reported charge). Manual and automatic compaction share the `compaction` bucket; only automatic compaction is assigned to a turn. History-summary charges belong to the chat being summarized, even if another chat is active. Older costs remain unattributed; absent buckets are not evidence of free requests.
 
-The chat's cost/token usage line stays visible at the top of the transcript as you scroll. For OpenRouter and Copilot it shows session cost in USD, cumulative input (`In`) and output (`Out`) tokens in millions (`m`) across chat and reviewer requests, and the latest main-chat response's context length (`Context`) in thousands (`k`; from `total_tokens` or input + output tokens). Immediately after background context pruning, compacting, or editing the summary, `Context` updates to an approximate size of the effective message context, marked with `~`; the next main-chat response replaces it with reported usage. The estimate excludes tool definitions and uses roughly four characters per token. Displayed numbers have at most three decimal places. A `+` after a total means some requests omitted that usage field; `—` means the latest context is unavailable. Copilot cost comes from the server's `copilot_usage.total_nano_aiu`, converted to USD (one billion nano-AIU = one AI credit = $0.01); no catalog-based estimate is substituted when the charge is missing. Both Copilot and OpenRouter feature requests contribute cost/tokens regardless of the main chat's provider. `:CodeitNew`, switching providers, and `setup()` reset these figures for the new chat; resuming a saved chat restores its figures. Closing and reopening the sidebar preserves them.
+The chat's cost/token usage line stays visible at the top of the transcript as you scroll. For OpenRouter, Copilot, and Codex it shows session cost in USD, cumulative input (`In`) and output (`Out`) tokens in millions (`m`) across chat and reviewer requests, and the latest main-chat response's context length (`Context`) in thousands (`k`; from `total_tokens` or input + output tokens). Immediately after background context pruning, compacting, or editing the summary, `Context` updates to an approximate size of the effective message context, marked with `~`; the next main-chat response replaces it with reported usage. The estimate excludes tool definitions and uses roughly four characters per token. Displayed numbers have at most three decimal places. A `+` after a total means some requests omitted that usage field; `—` means the latest context is unavailable. Copilot cost comes from the server's `copilot_usage.total_nano_aiu`, converted to USD (one billion nano-AIU = one AI credit = $0.01); no catalog-based estimate is substituted when the charge is missing. Requests from all three providers contribute reported tokens and costs regardless of the main chat's provider. Codex subscription requests do not report dollar charges; they mark costs incomplete rather than estimating a USD value. `:CodeitNew`, switching providers, and `setup()` reset these figures for the new chat; resuming a saved chat restores its figures. Closing and reopening the sidebar preserves them.
 
 ### Cost review
 

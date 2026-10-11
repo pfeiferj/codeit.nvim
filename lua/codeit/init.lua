@@ -17,7 +17,7 @@ local tool_limit_prompt = require('codeit.tool_limit_prompt')
 local M = {}
 local defaults = {
   provider = 'openrouter',
-  models = { openrouter = 'openai/gpt-4o-mini', copilot = 'gpt-4o' },
+  models = { openrouter = 'openai/gpt-4o-mini', copilot = 'gpt-4o', codex = 'gpt-5.3-codex' },
   model_presets = {}, -- fast, long_context, reasoning; unset fields inherit main chat settings
   feature_settings = {}, -- preset selection plus per-feature overrides
   request_options = {},
@@ -97,7 +97,7 @@ end
 
 local function apply_settings(values)
   config.provider = values.provider
-  config.models = vim.deepcopy(values.models)
+  config.models = vim.tbl_extend('force', {}, defaults.models, values.models)
   config.model_presets = vim.deepcopy(values.model_presets or config.model_presets or {})
   config.feature_settings = vim.deepcopy(values.feature_settings or config.feature_settings or {})
   config.request_options = vim.deepcopy(values.request_options)
@@ -159,7 +159,8 @@ local format_tokens = usage_format.tokens
 
 local function render()
   local billing
-  if config.provider == 'openrouter' or config.provider == 'copilot' or cost > 0 or missing_cost > 0 then
+  if config.provider == 'openrouter' or config.provider == 'copilot' or config.provider == 'codex'
+    or cost > 0 or missing_cost > 0 then
     billing = string.format('Cost: %s | In: %s%s | Out: %s%s | Context: %s',
       usage_format.cost(cost, missing_cost > 0), format_tokens(tokens_in, 1000000, 'm'), missing_in and '+' or '',
       format_tokens(tokens_out, 1000000, 'm'), missing_out and '+' or '',
@@ -184,7 +185,7 @@ end
 
 local function record_usage(usage, feature, provider, turn)
   provider = provider or config.provider
-  if provider ~= 'openrouter' and provider ~= 'copilot' then return end
+  if provider ~= 'openrouter' and provider ~= 'copilot' and provider ~= 'codex' then return end
   local amount = usage_number(usage and usage.cost)
   if amount then cost = cost + amount else missing_cost = missing_cost + 1 end
   local input_count = usage_number(usage and usage.prompt_tokens)
@@ -333,7 +334,9 @@ local function review_turn()
   local original = vim.deepcopy(vim.list_slice(messages, first, last))
   local turn = vim.deepcopy(redact_disabled_skill_results(original))
   -- Encrypted provider reasoning is not useful to the reviewer.
-  for _, message in ipairs(turn) do message._copilot_reasoning = nil end
+  for _, message in ipairs(turn) do
+    message._copilot_reasoning, message._codex_reasoning = nil, nil
+  end
   local replaceable = context_review.replaceable_tokens(turn)
   if replaceable == 0 or replaceable < config.context_review_min_tokens then return end
   local selected_config = request_config('context_review')
@@ -579,7 +582,9 @@ local function compact_through(checkpoint, id, done, main_limit)
   local completed, indices = context_review.project(messages, turn_reviews or context_reviews,
     (compacted_until or 1) + 1, checkpoint)
   completed = vim.deepcopy(redact_disabled_skill_results(completed))
-  for _, message in ipairs(completed) do message._copilot_reasoning = nil end
+  for _, message in ipairs(completed) do
+    message._copilot_reasoning, message._codex_reasoning = nil, nil
+  end
   local groups, group = {}, {}
   for i, message in ipairs(completed) do
     group[#group + 1] = vim.json.encode(message)
@@ -789,7 +794,8 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
       end
       local batch_start = #messages + 1
       table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls,
-        _copilot_reasoning = message._copilot_reasoning, reasoning_details = message.reasoning_details })
+        _copilot_reasoning = message._copilot_reasoning, _codex_reasoning = message._codex_reasoning,
+        reasoning_details = message.reasoning_details })
       save()
       render()
       if type(calls) ~= 'table' or #calls == 0 then
@@ -939,7 +945,8 @@ local function request(round, id, skip_auto, detected_limit, limit_checked, budg
         -- Balance every declined call so future requests and saved history
         -- remain valid, then allow one tool-free final response.
         table.insert(messages, { role = 'assistant', content = message.content or vim.NIL, tool_calls = calls,
-          _copilot_reasoning = message._copilot_reasoning, reasoning_details = message.reasoning_details })
+          _copilot_reasoning = message._copilot_reasoning, _codex_reasoning = message._codex_reasoning,
+          reasoning_details = message.reasoning_details })
         for index, call in ipairs(calls) do
           local result = 'Error: Tool call limit reached. The user declined additional tool rounds. This call was not executed; finish without tools.'
           tool_log.finish(tool_log_entries[index], result)
@@ -1172,8 +1179,8 @@ function M.new()
 end
 
 function M.set_provider(name)
-  if name ~= 'openrouter' and name ~= 'copilot' then
-    vim.notify('codeit: provider must be openrouter or copilot', vim.log.levels.ERROR)
+  if name ~= 'openrouter' and name ~= 'copilot' and name ~= 'codex' then
+    vim.notify('codeit: provider must be openrouter, copilot, or codex', vim.log.levels.ERROR)
     return
   end
   M.new()
@@ -1494,8 +1501,8 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd('VimLeavePre', { group = task_group, callback = background_tasks.shutdown })
   vim.api.nvim_create_user_command('CodeitTasks', background_tasks.show,
     { desc = 'View background tasks, live logs, and cancel running tasks', force = true })
-  if not vim.tbl_contains({ 'openrouter', 'copilot' }, config.provider) then
-    error('codeit: provider must be openrouter or copilot')
+  if not vim.tbl_contains({ 'openrouter', 'copilot', 'codex' }, config.provider) then
+    error('codeit: provider must be openrouter, copilot, or codex')
   end
   local valid, settings_err = settings.validate({ provider = config.provider, models = config.models,
     feature_settings = config.feature_settings,
@@ -1561,7 +1568,7 @@ function M.setup(opts)
     vim.notify('codeit: ' .. vim.fn.getcwd() .. ': ' .. (approval.workspace_trust() or 'untrusted'))
   end, { desc = 'Show trust mode for the current workspace', force = true })
   vim.api.nvim_create_user_command('CodeitProvider', function(args) M.set_provider(args.args) end,
-    { nargs = 1, complete = function() return { 'openrouter', 'copilot' } end, force = true })
+    { nargs = 1, complete = function() return { 'openrouter', 'copilot', 'codex' } end, force = true })
 end
 
 return M

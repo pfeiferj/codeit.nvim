@@ -11,6 +11,7 @@ end
 local turn = {
   { role = 'user', content = 'Implement it' },
   { role = 'assistant', content = 'Inspect then edit.', _copilot_reasoning = { { encrypted_content = 'opaque' } },
+    _codex_reasoning = { { encrypted_content = 'codex-opaque' } },
     tool_calls = { call('long', 'edit_file', { path = 'main.lua', edits = { { old_text = string.rep('x', 1000), new_text = 'fixed' } } }),
       call('short', 'run_command', { argv = { 'test' } }), call('ask', 'ask_user'), call('skill', 'load_skill') } },
   { role = 'tool', tool_call_id = 'long', content = string.rep('output', 1000) },
@@ -29,6 +30,7 @@ local projected = review.project(turn, { { first = 1, last = #turn, replacements
 assert(#projected == #turn and projected[2].content:find('Updated main.lua', 1, true))
 assert(projected[3].content == turn[2].content and #projected[3].tool_calls == 3)
 assert(projected[3]._copilot_reasoning == nil and turn[2]._copilot_reasoning)
+assert(projected[3]._codex_reasoning == nil and turn[2]._codex_reasoning)
 assert(projected[4].content == 'Tests passed.' and projected[5].tool_call_id == 'ask')
 assert(not review.parse(answer({ { tool_call_id = 'missing', summary = 'Bad' } }), turn))
 assert(not review.parse(answer({ replacement, replacement }), turn))

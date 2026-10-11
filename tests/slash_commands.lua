@@ -34,9 +34,11 @@ local provider = slash.parse('/provider')
 assert(provider.required and slash.validate(provider, ''))
 assert(slash.validate(provider, 'invalid'))
 assert(not slash.validate(provider, 'copilot'))
+assert(not slash.validate(provider, 'codex'))
 assert(not slash.validate(slash.parse('/trust'), ''))
 local choices, start_col, hint = slash.complete('/provider co')
-assert(#choices == 1 and choices[1].word == 'copilot' and start_col == 10 and hint)
+assert(#choices == 2 and choices[1].word == 'copilot' and choices[2].word == 'codex'
+  and start_col == 10 and hint)
 assert(#slash.complete('/TRUST-st') == 1)
 for _, item in ipairs(slash.complete_items()) do
   assert(item.menu ~= '' and not item.menu:match('^:Codeit'), 'commands need useful descriptions')

@@ -725,11 +725,11 @@ function M.render(messages, status, provider, model, billing, command_results, c
           add_text(detail.text)
           add_text(detail.summary)
         end
-        for _, item in ipairs(message._copilot_reasoning or {}) do
+        for _, item in ipairs(message._copilot_reasoning or message._codex_reasoning or {}) do
           for _, part in ipairs(item.summary or {}) do add_text(part.text) end
         end
         if #reasoning > 0 then
-          local key = message.reasoning_details or message._copilot_reasoning
+          local key = message.reasoning_details or message._copilot_reasoning or message._codex_reasoning
           local first = start_item(key, '**Reasoning**')
           vim.list_extend(lines, vim.split(table.concat(reasoning, '\n'), '\n', { plain = true }))
           finish_item(first, key)
