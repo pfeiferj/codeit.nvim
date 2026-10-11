@@ -72,6 +72,13 @@ function M.attach(api, state, options, helpers)
     if not initialized then vim.wo[win].foldlevel = 0 end
     vim.wo[win].foldminlines = 0
     vim.wo[win].foldtext = 'v:lua.require("codeit.ui").tool_foldtext()'
+    -- Insert mode defers expression-fold updates; materialize reserved ranges
+    -- before restoring expansion state or writing their activity text.
+    vim.api.nvim_win_call(win, function()
+      local view = vim.fn.winsaveview()
+      vim.cmd('noautocmd normal! zX')
+      vim.fn.winrestview(view)
+    end)
   end
 
   function helpers.restore_folds(win, expanded)
