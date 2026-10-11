@@ -8,6 +8,7 @@ local cost_breakdown = require('codeit.cost_breakdown')
 local context_files = require('codeit.context.files')
 local settings = require('codeit.settings')
 local tool_limit_prompt = require('codeit.tools.limit_prompt')
+local stream_idle_ms = 4000
 
 function M.attach(api, session, helpers)
   local M = api
@@ -61,12 +62,16 @@ function M.attach(api, session, helpers)
         vim.notify('codeit: context exceeds the safe prompt budget; fixed instructions or the active turn cannot be compacted', vim.log.levels.WARN)
       end
     end
-    helpers.set_status('Waiting')
-    local response_pending, last_stream_activity = true, nil
+    -- Tool completion carries activity across the provider requests in this turn.
+    local response_pending, last_stream_activity = true, budget.last_tool_activity
+    if last_stream_activity and (vim.uv.hrtime() - last_stream_activity) / 1e6 >= stream_idle_ms then
+      last_stream_activity = nil
+    end
+    helpers.set_status(last_stream_activity and 'Thinking' or 'Waiting')
     -- Treat brief gaps between chunks as streaming, but show longer provider pauses.
     local function check_stream_idle()
       if not response_pending or not active() then return end
-      local remaining = 1000 - (vim.uv.hrtime() - last_stream_activity) / 1e6
+      local remaining = stream_idle_ms - (vim.uv.hrtime() - last_stream_activity) / 1e6
       if remaining > 0 then
         vim.defer_fn(check_stream_idle, math.ceil(remaining))
       else
@@ -74,11 +79,12 @@ function M.attach(api, session, helpers)
         helpers.set_status('Waiting')
       end
     end
+    if last_stream_activity then check_stream_idle() end
     local function stream_activity()
       if not response_pending or not active() then return end
       local was_idle = last_stream_activity == nil
       last_stream_activity = vim.uv.hrtime()
-      if was_idle then vim.defer_fn(check_stream_idle, 1000) end
+      if was_idle then vim.defer_fn(check_stream_idle, stream_idle_ms) end
       session.status = 'Thinking'
       if session.stream_render_pending then return end
       session.stream_render_pending = true
@@ -233,6 +239,8 @@ function M.attach(api, session, helpers)
               helpers.save()
               return helpers.set_status('Task cancelled')
             end
+            budget.last_tool_activity = vim.uv.hrtime()
+            session.status = 'Thinking'
             table.insert(session.messages, { role = 'tool', tool_call_id = call.id, content = result })
             if type(result) == 'string' and not result:match('^Error:') and not result:match('^Rejected') then
               local path
