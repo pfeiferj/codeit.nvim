@@ -1,5 +1,6 @@
 local M = {}
 local prompt = require('codeit.tools.approval.prompt')
+local approval_queue = require('codeit.ui.approval_queue')
 
 -- This grants more rounds, not approval for the individual tools in those rounds.
 function M.show(default_rounds, active, callback)
@@ -29,14 +30,19 @@ function M.show(default_rounds, active, callback)
   end
   options[#options + 1] = { key = '2', id = 'custom', label = 'Choose a custom number of additional tool rounds' }
   options[#options + 1] = { key = '3', id = 'stop', label = 'Decline additional tools' }
-  prompt.show('# Tool limit reached\n\nAllow the assistant to continue? Each round is one assistant tool-call batch, '
-    .. 'which may contain multiple calls. Individual tool approvals still apply.\n\n'
-    .. 'Declining sends limit errors for the pending calls and requests a final response without tools.', options, function(choice)
-    if not live() then return end
-    if choice == 'continue' and default_rounds > 0 then return finish(default_rounds) end
-    if choice == 'custom' then return custom() end
+  approval_queue.enqueue(function()
+    prompt.show('# Tool limit reached\n\nAllow the assistant to continue? Each round is one assistant tool-call batch, '
+      .. 'which may contain multiple calls. Individual tool approvals still apply.\n\n'
+      .. 'Declining sends limit errors for the pending calls and requests a final response without tools.', options, function(choice)
+      if not live() then return end
+      if choice == 'continue' and default_rounds > 0 then return finish(default_rounds) end
+      if choice == 'custom' then return custom() end
+      finish(nil)
+    end, { title = ' Tool limit reached ', dismiss = 'Decline additional tools' })
+  end, live, function(err)
+    vim.notify('codeit: could not show tool limit prompt: ' .. tostring(err), vim.log.levels.ERROR)
     finish(nil)
-  end, { title = ' Tool limit reached ', dismiss = 'Decline additional tools' })
+  end)
 end
 
 return M

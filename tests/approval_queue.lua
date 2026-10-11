@@ -218,6 +218,79 @@ advance(250)
 mode = 'n'
 advance(2000)
 assert(not displayed and actions == 3, 'cancelled dispatch requests must not display or execute')
+-- Additional-round decisions must use the same scheduling as individual approvals.
+local limit_prompt = require('codeit.tools.limit_prompt')
+local decisions, additional = 0, nil
+local function request_rounds()
+  displayed, choose = nil, nil
+  limit_prompt.show(12, function() return live end, function(value)
+    decisions, additional = decisions + 1, value
+  end)
+end
+live = true
+request_rounds()
+assert(displayed:find('Tool limit reached', 1, true), 'idle round approvals should open immediately')
+choose('continue')
+assert(decisions == 1 and additional == 12)
+
+input('j', 'j')
+notified = #notifications
+request_rounds()
+advance(750)
+assert(not displayed and decisions == 1, 'round approvals must wait for idle input')
+input('k', 'k')
+advance(750)
+assert(not displayed, 'continued input must extend the round approval delay')
+advance(250)
+assert(displayed and #notifications == notified + 1)
+choose('stop')
+assert(decisions == 2 and additional == nil)
+
+for _, held_mode in ipairs({ 'i', 'v', 'c', 'no' }) do
+  local count = decisions
+  mode = held_mode
+  request_rounds()
+  advance(2000)
+  assert(not displayed and decisions == count, 'round approvals must not interrupt mode ' .. held_mode)
+  mode = 'n'
+  advance(250)
+  assert(displayed, 'returning to normal mode should release the round approval')
+  choose('stop')
+  assert(decisions == count + 1 and additional == nil)
+end
+
+vim.api.nvim_set_current_tabpage(other_tab)
+request_rounds()
+advance(2000)
+assert(not displayed and vim.api.nvim_get_current_tabpage() == other_tab,
+  'round approvals must not steal focus from another tab')
+vim.api.nvim_set_current_tabpage(codeit_tab)
+advance(250)
+assert(displayed)
+choose('stop')
+
+local popup = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), true,
+  { relative = 'editor', row = 1, col = 1, width = 10, height = 2 })
+request_rounds()
+advance(2000)
+assert(not displayed, 'round approvals must wait for other popups to close')
+vim.api.nvim_win_close(popup, true)
+advance(250)
+assert(displayed)
+choose('stop')
+
+mode = 'i'
+request_rounds()
+local before_decisions = decisions
+live = false
+advance(2000)
+mode = 'n'
+advance(250)
+assert(not displayed and decisions == before_decisions, 'cancelled round approvals must not open or decide')
+live = true
+prompt.show = function() error('test round prompt error') end
+request_rounds()
+assert(decisions == before_decisions + 1 and additional == nil, 'display failures must safely decline extra rounds')
 prompt.show, write.show = original_show, original_write
 vim.defer_fn, vim.uv.hrtime, vim.api.nvim_get_mode, vim.notify = defer, hrtime, get_mode, notify
 print('codeit approval queue tests passed')

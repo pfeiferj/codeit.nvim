@@ -263,12 +263,16 @@ assert(#vim.api.nvim_get_autocmds({ event = { 'WinClosed', 'WinResized', 'VimRes
   'closing the reviewer must remove its instance autocmds')
 ui.close()
 -- Tool-limit decisions use the same keyboard-driven popup, with safe dismissal.
+require('codeit.ui.managed_tab').open()
 local limit_prompt = require('codeit.tools.limit_prompt')
 local function limit_choice(key, expected, default_rounds)
   local result, calls = false, 0
   limit_prompt.show(default_rounds or 12, function() return true end, function(rounds)
     result, calls = rounds, calls + 1
   end)
+  assert(vim.wait(2000, function()
+    return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == '# Tool limit reached'
+  end), 'tool-limit prompts should appear once approval scheduling permits')
   local win = vim.api.nvim_get_current_win()
   local buf = vim.api.nvim_win_get_buf(win)
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
