@@ -189,6 +189,38 @@ assert(vim.api.nvim_get_current_win() == chat, 'navigation must not steal focus'
 assert(vim.deep_equal(vim.api.nvim_win_get_cursor(split.window_id), other_cursor))
 assert(vim.api.nvim_buf_get_changedtick(outside) == tick and vim.bo[outside].modified)
 assert(not layout.user_visible(outside), 'navigation must not grant read consent')
+-- Position by displayed rows, including wrapped lines and continuation columns.
+local window_options = {}
+for _, name in ipairs({ 'wrap', 'smoothscroll', 'linebreak', 'breakindent', 'showbreak' }) do
+  window_options[name] = vim.api.nvim_get_option_value(name, { win = win })
+end
+vim.wo[win].wrap, vim.wo[win].linebreak, vim.wo[win].breakindent = true, false, false
+vim.wo[win].showbreak = ''
+local text_width = vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff
+local wrapped_lines = {}
+for i = 1, 250 do wrapped_lines[i] = string.rep('x', text_width + 1) end
+vim.api.nvim_buf_set_lines(outside, 0, -1, false, wrapped_lines)
+for _, smooth in ipairs({ false, true }) do
+  vim.wo[win].smoothscroll = smooth
+  for _, column in ipairs({ 1, text_width + 1 }) do
+    local wrapped = json('set_window_cursor', { window_id = win, line = 120, column = column })
+    assert(wrapped.cursor_line == 120 and wrapped.cursor_column == column)
+    local row = vim.api.nvim_win_call(win, function() return vim.fn.winline() end)
+    assert(math.abs(row - target_row) <= 1, 'wrapped target must be near the quarter-height row')
+    assert(vim.wo[win].smoothscroll == smooth)
+  end
+end
+-- A preceding line taller than the window must not push the cursor off its target.
+vim.wo[win].smoothscroll = false
+vim.api.nvim_buf_set_lines(outside, 118, 119, false,
+  { string.rep('x', text_width * vim.api.nvim_win_get_height(win) * 2) })
+local tall = json('set_window_cursor', { window_id = win, line = 120 })
+assert(tall.cursor_line == 120 and tall.cursor_column == 1)
+assert(vim.api.nvim_win_call(win, function() return vim.fn.winline() end) == 1)
+assert(json('set_window_cursor', { window_id = win, line = 1 }).top_line == 1)
+for name, value in pairs(window_options) do vim.api.nvim_set_option_value(name, value, { win = win }) end
+assert(vim.api.nvim_get_current_win() == chat, 'wrapped navigation must not steal focus')
+assert(not layout.user_visible(outside), 'wrapped navigation must not grant read consent')
 call('read_window_buffer', { window_id = win }, true)
 local resized = json('resize_window', { window_id = split.window_id, width = 20, height = 5 })
 assert(resized.width >= 1 and resized.height >= 1)

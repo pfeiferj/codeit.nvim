@@ -102,10 +102,22 @@ function M.execute(name, args, done, reads)
       vim.api.nvim_win_call(win, function()
         vim.cmd('normal! zv')
         if args.center ~= false then
-          local above = math.max(0, math.floor(vim.api.nvim_win_get_height(win) / 4) - 1)
+          local target_row = math.max(1, math.floor(vim.api.nvim_win_get_height(win) / 4))
           vim.cmd('normal! zt')
-          if above > 0 then
-            vim.cmd('normal! ' .. above .. vim.api.nvim_replace_termcodes('<C-y>', true, false, true))
+          local row = vim.fn.winline()
+          while row < target_row do
+            local view = vim.fn.winsaveview()
+            vim.cmd('normal! ' .. vim.api.nvim_replace_termcodes('<C-y>', true, false, true))
+            local next_row = vim.fn.winline()
+            local cursor = vim.api.nvim_win_get_cursor(win)
+            -- Without smoothscroll, one step can reveal a whole wrapped line.
+            if cursor[1] ~= view.lnum or cursor[2] ~= view.col
+              or math.abs(next_row - target_row) > target_row - row then
+              vim.fn.winrestview(view)
+              break
+            end
+            if next_row <= row then break end
+            row = next_row
           end
         end
       end)
