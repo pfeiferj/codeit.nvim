@@ -163,7 +163,7 @@ local disabled_view = vim.fn.bufnr('codeit://context-full')
 local off_context = table.concat(vim.api.nvim_buf_get_lines(disabled_view, 0, -1, false), '\n')
 assert(not off_context:find('review secret', 1, true))
 assert(not off_context:find('Check changes carefully', 1, true))
-assert(not off_context:find('Selected skill review', 1, true))
+assert(not off_context:find('Active skill review', 1, true))
 local off_messages = vim.json.decode(off_context)
 for _, message in ipairs(off_messages) do
   for _, call in ipairs(message.tool_calls or {}) do

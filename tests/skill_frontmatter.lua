@@ -60,4 +60,15 @@ end
 check_manual('disable-model-invocation: false\ndisable-model-invocation: false', true)
 assert(not manual_only('No frontmatter'))
 assert(manual_only('---\r\ndisable-model-invocation: true\r\n---\r\nBody'))
+local body = require('codeit.skill_frontmatter').body
+assert(body('---\ndescription: Review\nallowed-tools: ignored\n---\n\n# Instructions\nDo the task.\n') == '\n# Instructions\nDo the task.\n')
+assert(body('---\r\ndescription: Review\r\n---\r\n\r\n# Instructions\r\n') == '\r\n# Instructions\r\n')
+assert(body('--- \ndescription: Review\n--- \nBody\n---\nMore body') == 'Body\n---\nMore body')
+assert(body('---\ndescription: Review\n---') == '')
+assert(body('---\ndescription: Review\n---\n') == '')
+assert(body('---\n---\nBody') == 'Body')
+for _, content in ipairs({ '# No frontmatter\nBody', '---\ndescription: Unclosed\nBody',
+  '---\ndescription: Unclosed\n---not-a-delimiter\nBody', 'Body\n---\ndescription: Not at start\n---' }) do
+  assert(body(content) == content, 'files without a complete leading metadata block must remain intact')
+end
 print('codeit skill frontmatter tests passed')

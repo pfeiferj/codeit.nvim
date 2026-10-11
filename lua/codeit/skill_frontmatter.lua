@@ -111,12 +111,23 @@ end
 local function frontmatter(content)
   local lines = vim.split(content:gsub('\r\n', '\n'), '\n', { plain = true })
   if not lines[1]:match('^%-%-%-%s*$') then return nil end
-  local frontmatter, closed = {}, false
+  local frontmatter = {}
   for i = 2, #lines do
-    if lines[i]:match('^%-%-%-%s*$') then closed = true; break end
+    if lines[i]:match('^%-%-%-%s*$') then return frontmatter, i end
     frontmatter[#frontmatter + 1] = lines[i]
   end
-  return closed and frontmatter or nil
+end
+
+function M.body(content)
+  local metadata, closing = frontmatter(content)
+  if not metadata then return content end
+  local offset = 1
+  for _ = 1, closing do
+    local newline = content:find('\n', offset, true)
+    if not newline then return '' end
+    offset = newline + 1
+  end
+  return content:sub(offset)
 end
 
 function M.description(content)

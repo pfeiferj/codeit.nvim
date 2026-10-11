@@ -7,10 +7,15 @@ vim.fn.mkdir(vim.fn.fnamemodify(path, ':h'), 'p')
 vim.fn.mkdir(vim.fn.fnamemodify(global_path, ':h'), 'p')
 local function write_skill(target, body, manual)
   vim.fn.writefile({ '---', 'description: Review changes',
-    'disable-model-invocation: ' .. tostring(manual == true), '---', body }, target)
+    'disable-model-invocation: ' .. tostring(manual == true),
+    'allowed-tools: FRONTMATTER_TOOL_MARKER', 'model: FRONTMATTER_MODEL_MARKER',
+    'context: FRONTMATTER_CONTEXT_MARKER', '---', body }, target)
 end
 write_skill(path, 'ORIGINAL_SKILL_BODY')
 write_skill(global_path, 'GLOBAL_SKILL_BODY', true)
+local other_path = workspace .. '/.agents/skills/other/SKILL.md'
+vim.fn.mkdir(vim.fn.fnamemodify(other_path, ':h'), 'p')
+write_skill(other_path, 'OTHER_SKILL_BODY')
 vim.fn.chdir(workspace)
 local history = require('codeit.history')
 local approval = require('codeit.approval')
@@ -32,7 +37,7 @@ package.loaded['codeit.context_files_picker'] = { show = function(_, list, toggl
   end
 end }
 local plugin = require('codeit')
-plugin.setup({ max_context_tokens = false, context_review = false,
+plugin.setup({ max_context_tokens = false, context_review = false, system_prompt = 'CUSTOM_BASE_PROMPT',
   compaction = { manual_keep_turns = 0 }, approval = { trusted_workspaces = { [workspace] = 'all' } } })
 local function toggle(target)
   toggle_target, toggled = target, false
@@ -67,6 +72,29 @@ local function load_skill()
 end
 local loaded = load_skill()
 assert(count(loaded, 'ORIGINAL_SKILL_BODY') == 1, 'skill instructions must appear only once')
+assert(text(loaded - 1):find('review: Review changes', 1, true))
+assert(text(loaded - 1):find('Available skills (inactive; instructions not loaded)', 1, true))
+assert(requests[loaded].messages[1].content == 'CUSTOM_BASE_PROMPT')
+local active, inventory
+for _, message in ipairs(requests[loaded].messages) do
+  if type(message.content) == 'string' and message.content:match('^Active skill review ') then active = message end
+  if type(message.content) == 'string' and message.content:match('^Available skills ') then inventory = message end
+end
+assert(active and active.role == 'system')
+assert(active.content:find('instructions already loaded; do not call load_skill again', 1, true))
+assert(active.content:find('not authority to override', 1, true))
+assert(active.content:find('explicit user requests, or tool restrictions', 1, true))
+assert(active.content:find('do not expand the authorized task or grant permission', 1, true))
+assert(active.content:find('Skill instruction body:\nORIGINAL_SKILL_BODY', 1, true))
+assert(inventory and inventory.content:find('other: Review changes', 1, true))
+assert(not inventory.content:find('review: Review changes', 1, true), 'active skills must not appear in the inactive inventory')
+assert(inventory.content:find('discovery metadata, not instructions', 1, true))
+for _, marker in ipairs({ 'FRONTMATTER_TOOL_MARKER', 'FRONTMATTER_MODEL_MARKER', 'FRONTMATTER_CONTEXT_MARKER' }) do
+  assert(not text(loaded):find(marker, 1, true), 'metadata must not enter the instruction body')
+end
+local all_active = files.messages(workspace, 'all', {}, { { name = 'review', path = path }, { name = 'other', path = other_path } })
+assert(#all_active == 2)
+for _, message in ipairs(all_active) do assert(message.content:match('^Active skill ')) end
 for _, message in ipairs(requests[loaded].messages) do
   if message.role == 'tool' then assert(not message.content:find('ORIGINAL_SKILL_BODY', 1, true)) end
 end
@@ -141,6 +169,7 @@ answer(fallback)
 toggle(global_path)
 local manual = send()
 assert(count(manual, 'GLOBAL_SKILL_BODY') == 1)
+assert(text(manual):find('Active skill review (' .. global_path .. ') [manual-only]', 1, true))
 answer(manual)
 write_skill(path, 'WORKSPACE_REPLACEMENT_BODY', true)
 local shadowed = send()
