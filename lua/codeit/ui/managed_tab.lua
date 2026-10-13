@@ -55,7 +55,45 @@ vim.api.nvim_create_autocmd({ 'BufWinEnter', 'BufEnter' }, {
 })
 vim.api.nvim_create_autocmd('WinClosed', {
   group = group,
-  callback = function(args) attachments[tonumber(args.match)] = nil end,
+  callback = function(args)
+    local closed = tonumber(args.match)
+    if M.buffer(closed) and #M.windows() == 1 then
+      local managed = M.tab()
+      local row, col = unpack(vim.api.nvim_win_get_position(closed))
+      local width, height = vim.api.nvim_win_get_width(closed), vim.api.nvim_win_get_height(closed)
+      local focused = vim.api.nvim_get_current_win() == closed
+      local anchor
+      for _, win in ipairs(vim.api.nvim_tabpage_list_wins(managed)) do
+        if win ~= closed and vim.api.nvim_win_get_config(win).relative == '' then
+          anchor = win
+          break
+        end
+      end
+      -- Wait until closing finishes so :tabclose and :qall do not recreate panes.
+      if anchor then
+        local anchor_row, anchor_col = unpack(vim.api.nvim_win_get_position(anchor))
+        local vertical = col ~= anchor_col
+        local before = vertical and col < anchor_col or not vertical and row < anchor_row
+        vim.schedule(function()
+          if M.tab() ~= managed or #M.windows() ~= 0 or not vim.api.nvim_win_is_valid(anchor) then return end
+          local replacement
+          M.assistant(function()
+            vim.api.nvim_win_call(anchor, function()
+              vim.cmd((before and 'leftabove ' or 'rightbelow ') .. (vertical and 'vsplit' or 'split'))
+              replacement = vim.api.nvim_get_current_win()
+              M.attach(replacement, vim.api.nvim_create_buf(true, false))
+              if vertical then vim.api.nvim_win_set_width(replacement, width)
+              else vim.api.nvim_win_set_height(replacement, height) end
+            end)
+          end)
+          if focused and vim.api.nvim_get_current_tabpage() == managed then
+            vim.api.nvim_set_current_win(replacement)
+          end
+        end)
+      end
+    end
+    attachments[closed] = nil
+  end,
 })
 
 function M.user_visible(id)

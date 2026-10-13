@@ -25,7 +25,7 @@ M.specs = {
     window_id = window, lines = { type = 'integer', minimum = -2147483647, maximum = 2147483647 },
   }, { 'window_id', 'lines' }),
   spec('focus_window', 'Focus a file window in the Codeit tab so the user can interact with it. Cannot focus windows in other tabs or popups.', { window_id = window }, { 'window_id' }),
-  spec('close_window', 'Close a Codeit file split without saving or deleting its buffer. Refuses the last file view and buffers with destructive bufhidden settings.', { window_id = window }, { 'window_id' }),
+  spec('close_window', 'Close a Codeit file split without saving or deleting its buffer. The last file view switches to a blank buffer instead. Refuses buffers with destructive bufhidden settings.', { window_id = window }, { 'window_id' }),
   spec('read_window_buffer', 'Read the ordinary buffer currently visible in a Codeit file window, including unsaved changes. User-attached visible buffers need no approval; assistant-attached buffers follow workspace trust. Same 1-based/inclusive 200-line/20000-byte limits and continuation fields as read_loaded_buffer.', {
     window_id = window, start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }, { 'window_id' }),
@@ -131,9 +131,12 @@ function M.execute(name, args, done, reads)
     layout.open()
     vim.api.nvim_set_current_win(win)
   elseif name == 'close_window' then
-    if #layout.windows() <= 1 then return done('Error: cannot close the last Codeit file view') end
     if vim.bo[id].bufhidden ~= '' and vim.bo[id].bufhidden ~= 'hide' then
       return done('Error: bufhidden would unload or delete the buffer')
+    end
+    if #layout.windows() == 1 then
+      layout.attach(win, vim.api.nvim_create_buf(true, false))
+      return done(vim.json.encode(layout.describe(win)))
     end
     vim.api.nvim_win_hide(win)
     return done(vim.json.encode({ closed_window_id = win, buffer_id = id }))

@@ -298,7 +298,10 @@ response. Provider failures remain terminal.
 ### File views
 
 The assistant can manage ordinary file views in the Codeit tab. Chat windows,
-popups, and other tabs are excluded; the last file view cannot be closed.
+popups, and other tabs are excluded. Closing the last file view switches it to a
+blank buffer instead, including when using Neovim's window-closing commands.
+Explicitly closing the Codeit tab still closes the tab normally. Native window
+closes restore the pane with a new window ID; the `close_window` tool keeps its ID.
 Window operations never save files or grant read permission.
 
 | Tools | Purpose |
