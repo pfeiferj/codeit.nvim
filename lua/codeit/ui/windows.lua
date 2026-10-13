@@ -134,6 +134,7 @@ function M.attach(api, state, options, helpers)
     else
       vim.cmd('botright 80vsplit')
       state.transcript_win = vim.api.nvim_get_current_win()
+      vim.wo[state.transcript_win].winfixwidth = true
       helpers.configure_folds(state.transcript_win)
       vim.api.nvim_win_set_buf(state.transcript_win, state.transcript)
     end

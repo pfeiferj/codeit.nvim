@@ -8,6 +8,24 @@ ui.open(function() sent = ui.take_input() end, ui.close)
 local chat = vim.fn.bufnr('codeit://chat')
 local win = vim.fn.bufwinid(chat)
 assert(vim.api.nvim_win_get_width(win) == 80, 'chat sidebar should default to 80 columns')
+
+local managed = require('codeit.ui.managed_tab')
+local file_win = managed.windows()[1]
+for _, width in ipairs({ 80, 60 }) do
+  vim.api.nvim_win_set_width(win, width)
+  for _, direction in ipairs({ 'vertical', 'horizontal' }) do
+    local split = managed.split(file_win, direction)
+    local height = vim.api.nvim_win_get_height(win)
+    vim.api.nvim_win_close(split, true)
+    assert(vim.api.nvim_win_get_width(win) == width,
+      'closing a file split should preserve the current chat width')
+    assert(vim.api.nvim_win_get_height(win) == height,
+      'closing a file split should preserve the chat height')
+    assert(vim.api.nvim_win_get_width(file_win) == vim.o.columns - width - 1,
+      'the remaining file window should fill the space beside chat')
+  end
+end
+vim.api.nvim_win_set_width(win, 80)
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(chat, 0, -1, false), { '## Message', '', '' }),
   'new chats should have a blank line between the heading and draft')
 assert(vim.fn.bufnr('codeit://input') == -1, 'chat must have no separate input buffer')
