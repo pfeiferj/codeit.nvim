@@ -79,6 +79,7 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
       end
       local request_headers = { 'Content-Type: application/json' }
       vim.list_extend(request_headers, headers(token))
+      -- Copilot can return SSE even when a secondary request did not ask for streaming.
       http.post(url .. endpoint, request_headers, body, function(response, failure, detail)
         if failure then return callback(nil, failure, nil, detail) end
         local message, response_error, response_detail
@@ -93,7 +94,7 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
           if message or truncated then billing = usage.copilot(response) end
         end
         callback(message, response_error, billing, response_detail)
-      end, on_text and { responses = endpoint == '/responses', on_text = on_text, on_activity = on_activity } or nil, active)
+      end, { responses = endpoint == '/responses', on_text = on_text, on_activity = on_activity }, active)
     end)
   end
   if catalogs[url] then return route() end

@@ -96,38 +96,57 @@ assert(vim.wait(2000, function() return done > 0 end))
 assert(activity > 0, 'provider adapters should forward streaming activity')
 assert(done == 1 and attempts == 2 and waits[1] == 0 and body.stream and body.stream_options.include_usage)
 vim.env.COPILOT_GITHUB_TOKEN = 'test-token'
-for _, endpoint in ipairs({ '/chat/completions', '/responses' }) do
-  package.loaded['codeit.providers'] = nil
-  package.loaded['codeit.providers.copilot'] = nil
-  package.loaded['codeit.providers.copilot.auth'] = nil
-  local provider = require('codeit.providers')
-  done = 0
-  vim.system = function(args, options, callback)
-    local url = args[#args]
-    local response
-    if url:find('/models', 1, true) then
-      response = vim.json.encode({ data = { { id = 'test', supported_endpoints = { endpoint } } } }) .. '\n200'
-    elseif url:find('/token', 1, true) then
-      response = vim.json.encode({ token = 'bearer', expires_at = os.time() + 300 }) .. '\n200'
-    else
-      assert(url:sub(-#endpoint) == endpoint)
-      local request = vim.json.decode(options.stdin)
-      assert(request.stream)
-      response = header .. (endpoint == '/responses'
-        and event({ type = 'response.output_text.delta', delta = 'Answer' })
-          .. event({ type = 'response.completed', response = final })
-        or chat({ content = 'Answer' }) .. chat({}, 'stop') .. event('[DONE]')) .. '\n200'
-      options.stdout(nil, response)
-      response = nil
+for _, mode in ipairs({ 'live', 'buffered', 'incomplete', 'malformed' }) do
+  for _, endpoint in ipairs({ '/chat/completions', '/responses' }) do
+    package.loaded['codeit.providers'] = nil
+    package.loaded['codeit.providers.copilot'] = nil
+    package.loaded['codeit.providers.copilot.auth'] = nil
+    local provider = require('codeit.providers')
+    done = 0
+    vim.system = function(args, options, callback)
+      local url = args[#args]
+      local response
+      if url:find('/models', 1, true) then
+        response = vim.json.encode({ data = { { id = 'test', supported_endpoints = { endpoint } } } }) .. '\n200'
+      elseif url:find('/token', 1, true) then
+        response = vim.json.encode({ token = 'bearer', expires_at = os.time() + 300 }) .. '\n200'
+      else
+        assert(url:sub(-#endpoint) == endpoint)
+        local request = vim.json.decode(options.stdin)
+        assert((request.stream == true) == (mode == 'live'))
+        assert((options.stdout ~= nil) == (mode == 'live'))
+        response = header .. (endpoint == '/responses'
+          and event({ type = 'response.output_text.delta', delta = 'Answer' })
+            .. event({ type = 'response.completed', response = final })
+          or chat({ content = 'Answer' }) .. chat({}, 'stop') .. event('[DONE]')) .. '\n200'
+        if mode == 'incomplete' then
+          response = header .. (endpoint == '/responses'
+            and event({ type = 'response.output_text.delta', delta = 'Answer' })
+            or chat({ content = 'Answer' })) .. '\n200'
+        elseif mode == 'malformed' then
+          response = header .. 'data: {invalid}\r\n\r\n\n200'
+        end
+        if options.stdout then
+          options.stdout(nil, response)
+          response = nil
+        end
+      end
+      vim.schedule(function() callback({ code = 0, stdout = response }) end)
     end
-    vim.schedule(function() callback({ code = 0, stdout = response }) end)
+    provider.chat({ provider = 'copilot', model = 'test' }, {}, {}, function(value, failure)
+      if mode == 'incomplete' or mode == 'malformed' then
+        assert(not value and failure, 'invalid SSE must not return a partial message')
+        local expected = mode == 'incomplete' and 'Streaming response ended before completion'
+          or 'Invalid streaming response:'
+        assert(failure:find(expected, 1, true), failure)
+      else
+        assert(not failure and value.content == 'Answer', failure)
+      end
+      done = done + 1
+    end, mode == 'live' and function(text) assert(text == 'Answer') end or nil)
+    assert(vim.wait(2000, function() return done > 0 end))
+    assert(done == 1)
   end
-  provider.chat({ provider = 'copilot', model = 'test' }, {}, {}, function(value, failure)
-    assert(not failure and value.content == 'Answer')
-    done = done + 1
-  end, function(text) assert(text == 'Answer') end)
-  assert(vim.wait(2000, function() return done > 0 end))
-  assert(done == 1)
 end
 -- Cancelling an active chat kills its curl process and ignores queued output/results.
 local active, killed, finished, stdout = true, false, nil, nil

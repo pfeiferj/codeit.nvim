@@ -10,7 +10,7 @@ function M.new(responses, on_text, on_activity)
   local function text(value)
     if type(value) ~= 'string' then error('Invalid streaming text') end
     preview = preview .. value
-    on_text(preview)
+    if on_text then on_text(preview) end
   end
   local function event(data)
     if data == '[DONE]' then
