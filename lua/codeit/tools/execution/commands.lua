@@ -4,7 +4,7 @@ local paths = require('codeit.tools.workspace.paths')
 local runner = require('codeit.process')
 
 M.specs = {
-  spec('run_command', 'Run a command against workspace DISK files after confirmation; unsaved edits are not included. No implicit shell. argv has 1-40 strings, each at most 4096 bytes; empty arguments allowed. Output limited to 20000 bytes, timeout 60 seconds. Cancellation terminates the process group on Unix.', {
+  spec('run_command', 'Run a command against workspace DISK files after approval (configured read-only argv rules can auto-approve after a safety assessment); unsaved edits are not included. No implicit shell. argv has 1-40 strings, each at most 4096 bytes; empty arguments allowed. Output limited to 20000 bytes, timeout 60 seconds. Cancellation terminates the process group on Unix.', {
     argv = { type = 'array', items = { type = 'string' }, description = 'Executable and arguments' },
   }, { 'argv' }),
   spec('start_background_task', 'Start an asynchronous command against workspace DISK files after approval; returns a task ID immediately so chat can continue. No implicit shell; argv follows run_command limits. View live logs and cancel in :CodeitTasks. Logs retain at most 20000 bytes. No timeout by default. Set notify_on_completion=true to request results be sent to the originating chat once idle, only after separate user approval. Tasks last for this Neovim session.', {

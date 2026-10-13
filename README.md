@@ -685,9 +685,9 @@ background tasks, etc.) are closed. The interactive chat popup does not block
 approvals. Assessments continue while a prompt is queued; stopping the turn
 removes its queued prompts without approving or executing them.
 
-Edits, creation, explicit saves, commands, and URL fetches require approval in either mode; unknown or removed tools return an error without executing. Standard Markdown approval prompts show the tool name in bold above formatted arguments: pretty-printed JSON for ordinary calls, or a shell-quoted `bash` fence for `run_command`'s argument vector (shown for readability; the command is still executed without an implicit shell). Eligible non-write calls make a separate tool-free reviewer request to summarize the call and assess its safety. Workspace reads (including searches, listings, diagnostics, and Git tools) skip this automatic assessment even when approval is required; external or unnamed buffer reads and broader buffer listings can receive one. When requested, the reviewer returns a summary and an integer safety score from **0 (safest) to 10 (most dangerous)**. Both appear in the Markdown approval window; scores **3–5** and their summaries are highlighted amber (`CodeitApprovalWarning`), while scores **above 5** are highlighted red (`CodeitApprovalRisk`). Approval must wait for the assessment to finish. Scores **above 5** require typing the exact phrase `approve <tool_name>` in a second input prompt (for example, `approve run_command`); Enter alone, a single number, a partial phrase, or cancellation rejects the call. These approvals are one-time and cannot be remembered, even if **Always approve exact call** is selected. Failed, missing, or invalid assessments display an unavailable score in red and require the same typed confirmation; they are never treated as safe. **Ask reviewer** remains available on workspace-read prompts.
+Workspace trust alone never auto-approves edits, creation, explicit saves, commands, or URL fetches; unknown or removed tools return an error without executing. Standard Markdown approval prompts show the tool name in bold above formatted arguments: pretty-printed JSON for ordinary calls, or a shell-quoted `bash` fence for `run_command`'s argument vector (shown for readability; the command is still executed without an implicit shell). Eligible non-write calls make a separate tool-free reviewer request to summarize the call and assess its safety. Workspace reads (including searches, listings, diagnostics, and Git tools) skip this automatic assessment even when approval is required; external or unnamed buffer reads and broader buffer listings can receive one. When requested, the reviewer returns a summary and an integer safety score from **0 (safest) to 10 (most dangerous)**. Both appear in the Markdown approval window; scores **3–5** and their summaries are highlighted amber (`CodeitApprovalWarning`), while scores **above 5** are highlighted red (`CodeitApprovalRisk`). Approval must wait for the assessment to finish. Scores **above 5** require typing the exact phrase `approve <tool_name>` in a second input prompt (for example, `approve run_command`); Enter alone, a single number, a partial phrase, or cancellation rejects the call. These approvals are one-time and cannot be remembered, even if **Always approve exact call** is selected. Failed, missing, or invalid assessments display an unavailable score in red and require the same typed confirmation; they are never treated as safe. **Ask reviewer** remains available on workspace-read prompts.
 
-Write calls (the edit/save variants and `create_file`) instead open a dedicated popup without waiting for an automatic summary. It shows the entire proposed file with source syntax highlighting; removed lines appear in red next to added lines in green, without patch headers or `+`/`-` prefixes. Centered virtual text keeps the approval shortcuts pinned to the top while scrolling; the preview opens at the first changed region; `{` and `}` jump between changed regions, wrapping at the ends. Press `<CR>` in normal mode (or `1`) to approve the file edit once. Press `5` to ask the reviewer about the change (`4` on save previews, which omit **Always approve**); it receives the proposed patch, and returning from the reviewer brings back the full-file preview. Review is advisory and never auto-approves a call. Automatic assessments are prefetched before approval validators run, so eligible calls can incur assessment charges even if a validator later rejects or auto-approves them. Calls with remembered exact-call approvals skip automatic assessments.
+Write calls (the edit/save variants and `create_file`) instead open a dedicated popup without waiting for an automatic summary. It shows the entire proposed file with source syntax highlighting; removed lines appear in red next to added lines in green, without patch headers or `+`/`-` prefixes. Centered virtual text keeps the approval shortcuts pinned to the top while scrolling; the preview opens at the first changed region; `{` and `}` jump between changed regions, wrapping at the ends. Press `<CR>` in normal mode (or `1`) to approve the file edit once. Press `5` to ask the reviewer about the change (`4` on save previews, which omit **Always approve**); it receives the proposed patch, and returning from the reviewer brings back the full-file preview. Review is advisory and never auto-approves a call. Automatic assessments are prefetched before approval validators run, so eligible calls can incur assessment charges even if a validator later rejects or auto-approves them. Calls with remembered exact-call approvals skip automatic assessments unless a matching read-only command rule needs its safety check.
 
 In the standard Markdown approval window, move to a choice and press `<CR>` in normal mode to select it, or use the number shortcuts: `1` **Approve once**, `2` **Always approve exact call**, `3` **Reject** (with an optional explanation sent back to the agent), and `4` **Cancel task**. On read-tool prompts, `5` **Trust workspace (Git-tracked reads)** or `6` **Trust workspace (all reads)** saves that choice for the current workspace and approves the pending read; it does not auto-approve edits or commands. **Ask reviewer** is `5` on other prompts and `7` on read prompts when available. Press `<Esc>`, or close the approval window, to reject the call.
 
@@ -706,6 +706,103 @@ field, not `vim.ui.select` / `vim.ui.input`.
 ### Remembered approvals and validators
 
 Always-approved signatures include the workspace's resolved path, tool name, and full arguments (independent of JSON object key order); their hashes are saved across Neovim sessions in `stdpath('data')/codeit/approvals.json`. Explicit per-call approvals remain effective even if workspace trust changes; delete that file to revoke saved approvals. Configure `approval.validators` in `setup()` with functions receiving `(name, args, context)` that return `'approve'`, `'ask'`, `'reject'`, or `nil`, optionally with a reason. Validators run for **every** call, including saved approvals and `ask_user`; all save tools require their own explicit approval window, even for an approve decision. Rejection wins over asking, and asking wins over approval or saved/default auto-approval. Errors or invalid decisions reject the call.
+
+### Read-only command rules
+
+`approval.read_commands` is an opt-in allowlist for `run_command` only. No commands
+are allowed by default, and these rules do not auto-approve background tasks.
+Each rule matches the **entire argument array**, including an exact executable;
+missing, extra, or unknown arguments fall back to normal command approval.
+
+```lua
+require('codeit').setup({
+  approval = {
+    trusted_workspaces = { ['/absolute/path/to/project'] = 'tracked' },
+    read_commands = {
+      { argv = {
+        'head', '-n', { integer = { min = 1, max = 200 } },
+        '--', { file = 'read' },
+      } },
+      { argv = {
+        'wc', { optional = { one_of = { '-l', '-w' } } }, '--',
+        { repeat_arg = { file = 'read' }, min = 1, max = 10 },
+      } },
+      { argv = {
+        'man', '-P', 'cat', '--', { string = { pattern = '[%w_.+-]+' } },
+      } },
+    },
+  },
+})
+```
+
+Supported argument matchers:
+
+| Matcher | Meaning |
+| --- | --- |
+| `'literal'` | Exactly one argument with this value. |
+| `{ string = true }` | Any one string, including an empty string; no path authorization. |
+| `{ string = { pattern = '...' } }` | One string matching a **Lua pattern** against the whole argument, not a substring or shell glob. Explicit `^` / `$` anchors are optional. |
+| `{ one_of = { '-l', '-w' } }` | One of the listed literal strings. |
+| `{ integer = { min = 1, max = 200 } }` | A decimal integer string within the inclusive bounds; no fractions, exponents, or whitespace. |
+| `{ file = 'read' }` | A file operand requiring read authorization. |
+| `{ optional = matcher }` | Zero or one occurrence of a single matcher. |
+| `{ repeat_arg = matcher, min = 1, max = 10 }` | A bounded number of occurrences of a single matcher, with explicit integer bounds from 0 through 40. |
+
+Optional/repeated matchers cannot be nested. Matching uses greedy consumption
+with bounded backtracking for later required operands. For ambiguous patterns,
+the first complete parse determines which operands are files; prefer distinct
+rules for different command forms. Invalid rule fields and matcher types raise
+configuration errors. Pattern evaluation errors never grant approval.
+
+File operands must resolve to existing regular files, relative to the command's
+workspace. Every file is checked using the same resolved-path directory trust
+and Git-tracked policy as file reads, including symlink targets and revoked
+trust. The `read_file` validators also run for each file operand: `reject` blocks
+the command, `ask` forces command approval, and `approve` can authorize an
+existing file. Command validators still run normally. Read-policy `ask` and
+`reject` decisions win even over command approval validators; across overlapping
+matching rules these decisions also win. Untrusted files otherwise fall back to
+the command approval prompt, which identifies a path needing read approval.
+Existing remembered exact-command approvals and explicit command approval
+validators remain effective when trust alone would not auto-approve the files.
+
+Before an eligible rule-based command runs automatically, it must also pass a
+tool-free model assessment using `tool_assessment` (the **fast** preset by
+default, configurable through the existing feature settings). The model receives
+the argv, workspace, user request, and matching rule definitions. It must confirm
+both that the invocation is read-only and that it stays within the intended rule
+scope, with an overall safety score no higher than 5/10. Suspected writes, rule
+escapes, uncertainty, missing confirmation fields, invalid responses, model
+errors, or an unavailable reviewer prevent auto-approval and use the standard
+manual command approval prompt instead. The same assessment summary and score
+are reused in that prompt; high or unavailable scores retain the usual typed
+confirmation requirement.
+
+This check runs on each rule-based auto-approval, even when the matching call has
+a remembered exact approval or an approving command validator. It does not
+change explicit approvals for commands without an eligible read-only rule.
+Rules and file permissions are rechecked after the model responds, and a changed
+rule configuration requires manual approval. Model assessments are an additional
+probabilistic safeguard, not a sandbox or a guarantee of read-only behavior.
+
+Commands read **disk**, not buffer contents: visible-buffer permissions and
+remembered exact file/buffer-read approvals do not automatically authorize file
+operands. Directories, missing files, empty paths, and the special stdin operand
+`-` are not eligible file operands. Use separate rules for other operand types;
+embedded paths such as `--file=path` have no typed file matcher.
+
+Rules are a user assertion that the matched invocation is read-only, **not a
+sandbox or a proof of safety**. Use `--` where the command supports it to prevent
+filenames from becoming options. Arbitrary string operands do not get file
+checks, even if they look like paths. Do not allow shell/interpreter command
+strings through a broad string matcher. There is no shell expansion or piping;
+`|` is a literal argument. An executable name trusts its resolution through
+`PATH`; use an absolute executable path when stronger identity is needed.
+Commands may load configuration, invoke helpers, or depend on environment
+variables. The `man` example avoids its usual interactive pager and excludes
+slashes in page names, but settings such as `MANOPT` and `MANPAGER` still need
+review for your installation. Automatic reviewer assessments can still be
+prefetched before these rules run, as with approval validators.
 
 ### Execution boundaries
 
