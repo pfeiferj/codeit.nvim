@@ -142,6 +142,51 @@ end, function(text) live[#live + 1] = text end, nil, function() activity = activ
 assert(vim.wait(2000, function() return done > 0 end))
 assert(activity > 0, 'provider adapters should forward streaming activity')
 assert(done == 1 and attempts == 2 and waits[1] == 0 and body.stream and body.stream_options.include_usage)
+-- Completion may be queued before stdout's scheduled parser work, even though all bytes are received.
+for _, response_header in ipairs({ header, headerless }) do
+  for _, responses in ipairs({ false, true }) do
+    for _, partial in ipairs({ false, true }) do
+      local previews, completions, settled, completion_previews = {}, 0, false, nil
+      local response, failure
+      local prefix = response_header .. (responses
+        and event({ type = 'response.output_text.delta', delta = 'Ans' }) or chat({ content = 'Ans' }))
+      local tail = (responses
+        and event({ type = 'response.output_text.delta', delta = 'wer' })
+          .. event({ type = 'response.completed', response = final })
+        or chat({ content = 'wer' }) .. chat({}, 'stop')
+          .. event({ choices = {}, usage = { total_tokens = 9 } }) .. event('[DONE]')) .. '\n200'
+      vim.system = function(_, options, callback)
+        local function complete()
+          callback({ code = 0 })
+          if not partial then options.stdout(nil, prefix) end
+          options.stdout(nil, tail)
+        end
+        if partial then
+          options.stdout(nil, prefix)
+          vim.schedule(complete)
+        else
+          complete()
+        end
+      end
+      require('codeit.providers.http').post('https://example.test/chat', {}, {}, function(value, err)
+        response, failure = value, err
+        completions = completions + 1
+        completion_previews = #previews
+        vim.schedule(function() settled = true end)
+      end, { responses = responses, on_text = function(text) previews[#previews + 1] = text end })
+      assert(vim.wait(2000, function() return settled end), 'out-of-order completion timed out')
+      assert(not failure, failure)
+      assert(completions == 1 and completion_previews == 2 and #previews == 2,
+        'chunks must be parsed exactly once, before completion')
+      assert(previews[1] == 'Ans' and previews[2] == 'Answer')
+      if responses then
+        assert(vim.deep_equal(response, final))
+      else
+        assert(response.choices[1].message.content == 'Answer' and response.usage.total_tokens == 9)
+      end
+    end
+  end
+end
 vim.env.COPILOT_GITHUB_TOKEN = 'test-token'
 for _, mode in ipairs({ 'live', 'buffered', 'live_headerless', 'buffered_headerless', 'incomplete', 'malformed' }) do
   local is_live = mode:find('live', 1, true) == 1
