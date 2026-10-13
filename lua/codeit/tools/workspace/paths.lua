@@ -8,15 +8,17 @@ function M.within(path, base)
   return path == base or path:sub(1, #base + 1) == base .. '/'
 end
 
-function M.resolve(path, must_exist)
+function M.resolve(path, must_exist, trusted_read)
   if type(path) ~= 'string' or path == '' or path:find('\0', 1, true) then return nil, 'Invalid path' end
   local base = M.root()
   if not base then return nil, 'Workspace does not exist' end
   local absolute = vim.fn.fnamemodify(path:sub(1, 1) == '/' and path or base .. '/' .. path, ':p'):gsub('/+$', '')
-  if not M.within(absolute, base) or absolute == base then return nil, 'Path is outside the workspace' end
   local real = vim.uv.fs_realpath(absolute)
+  local trusted = trusted_read and real
+    and require('codeit.tools.approval').workspace_trust(vim.fn.fnamemodify(real, ':h'))
+  if not trusted and (not M.within(absolute, base) or absolute == base) then return nil, 'Path is outside the workspace' end
   if real then
-    if not M.within(real, base) then return nil, 'Path resolves outside the workspace' end
+    if not trusted and not M.within(real, base) then return nil, 'Path resolves outside the workspace' end
     if not vim.uv.fs_stat(real) or vim.uv.fs_stat(real).type ~= 'file' then return nil, 'Not a regular file' end
     return absolute
   end

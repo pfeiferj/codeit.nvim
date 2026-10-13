@@ -24,8 +24,8 @@ local function edit_properties(target)
 end
 
 M.specs = {
-  spec('read_file', 'Read a workspace file by path, including unsaved changes if loaded. Clean buffers refresh from disk. Lines are 1-based/inclusive. At most 200 lines/20000 encoded bytes, even with end_line. Returns path, buffer_id, lines (exact text), parallel line_numbers (original 1-based numbers), total_lines, truncated, next_start_line, modified; continue at next_start_line. Ranges past EOF return available lines. For a loaded buffer ID or the source buffer, use read_loaded_buffer or read_source_buffer instead.', {
-    path = { type = 'string', minLength = 1, description = 'Workspace file path (required). Do not pass a buffer ID.' },
+  spec('read_file', 'Read a file by path in the current workspace or another trusted directory, including unsaved changes if loaded. Clean buffers refresh from disk. Lines are 1-based/inclusive. At most 200 lines/20000 encoded bytes, even with end_line. Returns path, buffer_id, lines (exact text), parallel line_numbers (original 1-based numbers), total_lines, truncated, next_start_line, modified; continue at next_start_line. Ranges past EOF return available lines. For a loaded buffer ID or the source buffer, use read_loaded_buffer or read_source_buffer instead.', {
+    path = { type = 'string', minLength = 1, description = 'File path (required); paths outside the current workspace must resolve inside a trusted directory. Do not pass a buffer ID.' },
     start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }, { 'path' }),
   spec('read_loaded_buffer', 'Read a loaded ordinary buffer by ID, including unnamed buffers and unsaved changes. Use read_file instead for a workspace path. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, lines (exact text), parallel line_numbers (original 1-based numbers), total_lines, truncated, next_start_line, modified.', {
@@ -114,7 +114,7 @@ function M.execute(name, args, done, active, approve, reads, prepare, source, or
       if not id then return done('Error: ' .. err) end
       path = vim.api.nvim_buf_get_name(id)
     else
-      path, err = resolve(args.path, name ~= 'create_file')
+      path, err = resolve(args.path, name ~= 'create_file', reading)
       if not path then return done('Error: ' .. err) end
     end
     local original_path = path

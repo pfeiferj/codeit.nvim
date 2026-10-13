@@ -29,11 +29,11 @@ local function trusted_path(path, workspace)
   local absolute = path:sub(1, 1) == '/' and path or workspace .. '/' .. path
   local real = vim.uv.fs_realpath(absolute)
   local stat = real and vim.uv.fs_stat(real)
-  if stat and stat.type == 'file' and within(real, workspace) then return real end
+  if stat and stat.type == 'file' then return real end
 end
 
 local function tracked(path, workspace)
-  local relative = path:sub(#workspace + 2)
+  local relative = path:sub(#workspace + 1):gsub('^/', '')
   local ok, result = pcall(function()
     return vim.system({ 'git', '--literal-pathspecs', '-c', 'core.fsmonitor=false', '-C', workspace, 'ls-files', '--error-unmatch', '--', relative },
       { text = true }):wait()
@@ -59,20 +59,25 @@ local function auto_read(name, args, workspace, source, context)
     id = vim.fn.bufnr(path)
   end
   if id and layout.user_visible(id) then return true end
-  local mode = M.workspace_trust(workspace)
-  if not mode or not read_tools[name] then return false end
-  if name == 'load_skill' then
-    return require('codeit.context.files').skill(args.name, workspace, mode) ~= nil
-  end
+  if not read_tools[name] then return false end
   local function allowed(path)
     local real = trusted_path(path, workspace)
-    return real and (mode == 'all' or tracked(real, workspace)) or false
+    if not real then return false end
+    local directory = vim.fn.fnamemodify(real, ':h')
+    local mode = M.workspace_trust(directory)
+    return mode == 'all' or (mode == 'tracked' and tracked(real, directory))
   end
   if name == 'read_skill_resource' then return allowed(context and context.skill_resource_path) end
   if name == 'read_file' then return allowed(args.path) end
   if name == 'read_window_buffer' then return allowed(buffer_path(id)) end
   if name == 'read_loaded_buffer' or name == 'read_source_buffer' then
     return allowed(buffer_path(args.buffer_id or source))
+  end
+  if name == 'get_diagnostics' and args.path ~= nil and args.path ~= '' then return allowed(args.path) end
+  local mode = M.workspace_trust(workspace)
+  if not mode then return false end
+  if name == 'load_skill' then
+    return require('codeit.context.files').skill(args.name, workspace, mode) ~= nil
   end
   if name == 'list_buffers' then
     if args.include_external then return false end
@@ -85,7 +90,8 @@ local function auto_read(name, args, workspace, source, context)
   end
   if name == 'git_diff' then
     if args.path == nil or args.path == '' then return true end
-    if allowed(args.path) then return true end
+    local real = trusted_path(args.path, workspace)
+    if real and within(real, workspace) and allowed(args.path) then return true end
     -- A deleted tracked path is still eligible. Resolve the nearest ancestor so
     -- symlinks cannot grant trust to an external path.
     if type(args.path) ~= 'string' or args.path:find('\0', 1, true) then return false end
@@ -189,13 +195,18 @@ local function load_trust()
   end
 end
 
---- Return the effective trust mode for a resolved workspace (or the current cwd).
+--- Return the nearest trust mode for a resolved workspace (or the current cwd).
 function M.workspace_trust(workspace)
   load_trust()
   workspace = workspace or vim.uv.fs_realpath(vim.fn.getcwd())
-  if not workspace then return nil end
-  if saved_trust[workspace] ~= nil then return saved_trust[workspace] or nil end
-  return trusted_workspaces[workspace]
+  while workspace do
+    -- A saved revocation stops inheritance, even when an ancestor is trusted.
+    if saved_trust[workspace] ~= nil then return saved_trust[workspace] or nil end
+    if trusted_workspaces[workspace] then return trusted_workspaces[workspace] end
+    local parent = vim.fn.fnamemodify(workspace, ':h')
+    if parent == workspace then break end
+    workspace = parent
+  end
 end
 
 --- Persist trust for the current workspace. nil revokes trust, including configured trust.

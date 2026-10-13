@@ -5,8 +5,8 @@ local buffers = require('codeit.file_buffer')
 local resolve, within = paths.resolve, paths.within
 
 M.specs = {
-  spec('get_diagnostics', 'Get existing LSP/linter diagnostics for loaded workspace files (max 200). Omit path/empty path for all. wait_ms (0-5000) optionally waits for a matching DiagnosticChanged event, not a guaranteed complete/fresh check. With wait_ms>0 returns diagnostics, updated, timed_out, waited_ms; otherwise returns the existing array. Never runs tests or starts a linter; empty results are not proof of success.', {
-    path = { type = 'string', description = 'Optional workspace path; empty returns workspace diagnostics' },
+  spec('get_diagnostics', 'Get existing LSP/linter diagnostics for loaded workspace files or a specified file in another trusted directory (max 200). Omit path/empty path for all. wait_ms (0-5000) optionally waits for a matching DiagnosticChanged event, not a guaranteed complete/fresh check. With wait_ms>0 returns diagnostics, updated, timed_out, waited_ms; otherwise returns the existing array. Never runs tests or starts a linter; empty results are not proof of success.', {
+    path = { type = 'string', description = 'Optional file path (current workspace or a trusted directory); empty returns workspace diagnostics' },
     wait_ms = { type = 'integer', minimum = 0, maximum = 5000, description = 'Wait for a diagnostic update, at most this many milliseconds; default 0' },
   }),
 }
@@ -18,13 +18,14 @@ function M.execute(name, args, done, active, approve, reads, prepare, source, or
     local filter
     if args.path ~= nil and args.path ~= '' then
       local err
-      filter, err = resolve(args.path, true)
+      filter, err = resolve(args.path, true, true)
       if not filter then return done('Error: ' .. err) end
     end
     local function eligible(id)
       if not buffers.valid(id) or vim.bo[id].buftype ~= '' then return false end
       local path = vim.api.nvim_buf_get_name(id)
-      return path ~= '' and resolve(path, true) and within(path, base) and (not filter or path == filter)
+      if filter then return path == filter and resolve(path, true, true) ~= nil end
+      return path ~= '' and resolve(path, true) and within(path, base)
     end
     local function collect()
       local items, truncated = {}, false

@@ -53,9 +53,12 @@ local function draft()
   return ui.peek_input()
 end
 local function set_draft(text)
+  local win = vim.fn.bufwinid(buf)
+  assert(win ~= -1, 'chat must be visible before setting its draft')
+  vim.api.nvim_set_current_win(win)
   local row = vim.api.nvim_buf_line_count(buf)
   vim.api.nvim_buf_set_lines(buf, row - 1, -1, false, { text })
-  vim.api.nvim_win_set_cursor(0, { row, #text })
+  vim.api.nvim_win_set_cursor(win, { row, #text })
 end
 
 -- Run a command through the normal-mode draft submission path, not a direct API call.
