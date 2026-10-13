@@ -36,7 +36,17 @@ assert(#requests == 1, 'wait must not return early: ' .. vim.inspect(requests[#r
 await(2)
 assert(requests[2].config.model == 'fast-model')
 assert(requests[2].config.max_tool_rounds == 40, 'subagents must not inherit the main chat limit')
-for _, definition in ipairs(requests[2].specs) do assert(agents.allowed[definition['function'].name]) end
+local advertised = {}
+for _, definition in ipairs(requests[2].specs) do
+  local name = definition['function'].name
+  assert(agents.allowed[name])
+  advertised[name] = true
+end
+for name in pairs(require('codeit.tools.windows').names) do
+  assert(advertised[name], 'subagents must have window tool ' .. name)
+end
+assert(requests[2].messages[#requests[2].messages - 1].content:find('window-management tools', 1, true))
+assert(require('codeit.settings.defaults').system_prompt:find('delegating bounded window-management tasks', 1, true))
 reply({ role = 'assistant', tool_calls = {
   call('read_file', { path = 'private.txt' }),
   call('run_command', { argv = { 'touch', 'bad' } }),
@@ -68,6 +78,34 @@ local function execute(name, args, context)
   assert(result)
   return result
 end
+-- Window management is approval-free, but assistant attachments do not grant read trust.
+local function window_call(name, args)
+  local value = execute(name, args, { no_prompt = true })
+  assert(not value:find('Error:', 1, true), value)
+  return vim.json.decode(value)
+end
+local ui = require('codeit.ui')
+ui.open(function() end, ui.close)
+local file_win = window_call('list_windows', {}).windows[1].window_id
+local opened = window_call('open_window_file', { window_id = file_win, path = 'private.txt' })
+assert(execute('read_window_buffer', { window_id = file_win }, { no_prompt = true }):find('requires approval', 1, true))
+local edited = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_lines(edited, 0, -1, false, { 'unsaved', 'second line' })
+window_call('open_window_buffer', { window_id = file_win, buffer_id = edited })
+local split = window_call('split_window', { window_id = file_win, direction = 'vertical' })
+window_call('open_window_buffer', { window_id = split.window_id, buffer_id = opened.buffer_id })
+window_call('close_window', { window_id = split.window_id })
+split = window_call('split_window_file', { window_id = file_win, path = 'private.txt' })
+window_call('close_window', { window_id = split.window_id })
+split = window_call('split_window_buffer', { window_id = file_win, buffer_id = edited })
+window_call('resize_window', { window_id = split.window_id, height = 5 })
+local cursor = window_call('set_window_cursor', { window_id = split.window_id, line = 2, center = false })
+assert(cursor.cursor_line == 2)
+window_call('scroll_window', { window_id = split.window_id, lines = 1 })
+window_call('focus_window', { window_id = split.window_id })
+assert(vim.api.nvim_get_current_win() == split.window_id)
+window_call('close_window', { window_id = split.window_id })
+assert(vim.bo[edited].modified and vim.api.nvim_buf_get_lines(edited, 0, 1, false)[1] == 'unsaved')
 local function assert_status(run_id, status)
   local data = vim.json.decode(execute('get_subagent_status', { run_id = run_id }))
   assert(vim.deep_equal(data, { status = status }), 'status polling must return only status')
