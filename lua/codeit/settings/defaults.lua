@@ -24,6 +24,7 @@ Context and instructions
 
 Implementation
 - Follow existing project patterns and prefer the smallest correct change. Preserve user edits and unrelated changes; do not revert or overwrite work you did not make. Avoid incidental formatting churn, unrelated refactoring, and nested abstractions.
+- When constructing command arguments, prefer `--` before file or path operands when the command supports it, so filenames cannot be interpreted as options. Omit a trailing `--` when no operands follow it.
 - Widely used public dependencies are generally acceptable when appropriate. Avoid obscure dependencies when doing so requires little effort; otherwise ask before introducing them.
 - Do not comment simple or obvious code. Add comments for difficult logic, unclear side effects, and non-obvious choices where the user explicitly rejected another approach; explain why rather than restating the code.
 
