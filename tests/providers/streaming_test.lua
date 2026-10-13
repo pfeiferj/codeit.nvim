@@ -70,6 +70,53 @@ parser = stream.new(true, function() end)
 parser.push(header .. event({ type = 'response.output_text.delta', delta = 'partial' }) .. event('[DONE]'))
 assert(select(2, parser.finish()), 'Responses requires its terminal response, not just DONE')
 
+local headerless = 'HTTP/2 200\r\n\r\n'
+for _, response_header in ipairs({
+  headerless,
+  'HTTP/2 200\r\nContent-Type: application/json\r\n\r\n',
+  'HTTP/1.1 200 Connection established\r\n\r\nHTTP/1.1 100 Continue\r\n\r\n' .. headerless,
+}) do
+  for _, responses in ipairs({ false, true }) do
+    local preview
+    parser = stream.new(responses, function(text) preview = text end)
+    local frames = responses
+      and event({ type = 'response.output_text.delta', delta = 'Answer' })
+        .. event({ type = 'response.completed', response = final })
+      or 'data: {"choices":\r\ndata: [{"index":0,"delta":{"content":"Answer"},"finish_reason":"stop"}]}\r\n\r\n'
+        .. event('[DONE]')
+    local body = response_header .. ': heartbeat\r\n\r\nid: 1\r\nretry: 1000\r\n\r\nevent: message\r\n'
+      .. frames .. '\n200'
+    for i = 1, #body do parser.push(body:sub(i, i)) end
+    result, err, streamed = parser.finish()
+    assert(streamed and not err and preview == 'Answer', err)
+    assert(responses and vim.deep_equal(result, final)
+      or not responses and result.choices[1].message.content == 'Answer')
+  end
+end
+for _, responses in ipairs({ false, true }) do
+  for _, tail in ipairs({
+    responses and event({ type = 'response.output_text.delta', delta = 'partial' }) or chat({ content = 'partial' }),
+    'data: {invalid}\r\n\r\n',
+  }) do
+    parser = stream.new(responses)
+    parser.push(headerless .. tail)
+    result, err, streamed = parser.finish()
+    assert(streamed and not result and err, 'headerless SSE must retain streaming errors')
+  end
+end
+for _, body in ipairs({
+  headerless .. '{\n"data": "data: not an event",\n\n"choices": []\n}\n200',
+  headerless .. 'not an SSE frame\n\ndata: {invalid}\n\n\n200',
+  headerless .. ': heartbeat\r\n\r\n\n200',
+  'HTTP/2 400\r\n\r\n' .. chat({ content = 'error' }) .. event('[DONE]') .. '\n400',
+  'HTTP/2 429\r\nContent-Type: text/event-stream\r\n\r\n' .. event({ error = 'rate limited' }) .. '\n429',
+}) do
+  parser = stream.new(false, function() error('non-streaming responses must not produce previews') end)
+  parser.push(body)
+  result, err, streamed = parser.finish()
+  assert(not streamed and not result and not err, 'JSON and HTTP errors must remain on their existing paths')
+end
+
 local system, defer = vim.system, vim.defer_fn
 vim.env.OPENROUTER_API_KEY = 'test'
 local attempts, waits, body, live, done = 0, {}, nil, {}, 0
@@ -96,7 +143,8 @@ assert(vim.wait(2000, function() return done > 0 end))
 assert(activity > 0, 'provider adapters should forward streaming activity')
 assert(done == 1 and attempts == 2 and waits[1] == 0 and body.stream and body.stream_options.include_usage)
 vim.env.COPILOT_GITHUB_TOKEN = 'test-token'
-for _, mode in ipairs({ 'live', 'buffered', 'incomplete', 'malformed' }) do
+for _, mode in ipairs({ 'live', 'buffered', 'live_headerless', 'buffered_headerless', 'incomplete', 'malformed' }) do
+  local is_live = mode:find('live', 1, true) == 1
   for _, endpoint in ipairs({ '/chat/completions', '/responses' }) do
     package.loaded['codeit.providers'] = nil
     package.loaded['codeit.providers.copilot'] = nil
@@ -113,8 +161,8 @@ for _, mode in ipairs({ 'live', 'buffered', 'incomplete', 'malformed' }) do
       else
         assert(url:sub(-#endpoint) == endpoint)
         local request = vim.json.decode(options.stdin)
-        assert((request.stream == true) == (mode == 'live'))
-        assert((options.stdout ~= nil) == (mode == 'live'))
+        assert((request.stream == true) == is_live)
+        assert((options.stdout ~= nil) == is_live)
         response = header .. (endpoint == '/responses'
           and event({ type = 'response.output_text.delta', delta = 'Answer' })
             .. event({ type = 'response.completed', response = final })
@@ -125,6 +173,9 @@ for _, mode in ipairs({ 'live', 'buffered', 'incomplete', 'malformed' }) do
             or chat({ content = 'Answer' })) .. '\n200'
         elseif mode == 'malformed' then
           response = header .. 'data: {invalid}\r\n\r\n\n200'
+        end
+        if mode:find('headerless', 1, true) then
+          response = response:gsub('Content%-Type: text/event%-stream\r\n', '')
         end
         if options.stdout then
           options.stdout(nil, response)
@@ -143,7 +194,7 @@ for _, mode in ipairs({ 'live', 'buffered', 'incomplete', 'malformed' }) do
         assert(not failure and value.content == 'Answer', failure)
       end
       done = done + 1
-    end, mode == 'live' and function(text) assert(text == 'Answer') end or nil)
+    end, is_live and function(text) assert(text == 'Answer') end or nil)
     assert(vim.wait(2000, function() return done > 0 end))
     assert(done == 1)
   end

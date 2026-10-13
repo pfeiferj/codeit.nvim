@@ -2,7 +2,7 @@ local M = {}
 
 -- Assemble SSE events into the same response shapes used by the non-streaming adapters.
 function M.new(responses, on_text, on_activity)
-  local pending, headers, sse = '', true, false
+  local pending, headers, sse, sniff = '', true, false, false
   local failure, completed, result, usage, finish_reason
   local message = { role = 'assistant', content = '' }
   local calls, reasoning = {}, {}
@@ -101,13 +101,23 @@ function M.new(responses, on_text, on_activity)
         if status >= 200 and not block:match('^[^\n]*[Cc]onnection established') then
           headers = false
           sse = status < 300 and block:lower():find('content%-type:%s*text/event%-stream') ~= nil
+          sniff = status < 300 and not sse
         end
-      elseif sse then
-        local data = {}
+      elseif sse or sniff then
+        local data, framed = {}, true
         for line in (block .. '\n'):gmatch('(.-)\n') do
-          if line:sub(1, 5) == 'data:' then data[#data + 1] = line:sub(6):gsub('^ ', '') end
+          if line:sub(1, 5) == 'data:' then
+            data[#data + 1] = line:sub(6):gsub('^ ', '')
+          elseif line ~= '' and line:sub(1, 1) ~= ':' and not line:match('^event:')
+            and not line:match('^id:') and not line:match('^retry:') then
+            framed = false
+          end
         end
-        if #data > 0 then
+        if sniff then
+          -- Require a complete SSE data frame; comments alone do not identify a stream.
+          sniff, sse = framed and #data == 0, framed and #data > 0
+        end
+        if sse and #data > 0 then
           event(table.concat(data, '\n'))
           if on_activity then on_activity() end
         end
