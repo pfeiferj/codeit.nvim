@@ -31,13 +31,6 @@ local function http_json(args, options, callback, metadata, streaming, active)
       if timer then timer:stop(); timer:close(); timer = nil end
     end
     local output, parser
-    local parsed = 0
-    local function drain_output()
-      while parsed < #output do
-        parsed = parsed + 1
-        parser.push(output[parsed])
-      end
-    end
     local attempt_options = vim.tbl_extend('force', {}, options)
     if streaming then
       parser = require('codeit.providers.protocols.stream').new(streaming.responses, streaming.on_text, streaming.on_activity)
@@ -48,7 +41,7 @@ local function http_json(args, options, callback, metadata, streaming, active)
         if err or not chunk then return end
         output[#output + 1] = chunk
         vim.schedule(function()
-          if not active or active() then drain_output() end
+          if not active or active() then parser.push(chunk) end
         end)
       end
     end
@@ -56,10 +49,7 @@ local function http_json(args, options, callback, metadata, streaming, active)
       vim.schedule(function()
         cleanup()
         if active and not active() then return end
-        if output then
-          -- Completion can run before queued stdout work; drain each received chunk exactly once.
-          drain_output()
-          result.stdout = table.concat(output)
+        if output then result.stdout = table.concat(output)
         elseif parser then parser.push(result.stdout or '') end
         if result.code ~= 0 then
           return callback(nil, (result.stderr or '') ~= '' and result.stderr or 'curl exited with code ' .. result.code)
