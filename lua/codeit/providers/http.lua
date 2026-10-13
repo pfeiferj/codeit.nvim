@@ -101,7 +101,7 @@ end
 
 function M.post(url, headers, body, callback, streaming, active)
   local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '120', '--request', 'POST', '--write-out', '\n%{http_code}' }
-  if streaming then args[#args + 1] = '--no-buffer' end
+  if streaming then vim.list_extend(args, { '--no-buffer', '--header', 'Accept: text/event-stream' }) end
   for _, header in ipairs(headers) do
     vim.list_extend(args, { '--header', header })
   end

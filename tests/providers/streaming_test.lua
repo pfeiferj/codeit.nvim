@@ -70,6 +70,50 @@ parser = stream.new(true, function() end)
 parser.push(header .. event({ type = 'response.output_text.delta', delta = 'partial' }) .. event('[DONE]'))
 assert(select(2, parser.finish()), 'Responses requires its terminal response, not just DONE')
 
+for _, content_type in ipairs({ '', 'Content-Type: application/json\r\n' }) do
+  for _, prefix in ipairs({ '', 'event: message\r\n' }) do
+    for _, responses in ipairs({ false, true }) do
+      local fallback_previews, fallback_activity = {}, 0
+      parser = stream.new(responses, function(text) fallback_previews[#fallback_previews + 1] = text end,
+        function() fallback_activity = fallback_activity + 1 end)
+      local fallback_header = 'HTTP/1.1 200 Connection established\r\n\r\nHTTP/2 100\r\n\r\n'
+        .. 'HTTP/2 200\r\n' .. content_type .. 'data: {invalid}\r\n\r\n'
+      parser.push(fallback_header)
+      assert(not select(3, parser.finish()), 'headers must not trigger body-based SSE detection')
+      local fallback_body = prefix .. (responses
+        and event({ type = 'response.output_text.delta', delta = 'Answer' })
+          .. event({ type = 'response.completed', response = final })
+        or chat({ content = 'Answer' }) .. event('[DONE]'))
+      for i = 1, #fallback_body do parser.push(fallback_body:sub(i, i)) end
+      result, err, streamed = parser.finish()
+      assert(streamed and not err and fallback_previews[1] == 'Answer' and fallback_activity == 2)
+      assert(responses and vim.deep_equal(result, final)
+        or not responses and result.choices[1].message.content == 'Answer')
+    end
+  end
+end
+parser = stream.new(false, function() end)
+parser.push('HTTP/2 200\r\nContent-Type: text/event-stream\r\ndata: {invalid}\r\n\r\n'
+  .. chat({ content = 'Answer' }) .. event('[DONE]'))
+result, err, streamed = parser.finish()
+assert(streamed and not err and result.choices[1].message.content == 'Answer',
+  'SSE headers must not be processed again as an event in the same iteration')
+for _, status in ipairs({ 400, 429, 500 }) do
+  for _, content_type in ipairs({ '', 'Content-Type: text/event-stream\r\n' }) do
+    parser = stream.new(false, function() error('error responses must not produce previews') end,
+      function() error('error responses must not signal streaming activity') end)
+    parser.push('HTTP/2 ' .. status .. '\r\n' .. content_type .. '\r\n'
+      .. 'event: message\r\n' .. chat({ content = 'Error' }) .. event('[DONE]'))
+    result, err, streamed = parser.finish()
+    assert(not result and not err and not streamed, 'only successful responses may be SSE')
+  end
+end
+for _, body_text in ipairs({ '{"data":"not SSE"}', 'not SSE\ndata: {invalid}' }) do
+  parser = stream.new(false, function() error('non-SSE bodies must not produce previews') end)
+  parser.push('HTTP/2 200\r\n\r\n' .. body_text .. '\n\n')
+  assert(not select(3, parser.finish()), 'fallback requires event: or data: at the start of a block')
+end
+
 local system, defer = vim.system, vim.defer_fn
 vim.env.OPENROUTER_API_KEY = 'test'
 local attempts, waits, body, live, done = 0, {}, nil, {}, 0
@@ -77,6 +121,7 @@ vim.defer_fn = function(fn, ms) waits[#waits + 1] = ms; vim.schedule(fn) end
 vim.system = function(args, options, callback)
   attempts = attempts + 1
   assert(vim.tbl_contains(args, '--no-buffer'))
+  assert(vim.tbl_contains(args, 'Accept: text/event-stream'))
   body = vim.json.decode(options.stdin)
   local response = attempts == 1 and 'HTTP/2 429\r\nRetry-After: 0\r\n\r\nToo many\n429'
     or header .. chat({ content = 'Hello' }) .. chat({}, 'stop')
@@ -106,11 +151,13 @@ for _, endpoint in ipairs({ '/chat/completions', '/responses' }) do
     local url = args[#args]
     local response
     if url:find('/models', 1, true) then
+      assert(not vim.tbl_contains(args, 'Accept: text/event-stream'))
       response = vim.json.encode({ data = { { id = 'test', supported_endpoints = { endpoint } } } }) .. '\n200'
     elseif url:find('/token', 1, true) then
       response = vim.json.encode({ token = 'bearer', expires_at = os.time() + 300 }) .. '\n200'
     else
       assert(url:sub(-#endpoint) == endpoint)
+      assert(vim.tbl_contains(args, 'Accept: text/event-stream'))
       local request = vim.json.decode(options.stdin)
       assert(request.stream)
       response = header .. (endpoint == '/responses'

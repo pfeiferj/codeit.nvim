@@ -2,7 +2,7 @@ local M = {}
 
 -- Assemble SSE events into the same response shapes used by the non-streaming adapters.
 function M.new(responses, on_text, on_activity)
-  local pending, headers, sse = '', true, false
+  local pending, headers, sse, successful = '', true, false, false
   local failure, completed, result, usage, finish_reason
   local message = { role = 'assistant', content = '' }
   local calls, reasoning = {}, {}
@@ -100,9 +100,11 @@ function M.new(responses, on_text, on_activity)
         local status = tonumber(block:match('^HTTP/%S+ (%d%d%d)'))
         if status >= 200 and not block:match('^[^\n]*[Cc]onnection established') then
           headers = false
-          sse = status < 300 and block:lower():find('content%-type:%s*text/event%-stream') ~= nil
+          successful = status < 300
+          sse = successful and block:lower():find('content%-type:%s*text/event%-stream') ~= nil
         end
-      elseif sse then
+      elseif sse or (successful and (block:match('^event:') or block:match('^data:'))) then
+        sse = true
         local data = {}
         for line in (block .. '\n'):gmatch('(.-)\n') do
           if line:sub(1, 5) == 'data:' then data[#data + 1] = line:sub(6):gsub('^ ', '') end
