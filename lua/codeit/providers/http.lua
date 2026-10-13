@@ -33,10 +33,8 @@ local function http_json(args, options, callback, metadata, streaming, active)
     local output, parser
     local attempt_options = vim.tbl_extend('force', {}, options)
     if streaming then
-      parser = require('codeit.providers.protocols.stream').new(streaming.responses, streaming.on_text, streaming.on_activity)
-    end
-    if streaming and streaming.on_text then
       output = {}
+      parser = require('codeit.providers.protocols.stream').new(streaming.responses, streaming.on_text, streaming.on_activity)
       attempt_options.stdout = function(err, chunk)
         if err or not chunk then return end
         output[#output + 1] = chunk
@@ -49,8 +47,7 @@ local function http_json(args, options, callback, metadata, streaming, active)
       vim.schedule(function()
         cleanup()
         if active and not active() then return end
-        if output then result.stdout = table.concat(output)
-        elseif parser then parser.push(result.stdout or '') end
+        if output then result.stdout = table.concat(output) end
         if result.code ~= 0 then
           return callback(nil, (result.stderr or '') ~= '' and result.stderr or 'curl exited with code ' .. result.code)
         end
@@ -104,7 +101,7 @@ end
 
 function M.post(url, headers, body, callback, streaming, active)
   local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '120', '--request', 'POST', '--write-out', '\n%{http_code}' }
-  if streaming and streaming.on_text then args[#args + 1] = '--no-buffer' end
+  if streaming then args[#args + 1] = '--no-buffer' end
   for _, header in ipairs(headers) do
     vim.list_extend(args, { '--header', header })
   end
