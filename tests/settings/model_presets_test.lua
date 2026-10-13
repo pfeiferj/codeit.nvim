@@ -256,8 +256,8 @@ local function pick(current)
   picker.show(current, function(values, selected_scope) applied, scope = values, selected_scope end)
   assert(#steps == 0 and #inputs == 0)
 end
-steps = { 'preset_fast', 'provider', 'copilot', 'model', 'picked-model', 'api_host', '',
-  'back', 'tool_review', 'preset', 'fast', 'back', 'workspace' }
+steps = { 'preset_fast', 'provider', 'copilot', 'model', 'picked-model', 'api_host', '', 'effort', 'high',
+  'back', 'tool_review', 'preset', 'fast', 'effort', 'low', 'back', 'workspace' }
 inputs = {}
 pick(base)
 assert(scope == 'workspace' and applied.model_presets.fast.model == 'picked-model')
@@ -265,6 +265,15 @@ assert(searches[#searches].provider == 'copilot' and searches[#searches].options
 assert(applied.model_presets.fast.options.api_host == '')
 assert(applied.feature_settings.tool_review.preset == 'fast')
 assert(settings.feature_config(applied, 'tool_review').model == 'picked-model')
+assert(settings.validate(applied))
+assert(settings.preset_config(applied, 'fast').options.effort == 'high')
+assert(settings.feature_config(applied, 'tool_review').options.effort == 'low')
+steps = { 'tool_review', 'effort', '', 'back', 'session' }
+pick(applied)
+assert(settings.feature_config(applied, 'tool_review').options.effort == '')
+steps = { 'tool_review', 'effort', '(inherit)', 'back', 'session' }
+pick(applied)
+assert(settings.feature_config(applied, 'tool_review').options.effort == 'high')
 assert(vim.deep_equal(base.model_presets, presets) and base.feature_settings.tool_review == nil)
 steps = { 'preset_reasoning', 'preferred_provider', 'upstream', 'effort', '',
   'service_tier', '(inherit)', 'manual', 'back', 'global' }

@@ -21,8 +21,13 @@ function M.validate(settings)
     end
     for key, value in pairs(values) do
       if provider == 'copilot' then
-        if key ~= 'api_host' then return false, 'unknown Copilot request option: ' .. tostring(key) end
-        if not vim.tbl_contains(definitions.copilot_hosts, value) then return false, 'invalid Copilot API host' end
+        if key == 'api_host' then
+          if not vim.tbl_contains(definitions.copilot_hosts, value) then return false, 'invalid Copilot API host' end
+        elseif key == 'effort' then
+          if not vim.tbl_contains(definitions.efforts, value) then return false, 'invalid effort' end
+        else
+          return false, 'unknown Copilot request option: ' .. tostring(key)
+        end
       elseif provider == 'codex' then
         if key ~= 'effort' then return false, 'unknown Codex request option: ' .. tostring(key) end
         if not vim.tbl_contains(definitions.efforts, value) then return false, 'invalid effort' end

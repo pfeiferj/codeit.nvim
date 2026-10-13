@@ -123,6 +123,7 @@ function M.show(current, apply, live)
       items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. option_label('effort') }
     else
       items[#items + 1] = { id = 'api_host', label = 'Copilot API host: ' .. option_label('api_host') }
+      items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. option_label('effort') }
     end
     vim.list_extend(items, {
       { id = 'model_clear', label = 'Use inherited model' },
@@ -213,6 +214,7 @@ function M.show(current, apply, live)
     elseif draft.provider == 'codex' then
       items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. (options.effort or '') }
     elseif draft.provider == 'copilot' then
+      items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. (options.effort or '') }
       items[#items + 1] = { id = 'api_host', label = 'Copilot API host: '
         .. (options.api_host and options.api_host ~= '' and options.api_host or 'api.githubcopilot.com (default)') }
     end

@@ -77,6 +77,11 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
         body = chat.body(config.model, messages, tools, on_text)
         if config.max_output_tokens then body.max_completion_tokens = config.max_output_tokens end
       end
+      local options = config.options or {}
+      if options.effort and options.effort ~= '' then
+        if endpoint == '/responses' then body.reasoning = { effort = options.effort }
+        else body.reasoning_effort = options.effort end
+      end
       local request_headers = { 'Content-Type: application/json' }
       vim.list_extend(request_headers, headers(token))
       http.post(url .. endpoint, request_headers, body, function(response, failure, detail)

@@ -98,7 +98,7 @@ require('codeit').setup({
   -- }, -- see "Per-feature models and presets" below
   -- request_options = {
   --   openrouter = { preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high' },
-  --   copilot = { api_host = 'api.business.githubcopilot.com' }, -- default: api.githubcopilot.com
+  --   copilot = { api_host = 'api.business.githubcopilot.com', effort = 'high' }, -- host defaults to api.githubcopilot.com
   --   codex = { effort = 'high' }, -- optional; model-dependent
   -- },
   -- system_prompt = 'You are a helpful Neovim coding assistant.',
@@ -531,7 +531,14 @@ Saved provider/model settings use this precedence: `setup()` defaults/options < 
 
 ### Provider request options
 
-OpenRouter settings include **Preferred upstream provider** (loads endpoints for the selected model and lists provider names, routing tags, and input/output prices in USD per million tokens; nonzero per-request charges and quantization are also shown when reported). Selecting an endpoint uses its exact routing tag as `provider.order`; fallbacks remain enabled. Prices are current catalog rates, not a total quote: caching, media, other charges, tier selection, and fallback routing can change actual cost. Missing prices show as `unknown`. The picker also offers automatic routing (clear the preference) and manual slug entry, even if endpoint lookup fails. Other options include **Service tier** (`default`, `flex`, `priority`, `fast`, `ultrafast`), and **Reasoning effort** (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, sent as `reasoning.effort`). Blank values omit the parameter and use the provider default. These per-backend defaults apply to main chat and are inherited by features using that backend; per-feature `options` override individual keys. Support and pricing depend on the selected model/upstream provider; priority tiers can cost more, flex can be slower, and unsupported options may be ignored or rejected by the API. Copilot additionally offers **Copilot API host** for standard/business routing, but these OpenRouter-specific request options are not sent to its undocumented API.
+OpenRouter settings include **Preferred upstream provider** (loads endpoints for the selected model and lists provider names, routing tags, and input/output prices in USD per million tokens; nonzero per-request charges and quantization are also shown when reported). Selecting an endpoint uses its exact routing tag as `provider.order`; fallbacks remain enabled. Prices are current catalog rates, not a total quote: caching, media, other charges, tier selection, and fallback routing can change actual cost. Missing prices show as `unknown`. The picker also offers automatic routing (clear the preference) and manual slug entry, even if endpoint lookup fails. Other options include **Service tier** (`default`, `flex`, `priority`, `fast`, `ultrafast`), and **Reasoning effort** (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, sent as `reasoning.effort`). Blank values omit the parameter and use the provider default. These per-backend defaults apply to main chat and are inherited by features using that backend; per-feature `options` override individual keys. Support and pricing depend on the selected model/upstream provider; priority tiers can cost more, flex can be slower, and unsupported options may be ignored or rejected by the API. OpenRouter-specific routing and service-tier options are not sent to Copilot.
+
+Copilot offers **Copilot API host** for standard/business routing and
+**Reasoning effort** using the same levels as OpenRouter. Effort is sent as `reasoning_effort`
+for Chat Completions and `reasoning.effort` for Responses. Main, preset, and feature
+settings can inherit or clear it; blank values use the provider default. Supported
+levels depend on the selected model, and unsupported levels may be rejected by the
+API. This does not enable a larger context window.
 
 Codex offers **Reasoning effort**, sent as `reasoning.effort` to the subscription
 backend. Main, preset, and feature settings can inherit or clear it just as with

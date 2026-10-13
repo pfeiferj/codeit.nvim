@@ -47,7 +47,7 @@ assert(resolved.model == 'resumed-main' and resolved.options.service_tier == '' 
 inherited.feature_settings.compaction.provider = 'copilot'
 inherited.feature_settings.compaction.options.api_host = 'api.business.githubcopilot.com'
 resolved = settings.feature_config(inherited, 'compaction', 'resumed-main')
-assert(resolved.model == base.models.copilot and resolved.options.effort == nil)
+assert(resolved.model == base.models.copilot and resolved.options.effort == '')
 assert(resolved.options.api_host == 'api.business.githubcopilot.com')
 assert(base.request_options.openrouter.effort == 'low', 'resolving overrides must not mutate defaults')
 for _, bad in ipairs({ false, { unknown = {} }, { compaction = false },

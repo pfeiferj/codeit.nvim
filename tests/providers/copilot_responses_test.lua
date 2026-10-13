@@ -59,9 +59,25 @@ assert(payload.model == 'gpt-6-luna' and payload.messages == nil)
 assert(payload.input[1].role == 'system' and payload.input[1].content == 'Be helpful')
 assert(payload.stream == false and payload.store == false)
 assert(payload.include[1] == 'reasoning.encrypted_content')
+assert(payload.reasoning == nil and payload.reasoning_effort == nil)
 assert(payload.tools[1].name == require('codeit.tools').specs[1]['function'].name)
 assert(payload.tools[1]['function'] == nil and payload.tools[1].strict == false)
 assert(calls[3].options.stdin:find('"properties":{}', 1, true), 'empty schemas must remain JSON objects')
+for _, model in ipairs({ 'gpt-6-luna', 'both' }) do
+  for _, effort in ipairs(require('codeit.settings').efforts) do
+    local answer, failure = chat(model, nil, nil, { effort = effort })
+    assert(answer and not failure, tostring(failure))
+    local body = vim.json.decode(calls[#calls].options.stdin)
+    if model == 'gpt-6-luna' then
+      assert(body.reasoning_effort == nil)
+      if effort == '' then assert(body.reasoning == nil)
+      else assert(body.reasoning.effort == effort) end
+    else
+      assert(body.reasoning == nil)
+      assert(body.reasoning_effort == (effort ~= '' and effort or nil))
+    end
+  end
+end
 assert(vim.tbl_contains(calls[3].args, 'X-GitHub-Api-Version: 2026-08-01'))
 response.usage = { input_tokens = 100, output_tokens = 25, total_tokens = 125,
   input_tokens_details = { cached_tokens = 70 } }

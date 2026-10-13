@@ -20,7 +20,8 @@ local function resolve_config(settings, preset, feature, main_model)
   local options = vim.deepcopy(settings.request_options[provider] or {})
   for _, overrides in ipairs({ preset, feature }) do
     for key, value in pairs(overrides.options or {}) do
-      if definitions.option_providers[key] == provider or (provider == 'codex' and key == 'effort') then options[key] = value end
+      if definitions.option_providers[key] == provider
+        or (key == 'effort' and (provider == 'codex' or provider == 'copilot')) then options[key] = value end
     end
   end
   return { provider = provider, model = model or settings.models[provider], options = options }

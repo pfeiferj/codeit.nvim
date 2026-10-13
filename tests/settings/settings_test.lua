@@ -40,21 +40,23 @@ local baseline = plugin.get_settings()
 local global = vim.deepcopy(baseline)
 global.models.openrouter = 'global-model'
 global.request_options.openrouter = { preferred_provider = 'openai', service_tier = 'priority', effort = 'high' }
-global.request_options.copilot = { api_host = 'api.business.githubcopilot.com' }
+global.request_options.copilot = { api_host = 'api.business.githubcopilot.com', effort = 'high' }
 assert(plugin.configure(global, 'global'))
 assert(vim.fn.getfperm(settings_path) == 'rw-------')
 plugin.setup({ max_context_tokens = false })
 assert(plugin.get_settings().models.openrouter == 'global-model', 'global settings override setup')
 assert(plugin.get_settings().request_options.copilot.api_host == 'api.business.githubcopilot.com')
+assert(plugin.get_settings().request_options.copilot.effort == 'high')
 local local_settings = vim.deepcopy(global)
 local_settings.models.openrouter = 'workspace-model'
 local_settings.request_options.openrouter = { preferred_provider = '', service_tier = '', effort = '' }
-local_settings.request_options.copilot = { api_host = '' }
+local_settings.request_options.copilot = { api_host = '', effort = '' }
 assert(plugin.configure(local_settings, 'workspace'))
 plugin.setup({ max_context_tokens = false })
 assert(plugin.get_settings().models.openrouter == 'workspace-model', 'workspace overrides global')
 assert(plugin.get_settings().request_options.openrouter.effort == '', 'cleared values override global options')
 assert(plugin.get_settings().request_options.copilot.api_host == '', 'workspace can restore the standard host')
+assert(plugin.get_settings().request_options.copilot.effort == '', 'workspace can clear Copilot effort')
 vim.fn.chdir(temp .. '/two')
 assert(plugin.get_settings().models.openrouter == 'global-model', 'changing workspace loads global defaults')
 plugin.send('test options' .. string.rep(' details', 30))
@@ -90,9 +92,15 @@ for _, host in ipairs({ '', 'api.githubcopilot.com', 'api.business.githubcopilot
   valid.request_options.copilot = { api_host = host }
   assert(settings.validate(valid), 'supported Copilot host should validate')
 end
+for _, effort in ipairs(settings.efforts) do
+  local valid = vim.deepcopy(global)
+  valid.request_options.copilot.effort = effort
+  assert(settings.validate(valid), 'supported Copilot effort should validate')
+end
 for _, bad in ipairs({ { api_host = 'attacker.example' }, { api_host = false },
   { api_host = 'https://api.business.githubcopilot.com' }, { api_host = 'api.business.githubcopilot.com/path' },
-  { api_host = 'api.business.githubcopilot.com\n' }, { effort = 'high' }, false }) do
+  { api_host = 'api.business.githubcopilot.com\n' }, { effort = 'invalid' }, { effort = false },
+  { service_tier = 'priority' }, false }) do
   invalid = vim.deepcopy(global)
   invalid.request_options.copilot = bad
   assert(not plugin.configure(invalid), 'invalid Copilot options must be rejected')
@@ -160,13 +168,15 @@ assert(upstream_choice('manual') == 'unlisted-provider', 'empty catalogs still a
 -- Copilot host selection is part of the draft and applies to model searches.
 local copilot_draft = vim.deepcopy(baseline)
 copilot_draft.provider = 'copilot'
-steps, inputs = { 'api_host', 'api.business.githubcopilot.com', 'model', 'gpt-4o', 'global' }, {}
+steps, inputs = { 'api_host', 'api.business.githubcopilot.com', 'effort', 'high', 'model', 'gpt-4o', 'global' }, {}
 picker.show(copilot_draft, function(values, selected_scope) applied, scope = values, selected_scope end)
 assert(scope == 'global' and applied.request_options.copilot.api_host == 'api.business.githubcopilot.com')
+assert(applied.request_options.copilot.effort == 'high')
 assert(copilot_draft.request_options.copilot == nil, 'host selection must not mutate active settings')
-steps = { 'api_host', '', 'session' }
+steps = { 'api_host', '', 'effort', '', 'session' }
 picker.show(applied, function(values) applied = values end)
 assert(applied.request_options.copilot.api_host == '', 'picker can reset the host to default')
+assert(applied.request_options.copilot.effort == '', 'picker can reset effort to default')
 
 -- Option-only updates preserve the current conversation and restore on resume.
 plugin.send('Keep this chat')
