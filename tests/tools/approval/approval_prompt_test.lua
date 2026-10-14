@@ -289,7 +289,7 @@ limit_choice('<CR>', 12)
 limit_choice('3', nil)
 limit_choice('<Esc>', nil)
 limit_choice('close', nil)
-vim.ui.input = function(opts, cb)
+require('codeit.ui.input').show = function(opts, cb)
   assert(opts.default == '12')
   cb('3')
 end

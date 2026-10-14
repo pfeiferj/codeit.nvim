@@ -169,7 +169,7 @@ local prompt = require('codeit.tools.approval.prompt')
 local choose, ask
 prompt.show = function(_, _, callback) choose = callback end
 prompt.ask_reviewer = function(_, _, callback) ask = callback end
-vim.ui.input = function(_, callback) callback('Not needed') end
+require('codeit.ui.input').show = function(_, callback) callback('Not needed') end
 callbacks[#callbacks]({ role = 'assistant', tool_calls = {
   { id = 'call', type = 'function', ['function'] = { name = 'run_command', arguments = '{"argv":["echo","hello"]}' } },
 } })
@@ -241,7 +241,7 @@ assert(vim.deep_equal(plugin.get_settings().model_presets, presets), 'saved pres
 -- Real picker: presets share the override controls and feature selection stays draft-only.
 local picker = require('codeit.settings.picker')
 local steps, inputs, applied, scope = {}, {}, nil, nil
-vim.ui.input = function(_, callback) callback(table.remove(inputs, 1)) end
+require('codeit.ui.input').show = function(_, callback) callback(table.remove(inputs, 1)) end
 require('codeit.settings.menu').select = function(items, _, callback)
   local wanted = table.remove(steps, 1)
   for _, item in ipairs(items) do

@@ -26,7 +26,7 @@ local function check(name, args, source, requires_approval)
     prompted = true
     cb('reject')
   end
-  vim.ui.input = function(_, cb) cb(nil) end
+  require('codeit.ui.input').show = function(_, cb) cb(nil) end
   tools.execute(name, args, source, function(value) result = value end, function() return true end)
   assert(vim.wait(5000, function() return result ~= nil end), 'timed out: ' .. name)
   assert(prompted == requires_approval, name .. ' ' .. vim.json.encode(args) .. ': unexpected approval prompt')

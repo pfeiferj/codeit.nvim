@@ -15,7 +15,7 @@ prompt.show = function(_, _, cb) asked = asked + 1; cb('once') end
 writes.show = function(diff, _, cb) preview = diff; cb('once') end
 local function run(name, args, source, context)
   local result
-  vim.ui.input = function(_, cb) cb('approve ' .. name) end
+  require('codeit.ui.input').show = function(_, cb) cb('approve ' .. name) end
   tools.execute(name, args, source, function(value) result = value end, function() return true end, context)
   assert(vim.wait(5000, function() return result ~= nil end), name)
   return result

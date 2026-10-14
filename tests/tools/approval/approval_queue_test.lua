@@ -158,22 +158,27 @@ for _, open in ipairs({
     require('codeit.tools.approval.prompt').show('Approve command?', approval_options, callback)
   end,
   function(callback)
+    require('codeit.ui.input').show({ prompt = 'Confirm approval', default = 'once', approval = true }, callback)
+    return '<CR>'
+  end,
+  function(callback)
     require('codeit.tools.approval.write').show({
       path = 'example.lua', before = 'return 1\n', after = 'return 2\n',
     }, approval_options, callback)
   end,
 }) do
   local released, decided = 0, false
-  queue.enqueue(function() open(function(choice) decided = choice == 'once' end) end)
+  local select_key
+  queue.enqueue(function() select_key = open(function(choice) decided = choice == 'once' end) or '1' end)
   local win, buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
   queue.enqueue(function() released = released + 1 end)
   advance(1000)
   input('j', 'j')
   advance(250)
   assert(released == 0, 'approval navigation must not allow overlapping prompts')
-  input('1', '1')
+  input(select_key, select_key)
   for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
-    if mapping.lhs == '1' then mapping.callback(); break end
+    if mapping.lhs == select_key then mapping.callback(); break end
   end
   assert(decided and not vim.api.nvim_win_is_valid(win), 'selection must close the approval')
   advance(250)

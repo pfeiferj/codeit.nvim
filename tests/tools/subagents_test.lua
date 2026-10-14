@@ -17,7 +17,7 @@ local tools, agents = require('codeit.tools'), require('codeit.tools.subagents')
 local approval = require('codeit.tools.approval')
 require('codeit.tools.approval.prompt').show = function() error('subagents must never prompt') end
 require('codeit.tools.limit_prompt').show = function() error('subagents must never extend their budget') end
-vim.ui.input = function() error('subagents must never ask') end
+require('codeit.ui.input').show = function() error('subagents must never ask') end
 vim.ui.select = function() error('subagents must never select') end
 local function reply(message, usage)
   table.remove(callbacks, 1)(message, nil, usage)

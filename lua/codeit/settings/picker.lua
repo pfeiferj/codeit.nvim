@@ -82,7 +82,7 @@ function M.show(current, apply, live)
         if not valid() then return end
         if not item then return back() end
         if item.id == 'manual' then
-          vim.ui.input({ prompt = 'Upstream provider slug (blank = automatic): ',
+          require('codeit.ui.input').show({ prompt = 'Upstream provider slug (blank = automatic): ',
             default = options.preferred_provider or '' }, function(value)
             if not valid() then return end
             if value ~= nil then
@@ -183,7 +183,7 @@ function M.show(current, apply, live)
         store()
         choose_model(name, back, preset)
       elseif id == 'manual' then
-        vim.ui.input({ prompt = title .. ' model ID (blank = inherit): ', default = feature.model or '' }, function(value)
+        require('codeit.ui.input').show({ prompt = title .. ' model ID (blank = inherit): ', default = feature.model or '' }, function(value)
           if not valid() then return end
           if value ~= nil then store(); feature.model = vim.trim(value) end
           back()
@@ -280,7 +280,7 @@ function M.show(current, apply, live)
         draft.request_options.openrouter = options
         choose_upstream(options)
       elseif id == 'manual' then
-        vim.ui.input({ prompt = 'Model ID: ', default = draft.models[draft.provider] }, function(value)
+        require('codeit.ui.input').show({ prompt = 'Model ID: ', default = draft.models[draft.provider] }, function(value)
           if not valid() then return end
           if value ~= nil and vim.trim(value) ~= '' then
             draft.models[draft.provider] = vim.trim(value)

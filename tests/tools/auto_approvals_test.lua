@@ -9,7 +9,7 @@ local approval = require('codeit.tools.approval')
 local prompt = require('codeit.tools.approval.prompt')
 local choice = 'once'
 prompt.show = function(_, _, callback) callback(choice) end
-vim.ui.input = function(_, callback) callback(nil) end
+require('codeit.ui.input').show = function(_, callback) callback(nil) end
 local workspace = history.workspace()
 local session = { workspace = workspace, chat_id = 'audit', auto_approvals = {} }
 local saves = 0

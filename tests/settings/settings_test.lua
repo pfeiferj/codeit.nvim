@@ -118,7 +118,7 @@ assert(#picker.search(models, 'missing') == 0)
 local steps = { 'model', 'vendor/beta', 'preferred_provider', 'anthropic', 'effort', 'high', 'service_tier', 'flex', 'workspace' }
 local inputs = {}
 local applied, scope
-vim.ui.input = function(_, callback) callback(table.remove(inputs, 1)) end
+require('codeit.ui.input').show = function(_, callback) callback(table.remove(inputs, 1)) end
 require('codeit.settings.menu').select = function(items, _, callback)
   local wanted = table.remove(steps, 1)
   for _, item in ipairs(items) do

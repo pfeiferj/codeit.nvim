@@ -154,7 +154,7 @@ function M.show(config, workspace)
   vim.keymap.set('n', 'r', function() if not waiting then refresh() end end, { buffer = buf })
   vim.keymap.set('n', 'w', function()
     if waiting then return end
-    vim.ui.input({ prompt = 'Workspace path (empty = all saved workspaces): ', default = scope or '' }, function(value)
+    require('codeit.ui.input').show({ prompt = 'Workspace path (empty = all saved workspaces): ', default = scope or '' }, function(value)
       if value == nil or finished or waiting then return end
       scope = value ~= '' and value or nil
       refresh()

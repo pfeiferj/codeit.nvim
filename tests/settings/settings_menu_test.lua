@@ -55,7 +55,7 @@ local base = { provider = 'openrouter', models = { openrouter = 'original', copi
   request_options = { openrouter = {} } }
 local applied, scope
 vim.ui.select = function() error('settings must not invoke a search selector') end
-vim.ui.input = function() error('model browsing must not require text input') end
+require('codeit.ui.input').show = function() error('model browsing must not require text input') end
 local function current() return vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf() end
 local function choose(text)
   local w, b = current()

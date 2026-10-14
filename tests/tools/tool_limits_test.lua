@@ -28,7 +28,7 @@ require('codeit.tools.approval.prompt').show = function(text, options, cb, confi
   assert(not pending, 'only one limit decision may be pending')
   pending = cb
 end
-vim.ui.input = function(opts, cb)
+require('codeit.ui.input').show = function(opts, cb)
   assert(opts.prompt == 'Additional tool rounds: ')
   input = cb
 end

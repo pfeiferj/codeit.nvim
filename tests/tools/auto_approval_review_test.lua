@@ -56,10 +56,10 @@ assert(text():find('By tool', 1, true))
 local all_calls = 0
 local list_all = history.list_all
 history.list_all = function() all_calls = all_calls + 1; return list_all() end
-vim.ui.input = function(_, cb) cb('') end
+require('codeit.ui.input').show = function(_, cb) cb('') end
 key('w')
 assert(all_calls == 1 and text():find('62 recorded approvals', 1, true) and text():find('other_tool', 1, true))
-vim.ui.input = function(_, cb) cb(workspace) end
+require('codeit.ui.input').show = function(_, cb) cb(workspace) end
 key('w')
 assert(all_calls == 1 and not text():find('other_tool', 1, true))
 local function question(value)

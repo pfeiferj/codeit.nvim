@@ -112,7 +112,7 @@ prompt_ui.ask_reviewer = function(name, args, ask, back)
   reviewer_back = back
   ask(table.remove(questions, 1), function(answer) assert(answer == 'It prints test.') end)
 end
-vim.ui.input = function(_, callback) callback(table.remove(questions, 1)) end
+require('codeit.ui.input').show = function(_, callback) callback(table.remove(questions, 1)) end
 plugin.send('Check command')
 selections = { 'review', 'reject' }
 questions = { 'What will happen?', 'Do not run it' }

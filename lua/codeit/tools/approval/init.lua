@@ -556,8 +556,12 @@ function M.request(name, args, prompt, active, done, action, context)
         end
         if not needs_confirmation() then return approve() end
         local phrase = 'approve ' .. name
-        vim.ui.input({ prompt = 'Safety score: ' .. (score and score .. '/10' or 'unavailable')
-          .. '. Type ' .. phrase .. ' to approve once: ' }, function(input)
+        require('codeit.ui.input').show({ title = ' Confirm tool approval ', approval = true,
+          safety_score = score, risk_unknown = score == nil,
+          body = prompt_text() .. '\n\n## Explicit confirmation\n\nType **`' .. phrase
+            .. '`** exactly to approve **once**. This approval cannot be remembered.',
+          prompt = 'Safety score: ' .. (score and score .. '/10' or 'unavailable')
+            .. '. Type ' .. phrase .. ' to approve once: ' }, function(input)
           if not live() then return end
           if input ~= phrase then return done('Rejected: explicit confirmation did not match') end
           approve()
@@ -572,7 +576,10 @@ function M.request(name, args, prompt, active, done, action, context)
           { role = 'user', content = 'User request: ' .. tostring(context.user_request or '') .. '\nTool: ' .. name .. '\nArguments: ' .. canonical(args) .. '\nApproval prompt: ' .. prompt .. change } })
       end
       if choice ~= 'reject' then return done('Rejected by user') end
-      vim.ui.input({ prompt = 'Reason for rejecting (optional): ' }, function(instruction)
+      require('codeit.ui.input').show({ title = ' Reject tool call ', approval = true,
+        prompt = 'Reason for rejecting (optional): ',
+        body = '# Reject tool call\n\n**Tool:** `' .. name
+          .. '`\n\nEnter an optional reason for the assistant. Submit an empty field to reject without a reason.' }, function(instruction)
         if not live() then return end
         done('Rejected by user' .. (instruction and vim.trim(instruction) ~= '' and ': ' .. instruction or ''))
       end)

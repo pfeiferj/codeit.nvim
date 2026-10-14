@@ -1,7 +1,7 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local approval = require('codeit.tools.approval')
 local prompt_ui = require('codeit.tools.approval.prompt')
-local original_show, original_ask, original_input = prompt_ui.show, prompt_ui.ask_reviewer, vim.ui.input
+local original_show, original_ask, original_input = prompt_ui.show, prompt_ui.ask_reviewer, require('codeit.ui.input').show
 local choices, inputs, questions = {}, {}, {}
 local prompts, prompt_configs, input_prompts = {}, {}, {}
 local held_choice
@@ -34,7 +34,7 @@ prompt_ui.show = function(prompt, options, cb, config)
     cb(choice)
   else cb(nil) end
 end
-vim.ui.input = function(config, cb)
+require('codeit.ui.input').show = function(config, cb)
   input_prompts[#input_prompts + 1] = config.prompt
   cb(table.remove(inputs, 1))
 end
@@ -312,7 +312,7 @@ held_choice('once')
 assert(actions == before_actions and result == 'Rejected: explicit confirmation did not match')
 -- Cancelling the task while the confirmation input is open invalidates its callback.
 local confirmation, current = nil, true
-vim.ui.input = function(_, cb) confirmation = cb end
+require('codeit.ui.input').show = function(_, cb) confirmation = cb end
 choices = { 'hold' }
 approval.request('run_command', { argv = { 'echo', 'cancel confirmation' } }, 'Confirm', function() return current end,
   function() error('inactive confirmation completed') end, function() error('inactive confirmation executed') end,
@@ -321,5 +321,5 @@ held_choice('once')
 assert(confirmation)
 current = false
 confirmation('approve run_command')
-vim.ui.input, prompt_ui.show, prompt_ui.ask_reviewer = original_input, original_show, original_ask
+require('codeit.ui.input').show, prompt_ui.show, prompt_ui.ask_reviewer = original_input, original_show, original_ask
 print('codeit approval tests passed')

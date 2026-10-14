@@ -9,13 +9,13 @@ local safe = '{"summary":"Reads information.","safety_score":1,"read_only":true,
 local write = '{"summary":"Writes a file.","safety_score":3,"read_only":false,"rule_compliant":true}'
 local escape = '{"summary":"Reads beyond the allowed scope.","safety_score":2,"read_only":true,"rule_compliant":false}'
 local risky = '{"summary":"Risky invocation.","safety_score":7,"read_only":true,"rule_compliant":true}'
-local original_show, original_input = prompt_ui.show, vim.ui.input
+local original_show, original_input = prompt_ui.show, require('codeit.ui.input').show
 local prompts, choose, result, actions, reviews, pending, live, typed = {}, nil, nil, 0, 0, nil, true, nil
 prompt_ui.show = function(text, _, cb)
   prompts[#prompts + 1] = text
   choose = cb
 end
-vim.ui.input = function(config, cb)
+require('codeit.ui.input').show = function(config, cb)
   typed = config.prompt
   cb('approve run_command')
 end
@@ -150,5 +150,5 @@ assert(prompts[1]:find('File argument requires read approval', 1, true))
 choose(nil)
 vim.cmd.cd(cwd)
 vim.fn.delete(dir, 'rf')
-prompt_ui.show, vim.ui.input = original_show, original_input
+prompt_ui.show, require('codeit.ui.input').show = original_show, original_input
 print('command_safety_test: ok')

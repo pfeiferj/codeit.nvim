@@ -9,12 +9,12 @@ local approval = require('codeit.tools.approval')
 local prompt = require('codeit.tools.approval.prompt')
 local writes = require('codeit.tools.approval.write')
 local preview, approvals, choice = nil, 0, 'once'
-vim.ui.input = function(_, cb) cb(nil) end
+require('codeit.ui.input').show = function(_, cb) cb(nil) end
 prompt.show = function(_, _, cb) cb(choice) end
 writes.show = function(diff, _, cb) preview = diff; approvals = approvals + 1; cb(choice) end
 local function run(name, args, source, context)
   local result, signal
-  vim.ui.input = function(config, cb)
+  require('codeit.ui.input').show = function(config, cb)
     cb(config.prompt:find('Type approve ', 1, true) and ('approve ' .. name) or nil)
   end
   tools.execute(name, args, source, function(value, kind) result, signal = value, kind end, function() return true end, context)

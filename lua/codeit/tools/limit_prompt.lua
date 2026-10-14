@@ -13,7 +13,11 @@ function M.show(default_rounds, active, callback)
   end
   local function custom()
     if not live() then return end
-    vim.ui.input({ prompt = 'Additional tool rounds: ', default = tostring(math.max(1, default_rounds)) }, function(value)
+    require('codeit.ui.input').show({ title = ' Additional tool rounds ', approval = true,
+      prompt = 'Additional tool rounds: ',
+      body = '# Extend tool limit\n\nEnter a **positive whole number** of additional tool-call rounds.\n\n'
+        .. 'Each round may contain multiple calls. **Individual tool approvals still apply.**',
+      default = tostring(math.max(1, default_rounds)) }, function(value)
       if not live() then return end
       if value == nil then return finish(nil) end
       local rounds = tonumber(vim.trim(value))

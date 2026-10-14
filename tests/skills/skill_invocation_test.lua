@@ -99,7 +99,7 @@ prompt.show = function(message, _, callback)
   prompts = prompts + 1
   callback(choice)
 end
-vim.ui.input = function(_, callback) callback(choice == 'once' and 'approve read_skill_resource' or nil) end
+require('codeit.ui.input').show = function(_, callback) callback(choice == 'once' and 'approve read_skill_resource' or nil) end
 local function resource(skill, path, options, context)
   local args = vim.tbl_extend('force', { skill = skill, path = path }, options or {})
   local result

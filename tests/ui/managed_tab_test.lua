@@ -19,7 +19,7 @@ approval.show = function(_, _, cb)
   prompted = true
   if decision == 'wait' then pending = cb else cb(decision) end
 end
-vim.ui.input = function(_, cb) cb(nil) end
+require('codeit.ui.input').show = function(_, cb) cb(nil) end
 local function call(name, args, prompt)
   prompted = false
   local result
