@@ -35,6 +35,8 @@ function M.validate(settings)
         if type(value) ~= 'string' or value:find('%c') then return false, 'invalid preferred provider slug' end
       elseif key == 'routing_mode' then
         if not vim.tbl_contains(definitions.routing_modes, value) then return false, 'invalid routing mode' end
+      elseif key == 'allow_fallbacks' then
+        if not vim.tbl_contains(definitions.fallback_values, value) then return false, 'invalid provider fallback setting' end
       elseif key == 'service_tier' then
         if not vim.tbl_contains(definitions.tiers, value) then return false, 'invalid service tier' end
       elseif key == 'effort' then

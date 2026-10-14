@@ -107,8 +107,29 @@ wait_for_response({ provider = 'openrouter', model = 'test-model', options = {
 payload = vim.json.decode(calls[#calls].options.stdin)
 assert(vim.deep_equal(payload.provider.order, { 'anthropic' }) and payload.service_tier == 'priority',
   'clearing the routing mode restores preferred-provider routing without changing the tier')
+for _, mode in ipairs({ '', 'auto', 'price', 'latency', 'throughput' }) do
+  for _, fallbacks in ipairs({ true, false }) do
+    wait_for_response({ provider = 'openrouter', model = 'test-model', options = {
+      routing_mode = mode, preferred_provider = 'anthropic', allow_fallbacks = fallbacks, service_tier = 'priority',
+    } })
+    payload = vim.json.decode(calls[#calls].options.stdin)
+    local expected = { allow_fallbacks = fallbacks }
+    if mode == '' then expected.order = { 'anthropic' }
+    elseif mode ~= 'auto' then expected.sort = mode end
+    assert(vim.deep_equal(payload.provider, expected), 'fallback setting must coexist with provider routing')
+    assert(payload.service_tier == 'priority' and payload.allow_fallbacks == nil)
+  end
+  wait_for_response({ provider = 'openrouter', model = 'test-model', options = {
+    routing_mode = mode, allow_fallbacks = '',
+  } })
+  payload = vim.json.decode(calls[#calls].options.stdin)
+  assert(payload.provider == nil or payload.provider.allow_fallbacks == nil, 'cleared fallback setting must be omitted')
+end
+wait_for_response({ provider = 'openrouter', model = 'test-model', options = { allow_fallbacks = false } })
+payload = vim.json.decode(calls[#calls].options.stdin)
+assert(vim.deep_equal(payload.provider, { allow_fallbacks = false }), 'fallbacks can be disabled without a routing preference')
 wait_for_response({ provider = 'copilot', model = 'test-model', options = {
-  preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high', routing_mode = 'price',
+  preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high', routing_mode = 'price', allow_fallbacks = false,
 } })
 payload = vim.json.decode(calls[#calls].options.stdin)
 assert(payload.provider == nil and payload.service_tier == nil and payload.reasoning == nil,

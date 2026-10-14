@@ -28,6 +28,10 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
       body.provider = { order = { options.preferred_provider } }
     end
   end
+  if type(options.allow_fallbacks) == 'boolean' then
+    body.provider = body.provider or {}
+    body.provider.allow_fallbacks = options.allow_fallbacks
+  end
   if options.service_tier and options.service_tier ~= '' then body.service_tier = options.service_tier end
   if options.effort and options.effort ~= '' then body.reasoning = { effort = options.effort } end
   http.post('https://openrouter.ai/api/v1/chat/completions', {
