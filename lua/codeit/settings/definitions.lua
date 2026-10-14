@@ -1,5 +1,6 @@
 local M = {}
 M.tiers = { '', 'default', 'flex', 'priority', 'fast', 'ultrafast' }
+M.routing_modes = { '', 'auto', 'price', 'latency', 'throughput' }
 M.efforts = { '', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh' }
 M.copilot_hosts = { '', 'api.githubcopilot.com', 'api.business.githubcopilot.com' }
 M.features = { 'tool_assessment', 'tool_review', 'context_review', 'history_summary', 'compaction', 'cost_review', 'subagent' }
@@ -14,7 +15,7 @@ M.feature_labels = {
   context_review = 'Background context review', history_summary = 'History summaries', compaction = 'Compaction',
   cost_review = 'Cost review chat', subagent = 'Subagents',
 }
-M.option_providers = { preferred_provider = 'openrouter', service_tier = 'openrouter',
+M.option_providers = { preferred_provider = 'openrouter', service_tier = 'openrouter', routing_mode = 'openrouter',
   effort = 'openrouter', api_host = 'copilot' }
 
 return M

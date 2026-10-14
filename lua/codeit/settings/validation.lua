@@ -33,6 +33,8 @@ function M.validate(settings)
         if not vim.tbl_contains(definitions.efforts, value) then return false, 'invalid effort' end
       elseif key == 'preferred_provider' then
         if type(value) ~= 'string' or value:find('%c') then return false, 'invalid preferred provider slug' end
+      elseif key == 'routing_mode' then
+        if not vim.tbl_contains(definitions.routing_modes, value) then return false, 'invalid routing mode' end
       elseif key == 'service_tier' then
         if not vim.tbl_contains(definitions.tiers, value) then return false, 'invalid service tier' end
       elseif key == 'effort' then

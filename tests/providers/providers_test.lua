@@ -78,12 +78,37 @@ payload = vim.json.decode(calls[#calls].options.stdin)
 assert(vim.deep_equal(payload.provider.order, { 'anthropic' }))
 assert(payload.service_tier == 'priority' and payload.reasoning.effort == 'high')
 wait_for_response({ provider = 'openrouter', model = 'test-model', options = {
-  preferred_provider = '', service_tier = '', effort = '',
+  preferred_provider = '', service_tier = '', effort = '', routing_mode = '',
 } })
 payload = vim.json.decode(calls[#calls].options.stdin)
 assert(payload.provider == nil and payload.service_tier == nil and payload.reasoning == nil)
+for _, mode in ipairs({ 'auto', 'price', 'latency', 'throughput' }) do
+  wait_for_response({ provider = 'openrouter', model = 'test-model', options = {
+    routing_mode = mode, preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high',
+  } })
+  payload = vim.json.decode(calls[#calls].options.stdin)
+  if mode == 'auto' then
+    assert(payload.provider == nil, 'automatic routing must not force a provider')
+  else
+    assert(vim.deep_equal(payload.provider, { sort = mode }), 'routing mode sets sort without provider order')
+  end
+  assert(payload.service_tier == 'priority', 'routing modes must preserve the requested service tier')
+  assert(payload.reasoning.effort == 'high')
+  assert(payload.routing_mode == nil, 'routing mode is local configuration, not an API field')
+  for _, options in ipairs({ { routing_mode = mode }, { routing_mode = mode, service_tier = '' } }) do
+    wait_for_response({ provider = 'openrouter', model = 'test-model', options = options })
+    payload = vim.json.decode(calls[#calls].options.stdin)
+    assert(payload.service_tier == nil, 'unset or cleared service tiers must be omitted with routing modes')
+  end
+end
+wait_for_response({ provider = 'openrouter', model = 'test-model', options = {
+  routing_mode = '', preferred_provider = 'anthropic', service_tier = 'priority',
+} })
+payload = vim.json.decode(calls[#calls].options.stdin)
+assert(vim.deep_equal(payload.provider.order, { 'anthropic' }) and payload.service_tier == 'priority',
+  'clearing the routing mode restores preferred-provider routing without changing the tier')
 wait_for_response({ provider = 'copilot', model = 'test-model', options = {
-  preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high',
+  preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high', routing_mode = 'price',
 } })
 payload = vim.json.decode(calls[#calls].options.stdin)
 assert(payload.provider == nil and payload.service_tier == nil and payload.reasoning == nil,

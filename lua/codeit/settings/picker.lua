@@ -7,6 +7,11 @@ local catalog = require('codeit.settings.catalog')
 M.search = catalog.search
 M.endpoint_label = catalog.endpoint_label
 
+local function routing_label(value)
+  return ({ [''] = 'Use preferred provider', auto = 'Automatic routing',
+    price = 'Lowest price', latency = 'Lowest latency', throughput = 'Highest throughput' })[value or '']
+end
+
 function M.show(current, apply, live)
   local draft = vim.deepcopy(current)
   draft.feature_settings = draft.feature_settings or {}
@@ -100,6 +105,7 @@ function M.show(current, apply, live)
     end
     local function option_label(key)
       local value = (feature.options or {})[key]
+      if key == 'routing_mode' and value ~= nil then return routing_label(value) end
       return value == nil and '(inherit)' or (value == '' and '(provider default)' or value)
     end
     local items = {
@@ -115,7 +121,7 @@ function M.show(current, apply, live)
         .. (feature.preset == nil and ' (default)' or '') })
     end
     if selected.provider == 'openrouter' then
-      for _, entry in ipairs({ { 'preferred_provider', 'Preferred upstream provider' },
+      for _, entry in ipairs({ { 'routing_mode', 'Routing mode' }, { 'preferred_provider', 'Preferred upstream provider' },
         { 'service_tier', 'Service tier' }, { 'effort', 'Reasoning effort' } }) do
         items[#items + 1] = { id = entry[1], label = entry[2] .. ': ' .. option_label(entry[1]) }
       end
@@ -134,7 +140,8 @@ function M.show(current, apply, live)
     for _, item in ipairs(items) do
       item.section = (item.id == 'preset' or item.id == 'provider' or item.id == 'model' or item.id == 'manual')
         and 'Model selection'
-        or ((item.id == 'preferred_provider' or item.id == 'service_tier' or item.id == 'effort' or item.id == 'api_host')
+        or ((item.id == 'routing_mode' or item.id == 'preferred_provider' or item.id == 'service_tier'
+          or item.id == 'effort' or item.id == 'api_host')
           and 'Request options' or 'Inheritance and navigation')
     end
     select(items, { prompt = title,
@@ -184,10 +191,12 @@ function M.show(current, apply, live)
         choose_upstream(store(), selected.model, back, true)
       else
         local values = id == 'api_host' and settings.copilot_hosts
+          or (id == 'routing_mode' and settings.routing_modes)
           or (id == 'service_tier' and settings.tiers or settings.efforts)
         local choices = { { value = nil, label = '(inherit)' } }
         for _, value in ipairs(values) do
-          choices[#choices + 1] = { value = value, label = value == '' and '(provider default)' or value }
+          choices[#choices + 1] = { value = value, label = id == 'routing_mode' and routing_label(value)
+            or (value == '' and '(provider default)' or value) }
         end
         select(choices, { prompt = id, format_item = function(choice) return choice.label end }, function(choice)
           if not valid() then return end
@@ -207,6 +216,7 @@ function M.show(current, apply, live)
     }
     if draft.provider == 'openrouter' then
       vim.list_extend(items, {
+        { id = 'routing_mode', label = 'Routing mode: ' .. routing_label(options.routing_mode) },
         { id = 'preferred_provider', label = 'Preferred upstream provider: ' .. (options.preferred_provider or '') },
         { id = 'service_tier', label = 'Service tier: ' .. (options.service_tier or '') },
         { id = 'effort', label = 'Reasoning effort: ' .. (options.effort or '') },
@@ -276,10 +286,13 @@ function M.show(current, apply, live)
           if value ~= nil then options.api_host = value; draft.request_options.copilot = options end
           menu()
         end)
-      elseif id == 'service_tier' or id == 'effort' then
-        select(id == 'service_tier' and settings.tiers or settings.efforts, {
-          prompt = id == 'service_tier' and 'Service tier (model/provider dependent)' or 'Reasoning effort (model dependent)',
-          format_item = function(value) return value == '' and '(provider default)' or value end,
+      elseif id == 'routing_mode' or id == 'service_tier' or id == 'effort' then
+        select(id == 'routing_mode' and settings.routing_modes or (id == 'service_tier' and settings.tiers or settings.efforts), {
+          prompt = id == 'routing_mode' and 'Routing mode (overrides preferred provider)'
+            or (id == 'service_tier' and 'Service tier (model/provider dependent)' or 'Reasoning effort (model dependent)'),
+          format_item = function(value)
+            return id == 'routing_mode' and routing_label(value) or (value == '' and '(provider default)' or value)
+          end,
         }, function(value)
           if not valid() then return end
           if value ~= nil then options[id] = value; draft.request_options[draft.provider] = options end

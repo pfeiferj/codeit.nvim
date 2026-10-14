@@ -21,8 +21,12 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   if config.max_output_tokens then body.max_tokens = config.max_output_tokens end
   body.usage = { include = true }
   local options = config.options or {}
-  if options.preferred_provider and options.preferred_provider ~= '' then
-    body.provider = { order = { options.preferred_provider } }
+  if options.routing_mode and options.routing_mode ~= '' then
+    if options.routing_mode ~= 'auto' then body.provider = { sort = options.routing_mode } end
+  else
+    if options.preferred_provider and options.preferred_provider ~= '' then
+      body.provider = { order = { options.preferred_provider } }
+    end
   end
   if options.service_tier and options.service_tier ~= '' then body.service_tier = options.service_tier end
   if options.effort and options.effort ~= '' then body.reasoning = { effort = options.effort } end

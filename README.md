@@ -97,7 +97,7 @@ require('codeit').setup({
   --   history_summary = { model = 'openai/gpt-4o-mini' }, -- optional per-feature override
   -- }, -- see "Per-feature models and presets" below
   -- request_options = {
-  --   openrouter = { preferred_provider = 'anthropic', service_tier = 'priority', effort = 'high' },
+  --   openrouter = { routing_mode = 'throughput', effort = 'high' }, -- auto, price, latency, or throughput
   --   copilot = { api_host = 'api.business.githubcopilot.com', effort = 'high' }, -- host defaults to api.githubcopilot.com
   --   codex = { effort = 'high' }, -- optional; model-dependent
   -- },
@@ -203,7 +203,9 @@ Entries in `feature_settings` can select a different `preset` using its key. Omi
 
 The former `secondary_models` setting is no longer used. Old settings and chats still load, but that field is ignored; move any desired model choices into `model_presets` or `feature_settings`.
 
-`options` override individual keys. Omitted keys inherit; `''` explicitly clears a key to the API default, even if the preset or main request has a value. OpenRouter supports `preferred_provider`, `service_tier`, and `effort`; Copilot supports `api_host`; Codex supports `effort`. Options belonging to the other backend are not sent. Presets and features may use a different backend from the main chat, so credentials/access for all selected backends are required. Explicit model IDs must match the resolved backend; if a feature overrides a preset's backend, also override its model when the preset has an explicit model.
+`options` override individual keys. Omitted keys inherit; `''` explicitly clears a key to the API default, even if the preset or main request has a value. OpenRouter supports `routing_mode`, `preferred_provider`, `service_tier`, and `effort`; Copilot supports `api_host`; Codex supports `effort`. Options belonging to the other backend are not sent. Presets and features may use a different backend from the main chat, so credentials/access for all selected backends are required. Explicit model IDs must match the resolved backend; if a feature overrides a preset's backend, also override its model when the preset has an explicit model.
+
+OpenRouter's **Routing mode** selects `auto` (automatic routing), `price` (lowest price), `latency` (lowest latency), or `throughput` (highest throughput). An explicit mode ignores `preferred_provider`, including inherited values; service tier and reasoning effort remain independent and are still sent when configured. Sorted modes send OpenRouter's `provider.sort` setting, while `auto` leaves routing to OpenRouter. Omit `routing_mode` to inherit it, or set it to `''` (**Use preferred provider**) to disable the mode and use the existing preferred-provider setting. Existing configurations without a routing mode keep their behavior. This option is available for main chat, shared presets, and individual features.
 
 In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Preset reasoning** to edit shared settings. Select a feature to choose its preset and edit individual overrides. Model searches use the effective backend and API host; upstream-provider searches use the effective model. **Use inherited model** and **Inherit all request options** remove the current entry's overrides. **Reset preset to main chat settings** clears the shared preset; **Reset feature to its default preset** clears all of that feature's overrides and restores its default assignment. Return to the main menu and apply/save the draft. Changing only presets or feature settings preserves the conversation. Choose a long-context/compaction model with enough context capacity; automatic compaction thresholds still use the main model's limit. `context_review = false` remains the independent on/off switch for background pruning.
 
