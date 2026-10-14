@@ -36,7 +36,8 @@ function M.refresh(id)
   if versions[id] == version then return end
   -- checktime can miss same-size changes within one filesystem timestamp tick.
   local readonly, modifiable = vim.bo[id].readonly, vim.bo[id].modifiable
-  local ok, err = pcall(vim.api.nvim_buf_call, id, function() vim.cmd('silent noautocmd keepalt edit!') end)
+  -- Let reload autocommands restore syntax rules and Tree-sitter highlighting.
+  local ok, err = pcall(vim.api.nvim_buf_call, id, function() vim.cmd('silent keepalt edit!') end)
   vim.bo[id].readonly, vim.bo[id].modifiable = readonly, modifiable
   if not ok then error(err) end
   versions[id] = version
