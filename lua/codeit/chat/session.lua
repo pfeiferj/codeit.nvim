@@ -96,7 +96,7 @@ function M.attach(api, session, helpers)
     helpers.render()
   end
 
-  function M.stop()
+  function helpers.stop(reason)
     helpers.sync_workspace()
     if not session.busy then return false end
     session.generation = session.generation + 1
@@ -112,7 +112,7 @@ function M.attach(api, session, helpers)
     for _, call in ipairs(type(calls) == 'table' and calls or {}) do
       if not answered[call.id] then
         session.messages[#session.messages + 1] = { role = 'tool', tool_call_id = call.id,
-          content = 'Interrupted by user. This call did not complete; any side effects already performed are not undone.' }
+          content = reason .. '. This call did not complete; any side effects already performed are not undone.' }
       end
     end
     if type(session.stream_preview) == 'string' and session.stream_preview ~= '' then
@@ -123,6 +123,10 @@ function M.attach(api, session, helpers)
     helpers.save()
     helpers.set_status('Turn interrupted')
     return true
+  end
+
+  function M.stop()
+    return helpers.stop('Interrupted by user')
   end
 
   function M.close()

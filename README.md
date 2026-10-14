@@ -262,19 +262,22 @@ and `q` or `<Esc>` to close the view. Logs retain the first 20000 bytes, with an
 explicit truncation marker. Tasks and logs are session-only, survive closing or
 switching chats, and running commands are stopped when Neovim exits.
 
-The assistant can set `notify_on_completion = true` to request a follow-up.
-After the task ends, the integration waits for the originating chat to be active
-and idle, then asks whether to send its results to the assistant. Declining or
-dismissing sends nothing. Approval never interrupts an active response or sends
-results to a different chat. With this option omitted or false, no assistant
-follow-up is requested; results remain available in the task view.
+The assistant can set `notify_on_completion = true` to request results.
+If the task ends while the turn that started it is still running, the integration
+interrupts that turn and immediately resumes it with the results, without a
+separate approval. If that turn has already ended, the integration waits for the
+originating chat to be active and idle, then asks whether to send its results to
+the assistant. Declining or dismissing sends nothing. This later follow-up never
+interrupts an active response or sends results to a different chat. With this
+option omitted or false, results remain available only in the task view.
 
 ### Subagents
 
 The assistant can delegate read-only tasks using `start_subagent` with a `title`,
 `task`, and `mode`: `wait` returns the final result, `background_notify` returns a
-run ID immediately and sends the result to the originating assistant when that
-chat is active and idle, and `background` returns immediately without a follow-up.
+run ID immediately. If the originating turn is still running, its result interrupts
+and resumes that turn; otherwise, the result is sent when that chat is active and
+idle. `background` returns immediately without a follow-up.
 These follow-ups do not require an additional approval. Runs use a snapshot of
 the main conversation's context. The `subagent` feature defaults to the **fast**
 preset; configure its provider, model, preset, and request options under

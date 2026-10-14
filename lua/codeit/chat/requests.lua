@@ -21,6 +21,18 @@ function M.attach(api, session, helpers)
       return true
     end
     if not active() then return end
+    local resume_round = round
+    helpers.interrupt = function(text, reason)
+      if not session.busy or not active() then return false end
+      local turn, reviews = session.current_turn, session.turn_reviews
+      helpers.stop(reason or 'Interrupted by background task completion')
+      session.current_turn, session.turn_reviews = turn, reviews
+      table.insert(session.messages, { role = 'user', content = text })
+      session.busy = true
+      helpers.save()
+      helpers.request(resume_round, session.generation, false, nil, nil, budget)
+      return true
+    end
     helpers.validate_context_summary()
     if not skip_auto and not budget.long_context and session.config.max_context_tokens == nil and not limit_checked
       and type(providers.context_limit) == 'function' then
@@ -167,6 +179,7 @@ function M.attach(api, session, helpers)
           helpers.complete()
           return helpers.review_turn()
         end
+        resume_round = round + 1
         local user_request
         for i = batch_start - 1, 1, -1 do
           if session.messages[i].role == 'user' then user_request = session.messages[i].content; break end
@@ -294,7 +307,7 @@ function M.attach(api, session, helpers)
             on_auto_approval = on_auto_approval, tool_call_id = call.id,
             user_request = user_request,
             approval_round = approval_round,
-            background_origin = { workspace = session.workspace, chat_id = session.chat_id },
+            background_origin = { workspace = session.workspace, chat_id = session.chat_id, turn = billed_turn },
             subagent_config = subagent_config,
             subagent_messages = helpers.request_messages(),
             subagent_usage = subagent_usage,

@@ -1,9 +1,11 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
-local requests, callbacks = {}, {}
+local requests, callbacks, streams, active = {}, {}, {}, {}
 package.loaded['codeit.providers'] = {
-  chat = function(_, messages, _, callback)
+  chat = function(_, messages, _, callback, stream, is_active)
     requests[#requests + 1] = vim.deepcopy(messages)
     callbacks[#callbacks + 1] = callback
+    streams[#requests] = stream
+    active[#requests] = is_active
   end,
 }
 local plugin = require('codeit')
@@ -49,6 +51,59 @@ plugin.new()
 choices[1]('Send results to assistant')
 vim.wait(300, function() return false end)
 assert(#requests == 3, 'approval must not send results to another chat')
+
+plugin.send('Run a task and keep working')
+reply({ role = 'assistant', tool_calls = { {
+  id = 'interrupting-background', type = 'function', ['function'] = {
+    name = 'start_background_task', arguments = vim.json.encode({
+      argv = { 'sh', '-c', 'sleep 0.2; printf immediate' },
+      title = 'Interrupting task', notify_on_completion = true,
+    }),
+  },
+} } })
+approve()
+local immediate = tasks.list()[2]
+local pending_request = #requests
+streams[pending_request]('Working on something else')
+assert(vim.wait(3000, function() return immediate.notification == 'sent' end))
+assert(selections == 1, 'originating turn completion must not ask for approval')
+assert(#requests == pending_request + 1, 'completion interrupts and resumes the originating turn')
+assert(not active[pending_request](), 'interrupted provider request becomes inactive')
+local resumed = requests[#requests]
+assert(resumed[#resumed].role == 'user' and resumed[#resumed].content:find('immediate', 1, true))
+assert(resumed[#resumed - 1].content == 'Working on something else', 'preserve partial response')
+reply({ role = 'assistant', content = 'Stale reply' })
+assert(#requests == pending_request + 1, 'stale callback must not change the resumed turn')
+reply({ role = 'assistant', content = 'Results received' })
+vim.wait(300, function() return false end)
+assert(selections == 1, 'immediate completion is only delivered once')
+plugin.new()
+
+plugin.send('Keep working while another task runs')
+reply({ role = 'assistant', tool_calls = { {
+  id = 'batch-background', type = 'function', ['function'] = {
+    name = 'start_background_task', arguments = vim.json.encode({
+      argv = { 'sh', '-c', 'sleep 0.2; printf batch-result' },
+      title = 'Batch interrupt', notify_on_completion = true,
+    }),
+  },
+} } })
+approve()
+local batch_task = tasks.list()[3]
+reply({ role = 'assistant', tool_calls = { {
+  id = 'unfinished-command', type = 'function', ['function'] = {
+    name = 'run_command', arguments = vim.json.encode({ argv = { 'true' } }),
+  },
+} } })
+assert(vim.wait(3000, function() return batch_task.notification == 'sent' end))
+assert(selections == 1, 'completion during a tool batch must not ask for approval')
+local balanced = requests[#requests]
+assert(balanced[#balanced - 1].role == 'tool'
+  and balanced[#balanced - 1].tool_call_id == 'unfinished-command'
+  and balanced[#balanced - 1].content:find('Interrupted by background task completion', 1, true),
+  'interrupted tool batches must retain matching results')
+reply({ role = 'assistant', content = 'Batch results received' })
+plugin.new()
 
 local origin = { workspace = require('codeit.chat.storage').workspace(), chat_id = 'test' }
 local idle, delivered = false, {}
