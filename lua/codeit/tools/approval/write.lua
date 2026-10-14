@@ -90,6 +90,7 @@ function M.show(diff, options, callback)
   local offset = #lines
   vim.list_extend(lines, body)
   local buf = vim.api.nvim_create_buf(false, true)
+  vim.b[buf].codeit_approval = true
   vim.bo[buf].bufhidden = 'wipe'
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   local filetype = diff.filetype

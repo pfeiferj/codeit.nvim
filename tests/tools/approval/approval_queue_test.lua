@@ -98,10 +98,13 @@ local function check_popup(open)
   advance(2000)
   assert(#notifications == notified + 1, 'popup delays should notify only once')
   assert(shown == count and vim.api.nvim_get_current_win() == current, 'feature popups must not be covered by approvals')
+  input('j', 'j')
   vim.api.nvim_win_close(win, true)
   vim.wait(10)
   advance(250)
-  assert(shown == count + 1, 'closing the feature popup should release the approval')
+  assert(shown == count, 'interacting with unrelated popups must still delay approvals')
+  advance(750)
+  assert(shown == count + 1, 'closing the feature popup should release the approval after idle time')
 end
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { '| A | B |', '| --- | --- |', '| one | two |' })
 vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -148,6 +151,42 @@ queue.enqueue(function() error('test prompt error') end, nil, function(err) fail
 assert(failure and failure:find('test prompt error', 1, true), 'display failures must be reported')
 queue.enqueue(show)
 assert(shown == before + 2, 'a failed display must not jam the queue')
+
+local approval_options = { { key = '1', id = 'once', label = 'Approve once' } }
+for _, open in ipairs({
+  function(callback)
+    require('codeit.tools.approval.prompt').show('Approve command?', approval_options, callback)
+  end,
+  function(callback)
+    require('codeit.tools.approval.write').show({
+      path = 'example.lua', before = 'return 1\n', after = 'return 2\n',
+    }, approval_options, callback)
+  end,
+}) do
+  local released, decided = 0, false
+  queue.enqueue(function() open(function(choice) decided = choice == 'once' end) end)
+  local win, buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+  queue.enqueue(function() released = released + 1 end)
+  advance(1000)
+  input('j', 'j')
+  advance(250)
+  assert(released == 0, 'approval navigation must not allow overlapping prompts')
+  input('1', '1')
+  for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+    if mapping.lhs == '1' then mapping.callback(); break end
+  end
+  assert(decided and not vim.api.nvim_win_is_valid(win), 'selection must close the approval')
+  advance(250)
+  assert(released == 1, 'approval input must not add an idle delay to the next queued approval')
+  queue.enqueue(function() released = released + 1 end)
+  assert(released == 2, 'approval input must not delay newly arriving approvals either')
+  input('j', 'j')
+  queue.enqueue(function() released = released + 1 end)
+  advance(750)
+  assert(released == 2, 'normal editing must resume postponing approvals after a decision')
+  advance(250)
+  assert(released == 3)
+end
 
 local approval_round = {}
 mode = 'i'

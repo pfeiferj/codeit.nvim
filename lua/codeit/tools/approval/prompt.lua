@@ -38,6 +38,7 @@ function M.show(prompt, options, callback, config)
   lines[#lines + 1] = '*<C-g>: view chat context; press again to return.*'
 
   local buf = vim.api.nvim_create_buf(false, true)
+  vim.b[buf].codeit_approval = true
   vim.bo[buf].bufhidden = 'wipe'
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   markdown.enable(buf)
