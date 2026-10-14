@@ -4,6 +4,12 @@ local function filename()
   return vim.fn.stdpath('data') .. '/codeit/seen_workspaces.json'
 end
 
+local function is_temporary(workspace)
+  -- Neovim tempname() paths, including descendants and paths from past sessions.
+  local suffix = workspace:match('/nvim%.[^/]+/[^/]+/%d+(.*)$')
+  return suffix ~= nil and (suffix == '' or suffix:sub(1, 1) == '/')
+end
+
 local function load()
   local file = io.open(filename(), 'r')
   if not file then return {} end
@@ -22,6 +28,7 @@ local function load()
 end
 
 function M.record(workspace)
+  if is_temporary(workspace) then return true end
   local paths = load()
   if paths[workspace] then return true end
   paths[workspace] = true
@@ -48,7 +55,8 @@ function M.list()
   for _, chat in ipairs(require('codeit.chat.storage').list_all()) do paths[chat.workspace] = true end
   local workspaces = {}
   for path in pairs(paths) do workspaces[#workspaces + 1] = path end
-  return require('codeit.tools.approval').list_workspace_trust(workspaces)
+  local entries = require('codeit.tools.approval').list_workspace_trust(workspaces)
+  return vim.tbl_filter(function(entry) return not is_temporary(entry.workspace) end, entries)
 end
 
 return M

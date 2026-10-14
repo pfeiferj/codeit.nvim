@@ -6,13 +6,17 @@ local codeit = require('codeit')
 local approval = require('codeit.tools.approval')
 local history = require('codeit.chat.storage')
 local workspaces = require('codeit.workspaces')
-local parent = vim.fn.tempname()
+local parent = assert(vim.uv.fs_mkdtemp(vim.uv.os_tmpdir() .. '/codeit-workspace-review-XXXXXX'))
 local child, nested, sibling = parent .. '/repo', parent .. '/repo/nested', parent .. '/other'
 local old, removed = parent .. '-old', parent .. '-removed'
 for _, path in ipairs({ nested, sibling, old, removed }) do vim.fn.mkdir(path, 'p') end
 parent = vim.uv.fs_realpath(parent)
 child, nested, sibling = parent .. '/repo', parent .. '/repo/nested', parent .. '/other'
-codeit.setup({ approval = { trusted_workspaces = { [parent] = 'all', [child] = 'tracked' } } })
+local temporary = vim.fn.tempname()
+vim.fn.mkdir(temporary .. '/configured', 'p')
+codeit.setup({ approval = { trusted_workspaces = {
+  [parent] = 'all', [child] = 'tracked', [temporary .. '/configured'] = 'all',
+} } })
 
 -- Opening a session without sending/saving a chat still remembers the workspace.
 vim.cmd.cd(nested)
@@ -36,6 +40,28 @@ local function entries()
   end
   return result
 end
+-- Temporary paths must be hidden regardless of how they entered the list.
+assert(workspaces.record(temporary))
+assert(workspaces.record(temporary .. '/one'))
+local seen_path = vim.fn.stdpath('data') .. '/codeit/seen_workspaces.json'
+local seen = vim.json.decode(table.concat(vim.fn.readfile(seen_path), '\n'))
+assert(not seen[temporary] and not seen[temporary .. '/one'], 'temporary visits must not be remembered')
+seen[temporary .. '/remembered'] = true
+local previous_temporary = '/tmp/nvim.codeit-test/old-session/0/ids'
+seen[previous_temporary] = true
+vim.fn.writefile({ vim.json.encode(seen) }, seen_path)
+assert(history.save(temporary .. '/chat', 'temporary', { provider = 'openrouter', model = 'test', messages = {} }))
+assert(approval.set_workspace_trust('all', temporary .. '/trusted'))
+local workspace = history.workspace
+history.workspace = function() return temporary end
+local temporary_rows = entries()
+history.workspace = workspace
+assert(not temporary_rows[previous_temporary], 'temporary paths from past sessions must stay hidden')
+for _, suffix in ipairs({ '', '/one', '/remembered', '/chat', '/trusted', '/configured' }) do
+  assert(not temporary_rows[temporary .. suffix], 'Neovim temporary workspaces must not appear')
+end
+trust_before = table.concat(vim.fn.readfile(trust_path), '\n')
+
 local rows = entries()
 assert(rows[parent].mode == 'all' and rows[parent].source == 'configured')
 assert(rows[sibling].mode == 'all' and rows[sibling].origin == parent)
@@ -59,6 +85,7 @@ assert(not vim.bo[buf].modifiable)
 local function text() return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n') end
 assert(text():find(nested, 1, true) and text():find('Revoked in ' .. child, 1, true))
 assert(text():find('configured in ' .. parent, 1, true))
+assert(not text():find(temporary, 1, true) and not text():find(previous_temporary, 1, true))
 assert(text():find('untrusted', 1, true) and text():find('all', 1, true))
 assert(table.concat(vim.fn.readfile(trust_path), '\n') == trust_before, 'review must not change trust')
 assert(codeit.workspaces() == win, 'reopening should focus the existing popup')
@@ -186,4 +213,5 @@ vim.cmd.cd(root)
 vim.fn.delete(parent, 'rf')
 vim.fn.delete(old, 'rf')
 vim.fn.delete(data, 'rf')
+vim.fn.delete(temporary, 'rf')
 print('codeit workspace review tests passed')
