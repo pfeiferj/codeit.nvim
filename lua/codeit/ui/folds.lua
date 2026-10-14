@@ -82,6 +82,10 @@ function M.attach(api, state, options, helpers)
 
   -- Fold ranges are available before buffer updates, without deleting live folds.
   function helpers.configure_folds(win)
+    local buf = vim.api.nvim_win_get_buf(win)
+    local ufo = package.loaded.ufo
+    -- UFO's asynchronous manual folds must not replace the chat's activity ranges.
+    if ufo and vim.bo[buf].filetype == 'codeit' then ufo.detach(buf) end
     local levels, summaries = {}, {}
     for _, fold in ipairs(state.section_folds) do
       for row = fold.first, fold.last do levels[tostring(row)] = 1 end
