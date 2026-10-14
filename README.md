@@ -70,6 +70,14 @@ previous tab, keeping the conversation, file layout, and unsaved buffers; reopen
 Codeit restores its tab. Use `:CodeitNew` for a fresh chat or `:CodeitHistory` to
 resume an earlier one.
 
+Codeit notifications appear in a rounded, bordered popup at the top right of the
+terminal, without taking focus. Messages are labeled and highlighted by severity
+(`CodeitNotifyERROR`, `CodeitNotifyWARN`, `CodeitNotifyINFO`, `CodeitNotifyDEBUG`,
+and `CodeitNotifyTRACE`). Each message expires independently after four seconds;
+the popup closes when the last message expires and follows you across tabs. If
+the stack exceeds the terminal height, the newest messages remain visible.
+Notifications from other plugins continue to use your existing notifier.
+
 For navigation, file views, and appearance options, see [Usage](#usage).
 
 <details>

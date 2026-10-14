@@ -21,8 +21,9 @@ local function available(entry)
   if last_input and (vim.uv.hrtime() - last_input) / 1e6 < idle_ms then return false end
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
     local config = vim.api.nvim_win_get_config(win)
-    if config.relative ~= '' and not config.hide
-      and vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win)) ~= 'codeit://chat' then
+    local buf = vim.api.nvim_win_get_buf(win)
+    if config.relative ~= '' and not config.hide and not vim.b[buf].codeit_notification
+      and vim.api.nvim_buf_get_name(buf) ~= 'codeit://chat' then
       return false
     end
   end

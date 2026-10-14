@@ -1,4 +1,5 @@
 local M = {}
+require('codeit.ui.notifications').install()
 local session = require('codeit.chat.state').new(require('codeit.settings.defaults'))
 -- Each component closes over this explicit session and helper interface. Components
 -- never require the public facade, so registration cannot create dependency cycles.

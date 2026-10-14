@@ -1,6 +1,12 @@
 local M = {}
 local markdown = require('codeit.ui.markdown')
 
+local function reject_write(message)
+  vim.notify('codeit: ' .. tostring(message), vim.log.levels.ERROR)
+  -- Popup notifiers do not raise Ex errors; failed writes must still abort :wq.
+  error('codeit: ' .. tostring(message), 0)
+end
+
 function M.show_context(request, summary, on_save)
   local existing = vim.fn.bufnr('codeit://context')
   if existing ~= -1 then
@@ -61,11 +67,11 @@ function M.show_context(request, summary, on_save)
       end
       if #current < #prefix + #suffix or not matches(prefix, 1)
         or not matches(suffix, #current - #suffix + 1) then
-        return vim.notify('codeit: only the compacted summary may be edited', vim.log.levels.ERROR)
+        return reject_write('only the compacted summary may be edited')
       end
       local edited = table.concat(vim.list_slice(current, #prefix + 1, #current - #suffix), '\n')
       local ok, err = on_save(edited)
-      if not ok then return vim.notify('codeit: ' .. err, vim.log.levels.ERROR) end
+      if not ok then return reject_write(err) end
       vim.bo[buf].modified = false
       vim.notify('codeit: context summary saved')
     end,
@@ -106,9 +112,9 @@ local function editor(name, lines, filetype, decode, on_save)
     callback = function()
       local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
       local ok, value = decode(text)
-      if not ok then return vim.notify('codeit: ' .. tostring(value), vim.log.levels.ERROR) end
+      if not ok then return reject_write(value) end
       local saved, err = on_save(value)
-      if not saved then return vim.notify('codeit: ' .. err, vim.log.levels.ERROR) end
+      if not saved then return reject_write(err) end
       vim.bo[buf].modified = false
       vim.notify('codeit: editor saved')
     end,

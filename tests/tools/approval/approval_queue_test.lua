@@ -39,6 +39,16 @@ input('j', '')
 queue.enqueue(show)
 assert(shown == 2, 'generated renderer keys must not reset user idle time')
 assert(#notifications == 0, 'immediate approvals should not send delay notifications')
+local notice_buf = vim.api.nvim_create_buf(false, true)
+vim.b[notice_buf].codeit_notification = true
+local notice_win = vim.api.nvim_open_win(notice_buf, false, {
+  relative = 'editor', row = 0, col = 0, width = 20, height = 1, focusable = false,
+})
+local released = false
+queue.enqueue(function() released = true end)
+assert(released, 'notification floats must not block approval prompts')
+vim.api.nvim_win_close(notice_win, true)
+vim.api.nvim_buf_delete(notice_buf, { force = true })
 input('j', 'j')
 queue.enqueue(show)
 assert(#notifications == 1, 'delayed approvals should notify immediately')
