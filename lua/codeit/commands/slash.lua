@@ -15,6 +15,7 @@ local commands = {
   { name = 'contextFiles', command = 'CodeitContextFiles', description = 'Manage attached files' },
   { name = 'systemPrompt', command = 'CodeitSystemPrompt', description = 'Edit the system prompt' },
   { name = 'history', command = 'CodeitHistory', description = 'Browse saved conversations' },
+  { name = 'autoApprovals', command = 'CodeitAutoApprovals', description = 'Review automatic approvals and ask questions' },
   { name = 'costs', command = 'CodeitCosts', description = 'Review chat costs' },
   { name = 'tasks', command = 'CodeitTasks', description = 'Review background tasks' },
   { name = 'subagents', command = 'CodeitSubagents', description = 'Review subagent runs and chat logs' },

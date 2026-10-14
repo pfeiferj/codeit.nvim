@@ -30,7 +30,7 @@ function M.attach(api, session, helpers)
     local seconds, microseconds = vim.uv.gettimeofday()
     local ok, err = history.save(session.workspace, session.chat_id, {
       provider = session.config.provider, model = helpers.model(), messages = session.messages,
-      command_results = session.command_results,
+      command_results = session.command_results, auto_approvals = session.auto_approvals,
       request_options = session.config.request_options,
       model_presets = session.config.model_presets,
       feature_settings = session.config.feature_settings,
@@ -64,6 +64,7 @@ function M.attach(api, session, helpers)
     session.context_reviews = {}
     session.context_paths, session.selected_skills = {}, {}
     session.read_versions = {}
+    session.auto_approvals = {}
     session.cost, session.missing_cost = 0, 0
     session.turn_costs, session.current_turn = {}, nil
     session.cost_by_function = {}
@@ -139,6 +140,7 @@ function M.attach(api, session, helpers)
     session.context_reviews = {}
     session.context_paths, session.selected_skills, session.disabled_context_files = {}, {}, {}
     session.read_versions = {}
+    session.auto_approvals = {}
     context_files.set_disabled(session.workspace, session.disabled_context_files)
     session.cost, session.missing_cost = 0, 0
     session.turn_costs, session.current_turn = {}, nil

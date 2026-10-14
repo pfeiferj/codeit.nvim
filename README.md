@@ -223,6 +223,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitStop` | Interrupt the current assistant turn without clearing the chat |
 | `:CodeitNew` | Start a fresh conversation |
 | `:CodeitHistory` | Browse, resume, archive, or delete saved chats |
+| `:CodeitAutoApprovals` | Review automatic approvals by tool/command and ask the reviewer questions |
 | `:CodeitCosts` | Review saved usage and ask questions about costs |
 | `:CodeitTasks` | View background tasks and logs, or cancel a running task |
 | `:CodeitSubagents` | View session subagent runs and chat logs, or cancel a run |
@@ -565,6 +566,36 @@ Each user prompt displays its running **Turn cost** in USD. A turn includes its 
 Saved chats and turn records also contain `cost_by_function`: named buckets for `main_chat`, `context_review` (background pruning), `tool_assessment`, `tool_review`, `compaction`, `cost_review`, and `history_summary`. Each bucket stores full-precision USD `cost`, `requests`, and `missing_cost` (the number of requests without a reported charge). Manual and automatic compaction share the `compaction` bucket; only automatic compaction is assigned to a turn. History-summary charges belong to the chat being summarized, even if another chat is active. Older costs remain unattributed; absent buckets are not evidence of free requests.
 
 The chat's cost/token usage line stays visible at the top of the transcript as you scroll. For OpenRouter, Copilot, and Codex it shows session cost in USD, cumulative input (`In`) and output (`Out`) tokens in millions (`m`) across chat and reviewer requests, and the latest main-chat response's context length (`Context`) in thousands (`k`; from `total_tokens` or input + output tokens). Immediately after background context pruning, compacting, or editing the summary, `Context` updates to an approximate size of the effective message context, marked with `~`; the next main-chat response replaces it with reported usage. The estimate excludes tool definitions and uses roughly four characters per token. Displayed numbers have at most three decimal places. A `+` after a total means some requests omitted that usage field; `—` means the latest context is unavailable. Copilot cost comes from the server's `copilot_usage.total_nano_aiu`, converted to USD (one billion nano-AIU = one AI credit = $0.01); no catalog-based estimate is substituted when the charge is missing. Requests from all three providers contribute reported tokens and costs regardless of the main chat's provider. Codex subscription requests do not report dollar charges; they mark costs incomplete rather than estimating a USD value. `:CodeitNew`, switching providers, and `setup()` reset these figures for the new chat; resuming a saved chat restores its figures. Closing and reopening the sidebar preserves them.
+
+### Automatic approval review
+
+Open `:CodeitAutoApprovals` (or `/autoApprovals`) to review automatic approvals
+without making an AI request. The view initially reads only chats in the current
+workspace. Counts are grouped by tool name; `run_command` is split by the exact
+first argument (`argv[1]`), so `git status` and `git diff` share a `git` group.
+
+Press Enter on a tool row to list its approvals, then Enter on a call to inspect
+its full arguments and approval metadata. Use `b` to go back, `n`/`p` to page,
+`r` to refresh the snapshot, and `w` to enter a workspace path (empty means all
+saved workspaces). Close with `q` or Escape.
+
+New automatic approvals are stored in the originating chat's `auto_approvals`
+array, including tool name, full arguments, timestamp, approval reason, tool-call
+ID, and any command safety assessment. Subagent calls also include their run ID;
+background calls remain associated with the originating chat. This data may
+contain sensitive paths or argument text and follows the chat's local storage,
+archive, and deletion lifecycle. Older chats cannot be backfilled reliably.
+Manual approvals and rejections are not counted. A record proves a permission
+decision, not that execution completed or succeeded.
+
+Type a question and send with Ctrl-S or normal-mode Enter to ask the existing
+`tool_review` feature model about this history. Its read-only tools can inspect
+counts, call details, and relevant main-chat transcripts in the selected workspace
+snapshot; they cannot execute commands or approve actions. Requested data is sent
+to the configured reviewer provider. Internal subagent transcripts are not saved
+as main-chat context. Review conversations and usage are saved as separate review
+chats, with costs attributed to `tool_review`. Archived/deleted chats are not
+included in the view.
 
 ### Cost review
 

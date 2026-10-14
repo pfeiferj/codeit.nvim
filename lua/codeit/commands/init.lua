@@ -42,6 +42,8 @@ function M.register(api)
     { desc = 'Edit the entire effective chat context as JSON', force = true })
   vim.api.nvim_create_user_command('CodeitSystemPrompt', M.system_prompt,
     { desc = 'Edit the system prompt for the current conversation', force = true })
+  vim.api.nvim_create_user_command('CodeitAutoApprovals', M.auto_approvals,
+    { desc = 'Review recorded automatic approvals and ask the reviewer questions', force = true })
   vim.api.nvim_create_user_command('CodeitCosts', M.costs,
     { desc = 'Review saved chat costs and ask questions about usage', force = true })
   vim.api.nvim_create_user_command('CodeitHistory', M.history,

@@ -153,6 +153,7 @@ function M.start(args, source, context, done, parent_active)
         run.stop = nil
         local executed, stop = pcall(tools.execute, fn.name, arguments, source, result, active, {
           no_prompt = true, subagent_run = run, user_request = args.task, read_versions = {},
+          on_auto_approval = context.on_auto_approval, tool_call_id = call.id,
         })
         if not executed then return result('Error: tool execution failed: ' .. tostring(stop)) end
         if not completed then run.stop = stop end

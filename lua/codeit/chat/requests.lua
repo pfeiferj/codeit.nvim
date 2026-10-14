@@ -98,6 +98,7 @@ function M.attach(api, session, helpers)
     local advertised = vim.json.encode(context_files.messages(session.workspace, approval.workspace_trust(session.workspace),
       session.context_paths, session.selected_skills))
     local subagent_workspace, subagent_chat = session.workspace, session.chat_id
+    local on_auto_approval = require('codeit.chat.auto_approvals').recorder(session, helpers, subagent_workspace, subagent_chat)
     local subagent_config = helpers.request_config('subagent')
     subagent_config.max_tool_rounds = session.config.max_subagent_tool_rounds
     local subagent_turn_index
@@ -290,6 +291,7 @@ function M.attach(api, session, helpers)
             helpers.render()
             next_call(index + 1)
           end, function() return id == session.generation and session.workspace == history.workspace() end, {
+            on_auto_approval = on_auto_approval, tool_call_id = call.id,
             user_request = user_request,
             approval_round = approval_round,
             background_origin = { workspace = session.workspace, chat_id = session.chat_id },

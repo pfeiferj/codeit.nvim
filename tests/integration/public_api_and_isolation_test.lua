@@ -7,7 +7,7 @@ for name, value in pairs(api) do
   names[#names + 1] = name
 end
 table.sort(names)
-local expected = { 'close', 'compact', 'configure', 'context', 'context_files', 'context_full',
+local expected = { 'auto_approvals', 'close', 'compact', 'configure', 'context', 'context_files', 'context_full',
   'context_stats', 'costs', 'get_settings', 'history', 'invoke_skill', 'new', 'open', 'resume',
   'send', 'set_provider', 'settings', 'setup', 'stop', 'system_prompt', 'toggle' }
 assert(vim.deep_equal(names, expected), 'controller extraction changed the public API')
@@ -19,10 +19,11 @@ first_state.config.models.openrouter = 'first-only'
 first_state.base_settings.models.copilot = 'first-only'
 first_state.messages[1] = { role = 'user', content = 'first-only' }
 first_state.selected_skills[1] = { name = 'first-only' }
+first_state.auto_approvals[1] = { name = 'first-only' }
 first_state.context_stats.compactions[1] = { cost = 1 }
 assert(second_state.config.models.openrouter == defaults.models.openrouter)
 assert(second_state.base_settings.models.copilot == defaults.models.copilot)
-assert(#second_state.messages == 0 and #second_state.selected_skills == 0)
+assert(#second_state.messages == 0 and #second_state.selected_skills == 0 and #second_state.auto_approvals == 0)
 assert(#second_state.context_stats.compactions == 0)
 assert(defaults.models.openrouter ~= 'first-only' and defaults.models.copilot ~= 'first-only')
 

@@ -419,10 +419,24 @@ function M.request(name, args, prompt, active, done, action, context)
   if name == 'ask_user' then return action() end
   -- Saving user changes always needs a fresh explicit decision, even with a
   -- remembered call or an approve validator. Reject validators still win.
+  local function automatically(reason, summary, score)
+    if active and not active() then return end
+    if context.on_auto_approval then
+      context.on_auto_approval(name, args, reason, { summary = summary, safety_score = score,
+        tool_call_id = context.tool_call_id, subagent_run_id = context.subagent_run and context.subagent_run.id })
+    end
+    return action()
+  end
   local needs_command_check = command_approved and verdict ~= 'ask'
-  if not needs_command_check and not save_tools[name] and (verdict == 'approve'
-    or (verdict ~= 'ask' and (remembered[signature]
-      or auto_read(name, args, workspace, context.source_buffer, context)))) then return action() end
+  if not needs_command_check and not save_tools[name] then
+    if verdict == 'approve' then return automatically('validator') end
+    if verdict ~= 'ask' then
+      if remembered[signature] then return automatically('remembered_exact_call') end
+      if auto_read(name, args, workspace, context.source_buffer, context) then
+        return automatically('trusted_read_or_window')
+      end
+    end
+  end
 
   local function manual(assessed_summary, assessed_score)
   if context.no_prompt then return done('Error: this call requires approval; subagents cannot prompt the user') end
@@ -579,7 +593,7 @@ function M.request(name, args, prompt, active, done, action, context)
         return done('Rejected by approval policy: ' .. tostring(rejection or 'Read rejected by policy'))
       end
       if read_commands == rules_at_review and allowed and current_verdict ~= 'ask' and file_decision ~= 'ask' then
-        return action()
+        return automatically('read_only_command_rule', summary, score)
       end
       reason = current_reason or file_message or 'Read-only command approval policy changed during assessment'
     else

@@ -110,7 +110,14 @@ function M.execute(name, args, source, done, active, context)
     if context and context.no_prompt and not subagents.allowed[name] then
       return done('Error: tool is not available to subagents')
     end
-    if subagents.names[name] then return subagents.execute(name, args, source, done, active, context) end
+    if subagents.names[name] then
+      if context and context.on_auto_approval then
+        context.on_auto_approval(name, args, 'approval_free_subagent_tool', {
+          tool_call_id = context.tool_call_id, subagent_run_id = context.subagent_run and context.subagent_run.id,
+        })
+      end
+      return subagents.execute(name, args, source, done, active, context)
+    end
     local visible = name == 'read_window_buffer' and require('codeit.ui.managed_tab').buffer(args.window_id)
     if name == 'read_window_buffer' and not visible then return done('Error: invalid Codeit file window') end
     if name == 'load_skill' then

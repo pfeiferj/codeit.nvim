@@ -11,6 +11,7 @@ function M.new(defaults)
   session.context_reviews, session.review_revision = {}, 0
   session.context_paths, session.selected_skills, session.disabled_context_files = {}, {}, {}
   session.read_versions = {}
+  session.auto_approvals = {}
   session.cost, session.missing_cost = 0, 0
   -- Keep billing outside messages so late charges do not invalidate context-review snapshots.
   session.turn_costs, session.current_turn = {}, nil

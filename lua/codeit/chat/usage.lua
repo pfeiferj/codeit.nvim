@@ -70,6 +70,12 @@ function M.attach(api, session, helpers)
     return vim.deepcopy(session.context_stats)
   end
 
+  function M.auto_approvals()
+    helpers.sync_workspace()
+    helpers.save()
+    return require('codeit.auto_approval_review').show(helpers.request_config('tool_review'), session.workspace)
+  end
+
   function M.costs()
     helpers.sync_workspace()
     return require('codeit.cost_review').show(helpers.request_config('cost_review'), session.workspace)

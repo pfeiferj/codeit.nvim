@@ -32,6 +32,7 @@ function M.attach(api, session, helpers)
       if settings.validate(values) then session.config.request_options = vim.deepcopy(chat.request_options) end
     end
     session.messages = chat.messages
+    session.auto_approvals = require('codeit.chat.auto_approvals').restore(chat.auto_approvals)
     session.read_versions = {}
     session.session_prompt = nil
     session.context_summary, session.compacted_until = chat.context_summary, chat.compacted_until
@@ -200,6 +201,7 @@ function M.attach(api, session, helpers)
         local ok, err = history[action](selected_workspace, chat.id)
         if ok and session.workspace == selected_workspace and session.chat_id == chat.id then
           session.chat_id = nil -- Keep the transcript, but never recreate the removed history entry.
+          session.auto_approvals = {}
         end
         return ok, err
       end
