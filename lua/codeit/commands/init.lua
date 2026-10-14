@@ -48,6 +48,8 @@ function M.register(api)
     { desc = 'Review saved chat costs and ask questions about usage', force = true })
   vim.api.nvim_create_user_command('CodeitHistory', M.history,
     { desc = 'Browse and resume saved chats for this workspace', force = true })
+  vim.api.nvim_create_user_command('CodeitWorkspaces', M.workspaces,
+    { desc = 'Review known workspaces and their effective read trust', force = true })
   vim.api.nvim_create_user_command('CodeitTrust', function(args)
     local workspace = vim.uv.fs_realpath(vim.fn.getcwd())
     local function save(mode)

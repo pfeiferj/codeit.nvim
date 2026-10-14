@@ -23,6 +23,7 @@ local commands = {
     choices = { 'all', 'tracked' }, hint = 'Choose all or tracked; omit to open the trust picker' },
   { name = 'untrust', command = 'CodeitUntrust', description = 'Revoke workspace read trust' },
   { name = 'trustStatus', command = 'CodeitTrustStatus', description = 'Show workspace trust status' },
+  { name = 'workspaces', command = 'CodeitWorkspaces', description = 'Review known workspaces and read trust' },
   { name = 'provider', command = 'CodeitProvider', description = 'Switch provider', args = true,
     required = true, choices = { 'openrouter', 'copilot', 'codex' }, hint = 'Choose a provider' },
   { name = 'settings', command = 'CodeitSettings', description = 'Configure Codeit' },

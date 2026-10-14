@@ -236,6 +236,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitProvider {openrouter\|copilot\|codex}` | Switch providers and start a fresh chat |
 | `:CodeitTrust`, `:CodeitTrust all`, `:CodeitTrust tracked` | Trust workspace reads, interactively or directly |
 | `:CodeitTrustStatus` | Show the workspace's trust mode |
+| `:CodeitWorkspaces` | Review known workspaces and their effective read trust |
 | `:CodeitUntrust` | Revoke workspace trust |
 
 ### Background tasks
@@ -709,6 +710,19 @@ The assistant can:
 **Git-tracked files only**. Use `:CodeitTrust all` / `:CodeitTrust tracked` to
 choose directly, `:CodeitTrustStatus` to inspect the mode, or `:CodeitUntrust`
 to revoke it. Choices persist across Neovim sessions.
+
+Use `:CodeitWorkspaces` or `/workspaces` to review known workspaces in a popup.
+It shows each workspace's effective read trust (`all`, `tracked`, or `untrusted`),
+where the rule comes from, and explicit revocations, including inherited rules.
+Select a workspace row with `j`/`k`, then press `t` to choose and persist its trust
+level. Choosing `untrusted` explicitly revokes trust, blocking inheritance; changes
+also apply to descendants unless they have a nearer override. Press Enter to switch
+Neovim's working directory to that workspace (using `:cd`) and close the popup.
+Missing or inaccessible directories report an error without closing it.
+Press `r` to refresh or `q`/Esc to close. Workspaces visited by Codeit are
+remembered across sessions in `stdpath('data')/codeit/seen_workspaces.json`
+(mode `0600`). The view also includes saved chats and configured/saved trust paths;
+older workspaces without saved chats or trust entries cannot be recovered.
 
 Read tools require approval by default. Use `:CodeitTrust` to trust Neovim's current working directory interactively; choices are stored in `stdpath('data')/codeit/trusted_workspaces.json` (mode `0600`). You can also set `approval.trusted_workspaces` to a map of absolute workspace directories to `'all'` or `'tracked'`; choices made with the commands override configuration for that workspace, including `:CodeitUntrust`. Trust applies to that directory and all descendant workspaces, using resolved paths. To trust a repos folder, run `:CodeitTrust all` (or `tracked`) with that folder as Neovim's current working directory, or configure its absolute path. The nearest directory entry wins; saved choices override configuration at the same directory. `:CodeitUntrust` blocks inherited trust for the current workspace and its descendants, without affecting siblings. Individual file/buffer reads and diagnostics for a specified file are auto-approved based on the resolved file's directory, even outside the current workspace or when the current workspace is untrusted. In `'all'` mode, files physically inside any trusted directory are auto-approved, including untracked files. In `'tracked'` mode, individual file/buffer reads are auto-approved only for Git-tracked files. Workspace-wide searches and file listings, unfiltered diagnostics, and Git status still ask in `'tracked'` mode because they can expose untracked content or names; Git diff and diagnostics for a tracked file are auto-approved. Default buffer listings are auto-approved in `'all'` mode, including named workspace buffers for files not yet saved to disk. In `'tracked'` mode, they ask if any returned buffer is not an existing Git-tracked file. External or unnamed source buffers do not affect default listings or their approval. Broader `include_external = true` listings are never auto-approved by workspace trust (explicit validators or remembered calls can still approve them). Symlinks use the target directory's trust; targets in untrusted or explicitly revoked directories are not auto-approved. Listings, searches, Git tools, and unfiltered diagnostics remain scoped to the current workspace. Trust is granted explicitly; there is no implicit trust for the plugin's own directory.
 

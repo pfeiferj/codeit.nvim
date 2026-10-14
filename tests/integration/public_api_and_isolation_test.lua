@@ -9,7 +9,7 @@ end
 table.sort(names)
 local expected = { 'auto_approvals', 'close', 'compact', 'configure', 'context', 'context_files', 'context_full',
   'context_stats', 'costs', 'get_settings', 'history', 'invoke_skill', 'new', 'open', 'resume',
-  'send', 'set_provider', 'settings', 'setup', 'stop', 'system_prompt', 'toggle' }
+  'send', 'set_provider', 'settings', 'setup', 'stop', 'system_prompt', 'toggle', 'workspaces' }
 assert(vim.deep_equal(names, expected), 'controller extraction changed the public API')
 
 local defaults = require('codeit.settings.defaults')

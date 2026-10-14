@@ -51,6 +51,10 @@ function M.attach(api, session, helpers)
   function helpers.sync_workspace()
     local current = history.workspace()
     if session.workspace == current then return end
+    local ok, err = require('codeit.workspaces').record(current)
+    if not ok then
+      vim.notify('codeit: could not remember workspace: ' .. tostring(err), vim.log.levels.ERROR)
+    end
     session.generation = session.generation + 1
     session.stream_preview = nil
     session.busy = false
@@ -75,6 +79,11 @@ function M.attach(api, session, helpers)
     session.source = nil
     session.command_results = {}
     session.status = 'Ready (new workspace)'
+  end
+
+  function M.workspaces()
+    helpers.sync_workspace()
+    return require('codeit.workspace_review').show()
   end
 
   function M.open()

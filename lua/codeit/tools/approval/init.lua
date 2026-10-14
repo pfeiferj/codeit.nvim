@@ -251,18 +251,38 @@ local function load_trust()
   end
 end
 
---- Return the nearest trust mode for a resolved workspace (or the current cwd).
-function M.workspace_trust(workspace)
+local function resolve_trust(workspace)
   load_trust()
   workspace = workspace or vim.uv.fs_realpath(vim.fn.getcwd())
   while workspace do
     -- A saved revocation stops inheritance, even when an ancestor is trusted.
-    if saved_trust[workspace] ~= nil then return saved_trust[workspace] or nil end
-    if trusted_workspaces[workspace] then return trusted_workspaces[workspace] end
+    if saved_trust[workspace] ~= nil then return saved_trust[workspace] or nil, workspace, 'saved' end
+    if trusted_workspaces[workspace] then return trusted_workspaces[workspace], workspace, 'configured' end
     local parent = vim.fn.fnamemodify(workspace, ':h')
     if parent == workspace then break end
     workspace = parent
   end
+end
+
+--- Return the nearest trust mode for a resolved workspace (or the current cwd).
+function M.workspace_trust(workspace)
+  local mode = resolve_trust(workspace)
+  return mode
+end
+
+--- Include known workspaces and trust entries, even revoked or no longer present paths.
+function M.list_workspace_trust(workspaces)
+  load_trust()
+  local paths, entries = {}, {}
+  for _, workspace in ipairs(workspaces or {}) do paths[workspace] = true end
+  for workspace in pairs(trusted_workspaces) do paths[workspace] = true end
+  for workspace in pairs(saved_trust) do paths[workspace] = true end
+  for workspace in pairs(paths) do
+    local mode, origin, source = resolve_trust(workspace)
+    entries[#entries + 1] = { workspace = workspace, mode = mode or 'untrusted', origin = origin, source = source }
+  end
+  table.sort(entries, function(a, b) return a.workspace < b.workspace end)
+  return entries
 end
 
 --- Persist trust for the current workspace. nil revokes trust, including configured trust.
