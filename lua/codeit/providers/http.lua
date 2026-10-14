@@ -100,7 +100,7 @@ local function http_json(args, options, callback, metadata, streaming, active)
 end
 
 function M.post(url, headers, body, callback, streaming, active)
-  local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '120', '--request', 'POST', '--write-out', '\n%{http_code}' }
+  local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '240', '--request', 'POST', '--write-out', '\n%{http_code}' }
   if streaming then vim.list_extend(args, { '--no-buffer', '--header', 'Accept: text/event-stream' }) end
   for _, header in ipairs(headers) do
     vim.list_extend(args, { '--header', header })
@@ -110,7 +110,7 @@ function M.post(url, headers, body, callback, streaming, active)
 end
 
 function M.get(url, headers, callback)
-  local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '30', '--write-out', '\n%{http_code}' }
+  local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '60', '--write-out', '\n%{http_code}' }
   for _, header in ipairs(headers) do vim.list_extend(args, { '--header', header }) end
   args[#args + 1] = url
   http_json(args, { text = true }, callback, true)
