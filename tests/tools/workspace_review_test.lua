@@ -62,6 +62,25 @@ assert(text():find('configured in ' .. parent, 1, true))
 assert(text():find('untrusted', 1, true) and text():find('all', 1, true))
 assert(table.concat(vim.fn.readfile(trust_path), '\n') == trust_before, 'review must not change trust')
 assert(codeit.workspaces() == win, 'reopening should focus the existing popup')
+assert(not text():find('Includes saved chats and trust settings', 1, true))
+assert(vim.api.nvim_buf_get_lines(buf, vim.api.nvim_win_get_cursor(win)[1] - 1,
+  vim.api.nvim_win_get_cursor(win)[1], false)[1]:sub(1, 2) == '| ', 'initial selection must be a workspace row')
+local highlight_ns = vim.api.nvim_get_namespaces().codeit_workspace_review
+local function has_highlight(text, group)
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, highlight_ns, 0, -1, { details = true })) do
+    local details = mark[4]
+    local line = vim.api.nvim_buf_get_lines(buf, mark[2], mark[2] + 1, false)[1]
+    if details.hl_group == group and line:sub(mark[3] + 1, details.end_col) == text then return true end
+  end
+  return false
+end
+assert(has_highlight('Workspaces', 'Title'))
+assert(has_highlight(nested, 'Directory'))
+assert(has_highlight('all', 'DiagnosticOk'))
+assert(has_highlight('untrusted', 'DiagnosticError'))
+assert(has_highlight('configured in ' .. parent, 'Comment'))
+assert(has_highlight('|', 'CodeitTableBorder'))
+assert(has_highlight('Read trust', 'CodeitTableHeader'))
 
 local function press(key)
   for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
@@ -73,6 +92,11 @@ assert(approval.set_workspace_trust('tracked', nested))
 press('r')
 assert(text():find('tracked', 1, true) and text():find('saved here', 1, true))
 assert(entries()[nested].mode == 'tracked')
+assert(has_highlight('tracked', 'DiagnosticWarn'))
+local marks = #vim.api.nvim_buf_get_extmarks(buf, highlight_ns, 0, -1, {})
+press('r')
+assert(#vim.api.nvim_buf_get_extmarks(buf, highlight_ns, 0, -1, {}) == marks,
+  'refresh must replace highlights rather than accumulating them')
 local function select_row(path)
   for row, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
     local prefix = '| ' .. path .. ' '

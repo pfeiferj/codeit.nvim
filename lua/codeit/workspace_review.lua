@@ -1,5 +1,7 @@
 local M = {}
 local current
+local highlight_ns = vim.api.nvim_create_namespace('codeit_workspace_review')
+local trust_highlights = { all = 'DiagnosticOk', tracked = 'DiagnosticWarn', untrusted = 'DiagnosticError' }
 
 local function clean(text) return tostring(text):gsub('%c', ' ') end
 
@@ -14,6 +16,8 @@ function M.show()
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = 'wipe'
   vim.api.nvim_buf_set_name(buf, 'codeit://workspaces')
+  vim.api.nvim_set_hl(0, 'CodeitTableHeader', { default = true, link = 'Title' })
+  vim.api.nvim_set_hl(0, 'CodeitTableBorder', { default = true, link = 'Delimiter' })
   local function render()
     local selected = win and row_entries[vim.api.nvim_win_get_cursor(win)[1]]
     entries, row_entries = require('codeit.workspaces').list(), {}
@@ -28,10 +32,10 @@ function M.show()
     end
     local lines = { 'Workspaces · Enter: change directory · t: change trust · r: refresh · q/Esc: close',
       'all: all files · tracked: Git-tracked files only · untrusted: no workspace auto-approval',
-      'Trust controls reads only. Writes and commands have separate approval policies.',
-      'Includes saved chats and trust settings; older unsaved workspaces cannot be recovered.', '' }
-    local table_lines = require('codeit.ui.table_popup').format({ rows = rows, alignment = { 'left', 'left', 'left' } })
-    local first_row = #lines + 3
+      'Trust controls reads only. Writes and commands have separate approval policies.', '' }
+    local table_lines, highlights = require('codeit.ui.table_popup').format({ rows = rows, alignment = { 'left', 'left', 'left' } })
+    local table_offset = #lines
+    local first_row = table_offset + 3
     local cursor_row = first_row
     for index, entry in ipairs(entries) do
       local row = first_row + index - 1
@@ -41,6 +45,28 @@ function M.show()
     vim.list_extend(lines, table_lines)
     vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_clear_namespace(buf, highlight_ns, 0, -1)
+    local function highlight(row, first, last, group)
+      vim.api.nvim_buf_set_extmark(buf, highlight_ns, row, first, { end_col = last, hl_group = group })
+    end
+    for row = 0, 2 do highlight(row, 0, #lines[row + 1], 'Comment') end
+    highlight(0, 0, #'Workspaces', 'Title')
+    for mode, group in pairs(trust_highlights) do
+      local first = lines[2]:find(mode .. ':', 1, true)
+      highlight(1, first - 1, first - 1 + #mode, group)
+    end
+    for _, span in ipairs(highlights) do
+      highlight(span[1] + table_offset, span[2], span[3], span[4])
+    end
+    for index, entry in ipairs(entries) do
+      local row = first_row + index - 2
+      local path, source = rows[index + 1][1], rows[index + 1][3]
+      local trust_start = lines[row + 1]:find(' | ', #path + 3, true) + 2
+      local source_start = lines[row + 1]:find(' | ', trust_start + #entry.mode + 1, true) + 2
+      highlight(row, 2, 2 + #path, 'Directory')
+      highlight(row, trust_start, trust_start + #entry.mode, trust_highlights[entry.mode])
+      highlight(row, source_start, source_start + #source, 'Comment')
+    end
     vim.bo[buf].modifiable = false
     if win then vim.api.nvim_win_set_cursor(win, { math.min(cursor_row, #lines), 0 }) end
   end
@@ -53,7 +79,7 @@ function M.show()
   current = win
   vim.wo[win].wrap = false
   vim.wo[win].cursorline = true
-  vim.api.nvim_win_set_cursor(win, { math.min(8, vim.api.nvim_buf_line_count(buf)), 0 })
+  vim.api.nvim_win_set_cursor(win, { math.min(7, vim.api.nvim_buf_line_count(buf)), 0 })
   local function selection()
     local entry = row_entries[vim.api.nvim_win_get_cursor(win)[1]]
     if not entry then vim.notify('codeit: select a workspace row', vim.log.levels.WARN) end
