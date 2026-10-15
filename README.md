@@ -39,6 +39,7 @@ approval, and resume conversations from local history.
 - Neovim 0.10+ (developed with 0.12).
 - `curl` for provider requests and URL fetches.
 - `rg` (ripgrep) for workspace file listings and searches.
+- Optional: Python 3 with PyYAML for the YAML fallback in local tool JSON healing.
 - An OpenRouter/OpenAI-compatible endpoint, a Copilot-enabled GitHub account, or a Codex ChatGPT login.
 
 ## Quick start
@@ -116,6 +117,7 @@ require('codeit').setup({
   -- system_prompt = 'You are a helpful Neovim coding assistant.',
   -- max_tool_rounds = 12, -- tool-call batches per user turn; prompts before exceeding this
   -- max_subagent_tool_rounds = 40, -- separate hard cap per subagent; never prompts
+  -- tool_json_healing = false, -- disable local tool argument repair for all providers (default: true)
   -- context_review = false, -- disable background pruning after each completed turn (default: true)
   -- max_context_tokens = 128000, -- optional manual override; false disables auto-compaction
   -- approval = {
@@ -252,11 +254,13 @@ Entries in `feature_settings` can select a different `preset` using its key. Omi
 
 The former `secondary_models` setting is no longer used. Old settings and chats still load, but that field is ignored; move any desired model choices into `model_presets` or `feature_settings`.
 
-`options` override individual keys. Omitted keys inherit; `''` explicitly clears a key to the API default, even if the preset or main request has a value. OpenRouter supports `routing_mode`, `preferred_provider`, `allow_fallbacks`, `service_tier`, and `effort`; Copilot supports `api_host`; Codex supports `effort`. Options belonging to the other backend are not sent. Presets and features may use a different backend from the main chat, so credentials/access for all selected backends are required. Explicit model IDs must match the resolved backend; if a feature overrides a preset's backend, also override its model when the preset has an explicit model.
+`options` override individual keys. Omitted keys inherit; `''` explicitly clears a key to the API default, even if the preset or main request has a value. OpenRouter supports `routing_mode`, `preferred_provider`, `allow_fallbacks`, `response_healing`, `service_tier`, and `effort`; Copilot supports `api_host`; Codex supports `effort`. Options belonging to the other backend are not sent. Presets and features may use a different backend from the main chat, so credentials/access for all selected backends are required. Explicit model IDs must match the resolved backend; if a feature overrides a preset's backend, also override its model when the preset has an explicit model.
 
 OpenRouter's **Routing mode** selects `auto` (automatic routing), `price` (lowest price), `latency` (lowest latency), or `throughput` (highest throughput). An explicit mode ignores `preferred_provider`, including inherited values; service tier and reasoning effort remain independent and are still sent when configured. Sorted modes send OpenRouter's `provider.sort` setting, while `auto` leaves routing to OpenRouter. Omit `routing_mode` to inherit it, or set it to `''` (**Use preferred provider**) to disable the mode and use the existing preferred-provider setting. Existing configurations without a routing mode keep their behavior. This option is available for main chat, shared presets, and individual features.
 
 OpenRouter's **Provider fallback** controls `provider.allow_fallbacks`: set `allow_fallbacks = true` to allow fallback to other providers, or `false` to disable it. It works independently of routing mode, preferred provider, and service tier. Omitted values inherit; `''` (**provider default**) clears an inherited value and omits the API field. Without an explicit value, OpenRouter's default applies (fallbacks enabled). Main chat, presets, and feature overrides expose this setting in `:CodeitSettings`. For example: `request_options = { openrouter = { routing_mode = 'price', allow_fallbacks = false } }`.
+
+OpenRouter's **JSON response healing** enables its [Response Healing plugin](https://openrouter.ai/docs/guides/features/plugins/response-healing). Set `response_healing = true` to send `plugins = { { id = 'response-healing' } }` with `response_format = { type = 'json_object' }`. This opts the request into JSON-only message output and disables streaming, as required by OpenRouter. It attempts to repair malformed JSON message content, not tool-call arguments, and cannot repair every response (including token-limit truncation). Set `false` to disable it; omitted values inherit, while `''` clears an inherited setting and leaves the request unchanged. It is off by default and available for main chat, presets, and feature overrides in `:CodeitSettings`. For example: `request_options = { openrouter = { response_healing = true } }`.
 
 In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Preset reasoning** to edit shared settings. Select a feature to choose its preset and edit individual overrides. Model searches use the effective backend and API host; upstream-provider searches use the effective model. **Use inherited model** and **Inherit all request options** remove the current entry's overrides. **Reset preset to main chat settings** clears the shared preset; **Reset feature to its default preset** clears all of that feature's overrides and restores its default assignment. Return to the main menu and apply/save the draft. Changing only presets or feature settings preserves the conversation. Choose a long-context/compaction model with enough context capacity; automatic compaction thresholds still use the main model's limit. `context_review = false` remains the independent on/off switch for background pruning.
 
@@ -747,6 +751,31 @@ approval, and execution, including numeric/boolean fields and nested edit ranges
 Required fields and array elements are not normalized: empty replacement text,
 file content, and command arguments retain their meaning. Nonempty values still
 must match the declared type.
+
+Local tool-argument recovery is enabled by default; disable it with
+`require('codeit').setup({ tool_json_healing = false })`.
+This setup-only option applies to main chat and subagents with any provider,
+without changing streaming or normal chat output. Decoding tries strict JSON,
+then removes enclosing JSON/YAML Markdown fences and trailing JSON commas
+(without modifying JSON strings) and retries JSON. If that fails, a restricted
+YAML parser tries the original input first, then the conservatively repaired
+input if the original fails and the repaired input differs. YAML results are
+converted back to JSON. Repaired arguments must be an object and still
+pass the usual tool schema validation and approval; canonical JSON is retained
+for subsequent model requests. Missing quotes, values, or truncated strings are
+not guessed. Unrecoverable arguments return a tool error for the model to retry.
+
+The YAML fallback requires `python3` with **PyYAML** installed in its system or
+virtual-environment packages (for example, your OS's `python3-yaml` package).
+It runs in Python isolated mode, so user-site packages and workspace imports are
+not loaded. No packages are installed automatically; JSON-only repairs work
+without Python/PyYAML. YAML supports mappings, sequences, quoted/block strings,
+and JSON-style booleans, nulls, and numbers. Other plain scalars stay strings
+(e.g. `yes` and dates); tags, anchors/aliases, merge keys, duplicate/non-string
+keys, missing values, multiple documents, and non-finite numbers are rejected.
+Healing input is limited to 1MB; each YAML parsing attempt has a one-second timeout
+and depth/node limits. YAML's string rules can differ from JSON, so review repaired tool
+arguments carefully, especially commands and replacement text.
 
 The assistant can:
 

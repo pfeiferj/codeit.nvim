@@ -8,6 +8,7 @@ local cost_breakdown = require('codeit.cost_breakdown')
 local context_files = require('codeit.context.files')
 local settings = require('codeit.settings')
 local tool_limit_prompt = require('codeit.tools.limit_prompt')
+local tool_arguments = require('codeit.tools.arguments')
 local stream_idle_ms = 10000
 
 function M.attach(api, session, helpers)
@@ -113,6 +114,7 @@ function M.attach(api, session, helpers)
     local on_auto_approval = require('codeit.chat.auto_approvals').recorder(session, helpers, subagent_workspace, subagent_chat)
     local subagent_config = helpers.request_config('subagent')
     subagent_config.max_tool_rounds = session.config.max_subagent_tool_rounds
+    subagent_config.tool_json_healing = session.config.tool_json_healing
     local subagent_turn_index
     for index, turn in ipairs(session.turn_costs) do if turn == billed_turn then subagent_turn_index = index end end
     local function subagent_usage(usage)
@@ -155,11 +157,14 @@ function M.attach(api, session, helpers)
         end
       end
       local tool_log = require('codeit.tools.log')
-      local tool_log_entries = {}
+      local tool_log_entries, decoded_arguments = {}, {}
       for index, call in ipairs(type(calls) == 'table' and calls or {}) do
         local fn = call['function']
-        local decoded, arguments = pcall(vim.json.decode, fn.arguments or '{}')
-        tool_log_entries[index] = tool_log.start(fn.name, decoded and arguments or nil, fn.arguments)
+        local raw = fn.arguments
+        local arguments, _, canonical = tool_arguments.decode(raw, session.config.tool_json_healing)
+        decoded_arguments[index] = arguments
+        if canonical then fn.arguments = canonical end
+        tool_log_entries[index] = tool_log.start(fn.name, arguments, raw)
         tool_log_entries[index].tool_call_id = call.id
       end
       -- Hold this response while the user decides, before retaining or executing
@@ -222,9 +227,9 @@ function M.attach(api, session, helpers)
         for index, call in ipairs(calls) do
           local fn = type(call) == 'table' and call['function']
           if type(fn) == 'table' then
-            local ok, args = pcall(vim.json.decode, fn.arguments or '{}')
+            local args = decoded_arguments[index]
             if fn.name == 'ask_user' then break end -- Later calls may be invalidated by the answer.
-            if ok and type(args) == 'table' and type(fn.name) == 'string' and not tools.validate(fn.name, args) then
+            if args and type(fn.name) == 'string' and not tools.validate(fn.name, args) then
               local prefetched, assessment = pcall(approval.prefetch, fn.name, args,
                 { user_request = user_request, review = review, source_buffer = session.source },
                 function() return id == session.generation end)
@@ -242,8 +247,7 @@ function M.attach(api, session, helpers)
           end
           local fn = call['function']
           helpers.set_status('Tool: ' .. tostring(fn.name))
-          local ok, args = pcall(vim.json.decode, fn.arguments or '{}')
-          if not ok then args = nil end
+          local args = decoded_arguments[index]
           tools.execute(fn.name, args, session.source, function(result, signal)
             if id ~= session.generation then return end
             if signal == 'cancel' then

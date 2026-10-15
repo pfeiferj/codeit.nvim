@@ -148,7 +148,8 @@ function M.start(args, source, context, done, parent_active)
         local call = calls[index]
         if not call then return vim.schedule(advance) end
         local fn = call['function'] or {}
-        local decoded, arguments = pcall(vim.json.decode, fn.arguments or '{}')
+        local arguments, decode_error, canonical = require('codeit.tools.arguments').decode(fn.arguments, config.tool_json_healing)
+        if canonical then fn.arguments = canonical end
         local completed = false
         local function result(value)
           if completed or not active() then return end
@@ -156,7 +157,7 @@ function M.start(args, source, context, done, parent_active)
           messages[#messages + 1] = { role = 'tool', tool_call_id = call.id, content = value }
           next_call(index + 1)
         end
-        if not decoded then return result('Error: invalid tool arguments: ' .. tostring(arguments)) end
+        if not arguments then return result('Error: invalid tool arguments: ' .. tostring(decode_error)) end
         if workspace ~= require('codeit.chat.storage').workspace() then
           return finish(run, 'failed', 'Workspace changed; refusing to read a different workspace')
         end

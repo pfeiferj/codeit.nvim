@@ -2,6 +2,7 @@ local M = {}
 M.tiers = { '', 'default', 'flex', 'priority', 'fast', 'ultrafast' }
 M.routing_modes = { '', 'auto', 'price', 'latency', 'throughput' }
 M.fallback_values = { '', true, false }
+M.response_healing_values = { '', true, false }
 M.efforts = { '', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh' }
 M.copilot_hosts = { '', 'api.githubcopilot.com', 'api.business.githubcopilot.com' }
 M.features = { 'tool_assessment', 'tool_review', 'context_review', 'history_summary', 'compaction', 'cost_review', 'subagent' }
@@ -17,6 +18,7 @@ M.feature_labels = {
   cost_review = 'Cost review chat', subagent = 'Subagents',
 }
 M.option_providers = { preferred_provider = 'openrouter', service_tier = 'openrouter', routing_mode = 'openrouter',
-  allow_fallbacks = 'openrouter', effort = 'openrouter', api_host = 'copilot', base_url = 'openai', api_key_env = 'openai' }
+  allow_fallbacks = 'openrouter', response_healing = 'openrouter', effort = 'openrouter',
+  api_host = 'copilot', base_url = 'openai', api_key_env = 'openai' }
 
 return M

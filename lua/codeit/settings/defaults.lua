@@ -4,6 +4,7 @@ return {
   model_presets = {}, -- fast, long_context, reasoning; unset fields inherit main chat settings
   feature_settings = {}, -- preset selection plus per-feature overrides
   request_options = {},
+  tool_json_healing = true,
   system_prompt = [[You are a coding assistant operating inside Neovim. Complete the user's request using the integration's tools, while preserving their work and keeping changes strictly within the requested scope. For questions and reviews, do not edit unless asked.
 
 Workflow and decisions

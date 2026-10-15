@@ -17,10 +17,16 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   local key = vim.env.OPENROUTER_API_KEY
   if not key or key == '' then return callback(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
   if active and not active() then return end
+  local options = config.options or {}
+  -- Response Healing requires JSON output and does not support streaming.
+  if options.response_healing == true then on_text = nil end
   local body = chat.body(config.model, messages, tools, on_text)
+  if options.response_healing == true then
+    body.response_format = { type = 'json_object' }
+    body.plugins = { { id = 'response-healing' } }
+  end
   if config.max_output_tokens then body.max_tokens = config.max_output_tokens end
   body.usage = { include = true }
-  local options = config.options or {}
   if options.routing_mode and options.routing_mode ~= '' then
     if options.routing_mode ~= 'auto' then body.provider = { sort = options.routing_mode } end
   else

@@ -48,6 +48,8 @@ function M.validate(settings)
         if not vim.tbl_contains(definitions.routing_modes, value) then return false, 'invalid routing mode' end
       elseif key == 'allow_fallbacks' then
         if not vim.tbl_contains(definitions.fallback_values, value) then return false, 'invalid provider fallback setting' end
+      elseif key == 'response_healing' then
+        if not vim.tbl_contains(definitions.response_healing_values, value) then return false, 'invalid response healing setting' end
       elseif key == 'service_tier' then
         if not vim.tbl_contains(definitions.tiers, value) then return false, 'invalid service tier' end
       elseif key == 'effort' then

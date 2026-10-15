@@ -32,6 +32,9 @@ function M.attach(api, session, helpers)
       or session.config.max_context_tokens ~= session.config.max_context_tokens) then
       error('codeit: max_context_tokens must be a positive number or false')
     end
+    if type(session.config.tool_json_healing) ~= 'boolean' then
+      error('codeit: tool_json_healing must be a boolean')
+    end
     if type(session.config.context_review) ~= 'boolean' then
       error('codeit: context_review must be a boolean')
     end

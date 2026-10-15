@@ -12,7 +12,7 @@ local function routing_label(value)
     price = 'Lowest price', latency = 'Lowest latency', throughput = 'Highest throughput' })[value or '']
 end
 
-local function fallback_label(value)
+local function boolean_label(value)
   if value == true then return 'Enabled' end
   if value == false then return 'Disabled' end
   return '(provider default)'
@@ -112,7 +112,7 @@ function M.show(current, apply, live)
     local function option_label(key)
       local value = (feature.options or {})[key]
       if key == 'routing_mode' and value ~= nil then return routing_label(value) end
-      if key == 'allow_fallbacks' and value ~= nil then return fallback_label(value) end
+      if (key == 'allow_fallbacks' or key == 'response_healing') and value ~= nil then return boolean_label(value) end
       return value == nil and '(inherit)' or (value == '' and '(provider default)' or value)
     end
     local items = {
@@ -129,7 +129,8 @@ function M.show(current, apply, live)
     end
     if selected.provider == 'openrouter' then
       for _, entry in ipairs({ { 'routing_mode', 'Routing mode' }, { 'preferred_provider', 'Preferred upstream provider' },
-        { 'allow_fallbacks', 'Provider fallback' }, { 'service_tier', 'Service tier' }, { 'effort', 'Reasoning effort' } }) do
+        { 'allow_fallbacks', 'Provider fallback' }, { 'response_healing', 'JSON response healing' },
+        { 'service_tier', 'Service tier' }, { 'effort', 'Reasoning effort' } }) do
         items[#items + 1] = { id = entry[1], label = entry[2] .. ': ' .. option_label(entry[1]) }
       end
     elseif selected.provider == 'codex' then
@@ -151,7 +152,7 @@ function M.show(current, apply, live)
       item.section = (item.id == 'preset' or item.id == 'provider' or item.id == 'model' or item.id == 'manual')
         and 'Model selection'
         or ((item.id == 'routing_mode' or item.id == 'preferred_provider' or item.id == 'service_tier'
-          or item.id == 'allow_fallbacks' or item.id == 'effort' or item.id == 'api_host'
+          or item.id == 'allow_fallbacks' or item.id == 'response_healing' or item.id == 'effort' or item.id == 'api_host'
           or item.id == 'base_url' or item.id == 'api_key_env')
           and 'Request options' or 'Inheritance and navigation')
     end
@@ -211,11 +212,12 @@ function M.show(current, apply, live)
         local values = id == 'api_host' and settings.copilot_hosts
           or (id == 'routing_mode' and settings.routing_modes)
           or (id == 'allow_fallbacks' and settings.fallback_values)
+          or (id == 'response_healing' and settings.response_healing_values)
           or (id == 'service_tier' and settings.tiers or settings.efforts)
         local choices = { { value = nil, label = '(inherit)' } }
         for _, value in ipairs(values) do
           choices[#choices + 1] = { value = value, label = id == 'routing_mode' and routing_label(value)
-            or (id == 'allow_fallbacks' and fallback_label(value))
+            or ((id == 'allow_fallbacks' or id == 'response_healing') and boolean_label(value))
             or (value == '' and '(provider default)' or value) }
         end
         select(choices, { prompt = id, format_item = function(choice) return choice.label end }, function(choice)
@@ -238,7 +240,8 @@ function M.show(current, apply, live)
       vim.list_extend(items, {
         { id = 'routing_mode', label = 'Routing mode: ' .. routing_label(options.routing_mode) },
         { id = 'preferred_provider', label = 'Preferred upstream provider: ' .. (options.preferred_provider or '') },
-        { id = 'allow_fallbacks', label = 'Provider fallback: ' .. fallback_label(options.allow_fallbacks) },
+        { id = 'allow_fallbacks', label = 'Provider fallback: ' .. boolean_label(options.allow_fallbacks) },
+        { id = 'response_healing', label = 'JSON response healing: ' .. boolean_label(options.response_healing) },
         { id = 'service_tier', label = 'Service tier: ' .. (options.service_tier or '') },
         { id = 'effort', label = 'Reasoning effort: ' .. (options.effort or '') },
       })
@@ -319,14 +322,17 @@ function M.show(current, apply, live)
           if value ~= nil then options.api_host = value; draft.request_options.copilot = options end
           menu()
         end)
-      elseif id == 'routing_mode' or id == 'allow_fallbacks' or id == 'service_tier' or id == 'effort' then
+      elseif id == 'routing_mode' or id == 'allow_fallbacks' or id == 'response_healing' or id == 'service_tier' or id == 'effort' then
         select(id == 'routing_mode' and settings.routing_modes or (id == 'allow_fallbacks' and settings.fallback_values)
+          or (id == 'response_healing' and settings.response_healing_values)
           or (id == 'service_tier' and settings.tiers or settings.efforts), {
           prompt = id == 'routing_mode' and 'Routing mode (overrides preferred provider)'
             or (id == 'allow_fallbacks' and 'Provider fallback')
+            or (id == 'response_healing' and 'JSON response healing (JSON-only output; disables streaming)')
             or (id == 'service_tier' and 'Service tier (model/provider dependent)' or 'Reasoning effort (model dependent)'),
           format_item = function(value)
-            return id == 'routing_mode' and routing_label(value) or (id == 'allow_fallbacks' and fallback_label(value))
+            return id == 'routing_mode' and routing_label(value)
+              or ((id == 'allow_fallbacks' or id == 'response_healing') and boolean_label(value))
               or (value == '' and '(provider default)' or value)
           end,
         }, function(value)
