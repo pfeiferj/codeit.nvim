@@ -63,14 +63,21 @@ local function pump()
   end
 end
 
---- Defer tool approvals until the user is idle, in their chat tab, with no other popup open.
+--- Defer approvals until the user is idle, in their chat tab, with no other popup open.
+--- Returns a function that removes this entry if it is still queued.
 function M.enqueue(show, active, on_error, approval_round)
-  pending[#pending + 1] = {
+  local entry = {
     show = show, active = active, on_error = on_error,
     approval_round = approval_round or {},
     managed = managed_tab.tab() ~= nil, tab = vim.api.nvim_get_current_tabpage(),
   }
+  pending[#pending + 1] = entry
   pump()
+  return function()
+    for i, queued in ipairs(pending) do
+      if queued == entry then table.remove(pending, i); break end
+    end
+  end
 end
 
 return M

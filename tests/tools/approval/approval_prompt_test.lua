@@ -98,6 +98,19 @@ end)
 vim.api.nvim_win_close(vim.api.nvim_get_current_win(), true)
 assert(vim.wait(1000, function() return closed == 1 end), 'closing the window should reject')
 
+local dismissed, previous = 0, vim.api.nvim_get_current_win()
+local update_cancelled, dismiss = prompt.show('Extend request?', options, function(choice)
+  assert(choice == nil)
+  dismissed = dismissed + 1
+end)
+local cancelled_win = vim.api.nvim_get_current_win()
+dismiss()
+dismiss()
+update_cancelled('Request already finished')
+vim.wait(20)
+assert(dismissed == 1 and not vim.api.nvim_win_is_valid(cancelled_win), 'programmatic dismissal must resolve once')
+assert(vim.api.nvim_get_current_win() == previous, 'dismissal must restore the previous window')
+
 -- Risk highlighting must follow the numeric threshold and refresh with async scores.
 local risk_ns = vim.api.nvim_get_namespaces().codeit_approval_risk
 local function risk_marks(buf)

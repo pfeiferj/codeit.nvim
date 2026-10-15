@@ -140,6 +140,16 @@ advance(250)
 mode = 'n'
 advance(2000)
 assert(cancelled == 0, 'stopped requests must never create a delayed prompt')
+mode = 'i'
+local removed, following = 0, 0
+local cancel_queued = queue.enqueue(function() removed = removed + 1 end)
+queue.enqueue(function() following = following + 1 end)
+cancel_queued()
+cancel_queued()
+mode = 'n'
+advance(250)
+assert(removed == 0 and following == 1, 'explicit cancellation must remove only its pending approval')
+
 local order, first_win = {}, nil
 queue.enqueue(function()
   order[#order + 1] = 1

@@ -22,29 +22,36 @@ local function retry_after(headers)
   return date and math.max(0, date + offset - now) or nil
 end
 
-local function http_json(args, options, callback, metadata, streaming, active)
+local function http_json(args, options, callback, metadata, streaming, active, model)
   local retries = 0
   local function send()
     if active and not active() then return end
-    local timer
+    local timer, deadline_cleanup, activity
+    local finished = false
     local function cleanup()
       if timer then timer:stop(); timer:close(); timer = nil end
+      if deadline_cleanup then deadline_cleanup(); deadline_cleanup = nil end
     end
     local output, parser
     local attempt_options = vim.tbl_extend('force', {}, options)
     if streaming then
       output = {}
-      parser = require('codeit.providers.protocols.stream').new(streaming.responses, streaming.on_text, streaming.on_activity)
+      parser = require('codeit.providers.protocols.stream').new(streaming.responses, streaming.on_text, function()
+        if activity then activity() end
+        if streaming.on_activity then streaming.on_activity() end
+      end)
       attempt_options.stdout = function(err, chunk)
-        if err or not chunk then return end
+        if finished or err or not chunk then return end
         output[#output + 1] = chunk
         vim.schedule(function()
-          if not active or active() then parser.push(chunk) end
+          if not finished and (not active or active()) then parser.push(chunk) end
         end)
       end
     end
     local process = vim.system(args, attempt_options, function(result)
       vim.schedule(function()
+        if finished then return end
+        finished = true
         cleanup()
         if active and not active() then return end
         if output then result.stdout = table.concat(output) end
@@ -86,7 +93,15 @@ local function http_json(args, options, callback, metadata, streaming, active)
         callback(decoded)
       end)
     end)
-    if active then
+    if not metadata then
+      deadline_cleanup, activity = require('codeit.providers.deadline').start(function(err)
+        if finished then return end
+        finished = true
+        cleanup()
+        if process then pcall(process.kill, process, 9) end
+        if err and (not active or active()) then callback(nil, err) end
+      end, active, model)
+    elseif active then
       timer = vim.uv.new_timer()
       timer:start(50, 50, vim.schedule_wrap(function()
         if not active() then
@@ -100,13 +115,14 @@ local function http_json(args, options, callback, metadata, streaming, active)
 end
 
 function M.post(url, headers, body, callback, streaming, active)
-  local args = { 'curl', '--silent', '--show-error', '--include', '--max-time', '240', '--request', 'POST', '--write-out', '\n%{http_code}' }
+  local args = { 'curl', '--silent', '--show-error', '--include', '--connect-timeout', '30',
+    '--max-time', '0', '--request', 'POST', '--write-out', '\n%{http_code}' }
   if streaming then vim.list_extend(args, { '--no-buffer', '--header', 'Accept: text/event-stream' }) end
   for _, header in ipairs(headers) do
     vim.list_extend(args, { '--header', header })
   end
   vim.list_extend(args, { '--data-binary', '@-', url })
-  http_json(args, { stdin = vim.json.encode(body), text = true }, callback, false, streaming, active)
+  http_json(args, { stdin = vim.json.encode(body), text = true }, callback, false, streaming, active, body.model)
 end
 
 function M.get(url, headers, callback)

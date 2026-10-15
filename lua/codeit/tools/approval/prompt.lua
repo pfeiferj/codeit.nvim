@@ -20,7 +20,8 @@ local function on_close(win, finish)
   })
 end
 
---- Show a non-blocking keyboard-driven choice window. Each option has a single-key normal-mode mapping.
+--- Show a non-blocking keyboard-driven choice window. Returns update and dismiss functions.
+--- Each option has a single-key normal-mode mapping; dismiss resolves the callback with nil.
 function M.show(prompt, options, callback, config)
   config = config or {}
   local lines = vim.split(prompt, '\n', { plain = true })
@@ -105,7 +106,7 @@ function M.show(prompt, options, callback, config)
     prompt = updated_prompt
     config = updated_config or config
     highlight_risk()
-  end
+  end, function() finish(nil) end
 end
 
 --- Use the chat UI with a tool-call header and reviewer-specific navigation.

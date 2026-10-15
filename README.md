@@ -696,6 +696,27 @@ reviewer's access. No history is sent until you ask a question. Review requests
 have their own usage line and are saved as a separate `Cost review` chat, included
 in future reviews. Esc/q closes the window; it does not cancel an in-flight charge.
 
+### Provider request timeouts
+
+Provider/model requests have a four-minute deadline. Thirty seconds before it
+expires, Codeit queues an approval prompt offering **Extend by 2 minutes** or
+**Stop request**. Approvals use the existing idle/chat-tab queue, so they do not
+interrupt typing or cover another popup. The deadline continues while approval
+is pending; without an explicit extension, the request stops at its current limit.
+Esc/dismissal stops the request immediately. Each further extension needs approval.
+
+An extension keeps the same connection and streaming state: it does not resend the
+request or rerun tools. The prompt shows total elapsed time and time since the last
+response activity (including reasoning/tool-call events, excluding keepalives).
+Recent activity does not automatically extend the deadline, and non-streaming
+requests may provide no progress information. Completion, cancellation, or expiry
+removes any queued or visible extension prompt. Stopping a request does not
+guarantee that the provider stops processing or waives charges.
+
+A separate 30-second curl connection timeout covers connection establishment;
+connection failures and expired deadlines are not automatically retried. Metadata
+requests retain their 60-second timeout, and `fetch_url` is unchanged.
+
 ### Empty-response recovery
 
 When a provider reports `Response has no assistant message`, Codeit automatically
