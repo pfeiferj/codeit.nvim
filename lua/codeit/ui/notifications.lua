@@ -83,7 +83,8 @@ local function render()
     close_window()
   end
   if not win or not vim.api.nvim_win_is_valid(win) then
-    win = vim.api.nvim_open_win(buf, false, config)
+    -- Passive notifications must not run input handlers against the inherited chat buffer.
+    win = vim.api.nvim_open_win(buf, false, vim.tbl_extend('force', config, { noautocmd = true }))
     vim.wo[win].wrap = false
     vim.wo[win].winhighlight = 'Normal:NormalFloat,FloatBorder:FloatBorder'
   else
