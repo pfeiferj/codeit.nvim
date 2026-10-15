@@ -87,7 +87,10 @@ For navigation, file views, and appearance options, see [Usage](#usage).
 <summary>Optional setup settings</summary>
 
 Call `require('codeit').setup()` with the options you need. You can also manage
-provider, model, preset, and request settings through `:CodeitSettings`.
+provider, model, preset, request, and context-limit settings through `:CodeitSettings`.
+Choose **Max context length (tokens)** to enter a positive token limit, leave it
+blank to detect the provider's limit automatically, or enter `false` to disable
+automatic compaction. Apply it for the session or save it globally/per workspace.
 
 ```lua
 require('codeit').setup({

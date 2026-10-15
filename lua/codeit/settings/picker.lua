@@ -262,6 +262,9 @@ function M.show(current, apply, live)
         and 'Main chat' or 'Main chat request options'
       if item.label:sub(-2) == ': ' then item.label = item.label .. '(provider default)' end
     end
+    local limit = draft.max_context_tokens
+    items[#items + 1] = { id = 'max_context_tokens', section = 'Context', label = 'Max context length (tokens): '
+      .. (limit == false and 'Disabled' or ((limit == nil or limit == 'auto') and 'Automatic (provider limit)' or tostring(limit))) }
     for _, name in ipairs(settings.presets) do
       local selected = settings.preset_config(draft, name)
       items[#items + 1] = { id = 'preset_' .. name, section = 'Shared model presets',
@@ -287,6 +290,23 @@ function M.show(current, apply, live)
         select({ 'openrouter', 'copilot', 'codex', 'openai' }, { prompt = 'Backend' }, function(provider)
           if not valid() then return end
           if provider then draft.provider = provider end
+          menu()
+        end)
+      elseif id == 'max_context_tokens' then
+        require('codeit.ui.input').show({ prompt = 'Max context tokens (blank = automatic, false = disabled): ',
+          default = (limit == nil or limit == 'auto') and '' or tostring(limit) }, function(value)
+          if not valid() then return end
+          if value ~= nil then
+            value = vim.trim(value)
+            local parsed
+            if value == '' then parsed = 'auto'
+            elseif value == 'false' then parsed = false
+            else parsed = tonumber(value) end
+            local ok, err = settings.validate(vim.tbl_extend('force', {}, draft, { max_context_tokens = parsed }))
+            if parsed == nil or not ok then
+              vim.notify('codeit: ' .. (err or 'max context tokens must be a positive number, blank, or false'), vim.log.levels.WARN)
+            else draft.max_context_tokens = parsed end
+          end
           menu()
         end)
       elseif id == 'model' then

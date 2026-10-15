@@ -13,6 +13,12 @@ function M.validate(settings)
     end
   end
 
+  local limit = settings.max_context_tokens
+  if limit ~= nil and limit ~= 'auto' and limit ~= false
+    and (type(limit) ~= 'number' or limit <= 0 or limit >= math.huge or limit ~= limit) then
+    return false, 'max_context_tokens must be a positive number, auto, or false'
+  end
+
   local options = settings.request_options
   if type(options) ~= 'table' then return false, 'invalid request options' end
   for provider, values in pairs(options) do

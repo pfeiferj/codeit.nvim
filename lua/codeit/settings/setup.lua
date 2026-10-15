@@ -72,6 +72,7 @@ function M.attach(api, session, helpers)
       model_presets = session.config.model_presets, request_options = session.config.request_options })
     if not valid then error('codeit: ' .. settings_err) end
     session.base_settings = { provider = session.config.provider, models = vim.deepcopy(session.config.models),
+      max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens,
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),
       request_options = vim.deepcopy(session.config.request_options) }

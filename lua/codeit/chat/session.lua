@@ -23,6 +23,10 @@ function M.attach(api, session, helpers)
     session.config.model_presets = vim.deepcopy(values.model_presets or session.config.model_presets or {})
     session.config.feature_settings = vim.deepcopy(values.feature_settings or session.config.feature_settings or {})
     session.config.request_options = vim.deepcopy(values.request_options)
+    if values.max_context_tokens ~= nil then
+      if values.max_context_tokens == 'auto' then session.config.max_context_tokens = nil
+      else session.config.max_context_tokens = values.max_context_tokens end
+    end
   end
 
   function helpers.save(clear_summary)

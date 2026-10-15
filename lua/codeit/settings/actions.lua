@@ -8,6 +8,7 @@ function M.attach(api, session, helpers)
   function M.get_settings()
     helpers.sync_workspace()
     local values = { provider = session.config.provider, models = vim.deepcopy(session.config.models),
+      max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens,
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),
       request_options = vim.deepcopy(session.config.request_options) }
@@ -21,6 +22,9 @@ function M.attach(api, session, helpers)
     local ok, err = settings.validate(values)
     if not ok then return false, err end
     values = vim.deepcopy(values)
+    if values.max_context_tokens == nil then
+      values.max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens
+    end
     if values.model_presets == nil then values.model_presets = vim.deepcopy(session.config.model_presets) end
     if values.feature_settings == nil then values.feature_settings = vim.deepcopy(session.config.feature_settings) end
     scope = scope or 'session'

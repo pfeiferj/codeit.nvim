@@ -31,8 +31,10 @@ function M.resolve(base, workspace)
         -- Legacy snapshots keep optional settings from the lower-precedence snapshot.
         local previous = result
         result = { provider = saved.provider, models = vim.tbl_extend('force', {}, previous.models, saved.models),
+          max_context_tokens = saved.max_context_tokens,
           request_options = vim.deepcopy(saved.request_options),
           feature_settings = vim.deepcopy(saved.feature_settings), model_presets = vim.deepcopy(saved.model_presets) }
+        if result.max_context_tokens == nil then result.max_context_tokens = previous.max_context_tokens end
         for _, key in ipairs({ 'feature_settings', 'model_presets' }) do
           if result[key] == nil then result[key] = vim.deepcopy(previous[key] or {}) end
         end
