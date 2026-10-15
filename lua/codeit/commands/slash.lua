@@ -25,7 +25,7 @@ local commands = {
   { name = 'trustStatus', command = 'CodeitTrustStatus', description = 'Show workspace trust status' },
   { name = 'workspaces', command = 'CodeitWorkspaces', description = 'Review known workspaces and read trust' },
   { name = 'provider', command = 'CodeitProvider', description = 'Switch provider', args = true,
-    required = true, choices = { 'openrouter', 'copilot', 'codex' }, hint = 'Choose a provider' },
+    required = true, choices = { 'openrouter', 'copilot', 'codex', 'openai' }, hint = 'Choose a provider' },
   { name = 'settings', command = 'CodeitSettings', description = 'Configure Codeit' },
   { name = 'help', description = 'Open the searchable command palette' },
 }

@@ -168,8 +168,8 @@ function M.attach(api, session, helpers)
   end
 
   function M.set_provider(name)
-    if name ~= 'openrouter' and name ~= 'copilot' and name ~= 'codex' then
-      vim.notify('codeit: provider must be openrouter, copilot, or codex', vim.log.levels.ERROR)
+    if name ~= 'openrouter' and name ~= 'copilot' and name ~= 'codex' and name ~= 'openai' then
+      vim.notify('codeit: provider must be openrouter, copilot, codex, or openai', vim.log.levels.ERROR)
       return
     end
     M.new()

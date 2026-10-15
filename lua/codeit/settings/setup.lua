@@ -61,8 +61,8 @@ function M.attach(api, session, helpers)
       return helpers.interrupt(text, 'Interrupted by subagent completion')
     end)
     require('codeit.commands').tasks()
-    if not vim.tbl_contains({ 'openrouter', 'copilot', 'codex' }, session.config.provider) then
-      error('codeit: provider must be openrouter, copilot, or codex')
+    if not vim.tbl_contains({ 'openrouter', 'copilot', 'codex', 'openai' }, session.config.provider) then
+      error('codeit: provider must be openrouter, copilot, codex, or openai')
     end
     local valid, settings_err = settings.validate({ provider = session.config.provider, models = session.config.models,
       feature_settings = session.config.feature_settings,

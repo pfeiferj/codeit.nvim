@@ -26,6 +26,11 @@ function M.context_limit(config, callback, fetch_models)
     if not url then return callback(nil, err) end
     key = key .. '/' .. url
   end
+  if config.provider == 'openai' then
+    local url, err = require('codeit.providers.openai').url(config.options)
+    if not url then return callback(nil, err) end
+    key = key .. '/' .. url
+  end
   if limits[key] ~= nil then return callback(limits[key] or nil) end
   if pending[key] then
     pending[key][#pending[key] + 1] = callback
@@ -48,7 +53,7 @@ function M.context_limit(config, callback, fetch_models)
     if type(models) ~= 'table' then return finish(nil) end
     for _, entry in ipairs(models) do
       if type(entry) == 'table' and entry.id == config.model then
-        if config.provider == 'openrouter' or config.provider == 'codex' then
+        if config.provider == 'openrouter' or config.provider == 'codex' or config.provider == 'openai' then
           return finish(tonumber(entry.context_length))
         end
         local limits_data = type(entry.capabilities) == 'table' and entry.capabilities.limits or nil

@@ -134,6 +134,9 @@ function M.show(current, apply, live)
       end
     elseif selected.provider == 'codex' then
       items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. option_label('effort') }
+    elseif selected.provider == 'openai' then
+      items[#items + 1] = { id = 'base_url', label = 'Base URL: ' .. option_label('base_url') }
+      items[#items + 1] = { id = 'api_key_env', label = 'API key environment variable: ' .. option_label('api_key_env') }
     else
       items[#items + 1] = { id = 'api_host', label = 'Copilot API host: ' .. option_label('api_host') }
       items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. option_label('effort') }
@@ -148,7 +151,8 @@ function M.show(current, apply, live)
       item.section = (item.id == 'preset' or item.id == 'provider' or item.id == 'model' or item.id == 'manual')
         and 'Model selection'
         or ((item.id == 'routing_mode' or item.id == 'preferred_provider' or item.id == 'service_tier'
-          or item.id == 'allow_fallbacks' or item.id == 'effort' or item.id == 'api_host')
+          or item.id == 'allow_fallbacks' or item.id == 'effort' or item.id == 'api_host'
+          or item.id == 'base_url' or item.id == 'api_key_env')
           and 'Request options' or 'Inheritance and navigation')
     end
     select(items, { prompt = title,
@@ -173,7 +177,7 @@ function M.show(current, apply, live)
           back()
         end)
       elseif id == 'provider' then
-        select({ '', 'openrouter', 'copilot', 'codex' }, { prompt = title .. ' backend',
+        select({ '', 'openrouter', 'copilot', 'codex', 'openai' }, { prompt = title .. ' backend',
           format_item = function(value) return value == '' and '(inherit backend)' or value end }, function(value)
           if not valid() then return end
           if value ~= nil then store(); feature.provider = value end
@@ -194,6 +198,13 @@ function M.show(current, apply, live)
         entries[name] = nil; back()
       elseif id == 'options_clear' then
         store(); feature.options = nil; back()
+      elseif id == 'base_url' or id == 'api_key_env' then
+        require('codeit.ui.input').show({ prompt = id .. ' (blank = default URL / no key): ',
+          default = (feature.options or {})[id] or '' }, function(value)
+          if not valid() then return end
+          if value ~= nil then store()[id] = vim.trim(value) end
+          back()
+        end)
       elseif id == 'preferred_provider' then
         choose_upstream(store(), selected.model, back, true)
       else
@@ -237,6 +248,11 @@ function M.show(current, apply, live)
       items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. (options.effort or '') }
       items[#items + 1] = { id = 'api_host', label = 'Copilot API host: '
         .. (options.api_host and options.api_host ~= '' and options.api_host or 'api.githubcopilot.com (default)') }
+    elseif draft.provider == 'openai' then
+      items[#items + 1] = { id = 'base_url', label = 'Base URL: '
+        .. (options.base_url ~= nil and options.base_url ~= '' and options.base_url or 'https://api.openai.com/v1') }
+      items[#items + 1] = { id = 'api_key_env', label = 'API key environment variable: '
+        .. (options.api_key_env == nil and 'OPENAI_API_KEY' or (options.api_key_env == '' and '(none)' or options.api_key_env)) }
     end
     for _, item in ipairs(items) do
       item.section = (item.id == 'provider' or item.id == 'model' or item.id == 'manual')
@@ -265,7 +281,7 @@ function M.show(current, apply, live)
       if not item or not valid() then return end
       local id = item.id
       if id == 'provider' then
-        select({ 'openrouter', 'copilot', 'codex' }, { prompt = 'Backend' }, function(provider)
+        select({ 'openrouter', 'copilot', 'codex', 'openai' }, { prompt = 'Backend' }, function(provider)
           if not valid() then return end
           if provider then draft.provider = provider end
           menu()
@@ -285,6 +301,13 @@ function M.show(current, apply, live)
           if value ~= nil and vim.trim(value) ~= '' then
             draft.models[draft.provider] = vim.trim(value)
           end
+          menu()
+        end)
+      elseif id == 'base_url' or id == 'api_key_env' then
+        require('codeit.ui.input').show({ prompt = id .. ' (blank = default URL / no key): ',
+          default = options[id] or (id == 'api_key_env' and 'OPENAI_API_KEY' or '') }, function(value)
+          if not valid() then return end
+          if value ~= nil then options[id] = vim.trim(value); draft.request_options.openai = options end
           menu()
         end)
       elseif id == 'api_host' then

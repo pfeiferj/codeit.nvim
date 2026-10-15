@@ -73,7 +73,7 @@ function M.register(api)
     vim.notify('codeit: ' .. vim.fn.getcwd() .. ': ' .. (approval.workspace_trust() or 'untrusted'))
   end, { desc = 'Show trust mode for the current workspace', force = true })
   vim.api.nvim_create_user_command('CodeitProvider', function(args) M.set_provider(args.args) end,
-    { nargs = 1, complete = function() return { 'openrouter', 'copilot', 'codex' } end, force = true })
+    { nargs = 1, complete = function() return { 'openrouter', 'copilot', 'codex', 'openai' } end, force = true })
 end
 
 return M

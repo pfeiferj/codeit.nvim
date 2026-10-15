@@ -1,7 +1,7 @@
 # codeit.nvim
 
-A Neovim chat assistant with OpenRouter and experimental GitHub Copilot and
-OpenAI Codex (ChatGPT subscription) support.
+A Neovim chat assistant with OpenRouter, generic OpenAI-compatible endpoints,
+and experimental GitHub Copilot and OpenAI Codex (ChatGPT subscription) support.
 Chat in a Codeit sidebar, let the assistant inspect and edit your workspace with
 approval, and resume conversations from local history.
 
@@ -11,6 +11,7 @@ approval, and resume conversations from local history.
 - [Quick start](#quick-start)
 - [Provider setup](#provider-setup)
   - [OpenRouter](#openrouter)
+  - [OpenAI-compatible endpoints](#openai-compatible-endpoints)
   - [GitHub Copilot](#github-copilot-experimental)
   - [OpenAI Codex / ChatGPT login](#openai-codex-chatgpt-login-experimental)
 - [Per-feature models and presets](#per-feature-models-and-presets)
@@ -38,7 +39,7 @@ approval, and resume conversations from local history.
 - Neovim 0.10+ (developed with 0.12).
 - `curl` for provider requests and URL fetches.
 - `rg` (ripgrep) for workspace file listings and searches.
-- Credentials for OpenRouter, a Copilot-enabled GitHub account, or a Codex ChatGPT login.
+- An OpenRouter/OpenAI-compatible endpoint, a Copilot-enabled GitHub account, or a Codex ChatGPT login.
 
 ## Quick start
 
@@ -56,8 +57,9 @@ approval, and resume conversations from local history.
    }
    ```
 
-2. Set `OPENROUTER_API_KEY` before starting Neovim, or configure
-   [Copilot authentication](#github-copilot-experimental) or a
+2. Set `OPENROUTER_API_KEY` before starting Neovim, or configure an
+   [OpenAI-compatible endpoint](#openai-compatible-endpoints),
+   [Copilot authentication](#github-copilot-experimental), or a
    [Codex ChatGPT login](#openai-codex-chatgpt-login-experimental).
 3. Open `:Codeit`, type below `## Message`, and send with `<CR>` in normal mode
    or `<C-s>` in insert mode.
@@ -88,11 +90,12 @@ provider, model, preset, and request settings through `:CodeitSettings`.
 
 ```lua
 require('codeit').setup({
-  provider = 'openrouter', -- or 'copilot' / 'codex'
+  provider = 'openrouter', -- or 'openai' / 'copilot' / 'codex'
   models = {
     openrouter = 'openai/gpt-4o-mini',
     copilot = 'gpt-4o',
     codex = 'gpt-5.3-codex',
+    openai = 'gpt-4o-mini',
   },
   -- model_presets = {
   --   fast = { model = 'openai/gpt-4o-mini', options = { effort = 'low' } },
@@ -108,6 +111,7 @@ require('codeit').setup({
   --   openrouter = { routing_mode = 'throughput', effort = 'high' }, -- auto, price, latency, or throughput
   --   copilot = { api_host = 'api.business.githubcopilot.com', effort = 'high' }, -- host defaults to api.githubcopilot.com
   --   codex = { effort = 'high' }, -- optional; model-dependent
+  --   openai = { base_url = 'http://localhost:1234/v1', api_key_env = '' }, -- keyless local server
   -- },
   -- system_prompt = 'You are a helpful Neovim coding assistant.',
   -- max_tool_rounds = 12, -- tool-call batches per user turn; prompts before exceeding this
@@ -139,6 +143,43 @@ require('codeit').setup({
 ### OpenRouter
 
 For OpenRouter, set `OPENROUTER_API_KEY` in the environment before starting Neovim. Requests are sent to `https://openrouter.ai/api/v1/chat/completions` using OpenAI-compatible chat completions. Choose a model with tool-calling support to use editor tools.
+
+### OpenAI-compatible endpoints
+
+Use `provider = 'openai'` for OpenAI's API or a server implementing OpenAI-style
+`/chat/completions`. The default base URL is `https://api.openai.com/v1`; set
+`OPENAI_API_KEY` before starting Neovim for OpenAI's separately billed API.
+For another endpoint, configure the API root including its version prefix:
+
+```lua
+require('codeit').setup({
+  provider = 'openai',
+  models = { openai = 'your-tool-capable-model' },
+  request_options = {
+    openai = {
+      base_url = 'http://localhost:1234/v1',
+      api_key_env = '', -- no authentication; or 'MY_SERVER_API_KEY'
+    },
+  },
+  -- max_context_tokens = 32768, -- use your model's limit if metadata omits it
+})
+```
+
+**Base URL** and **API key environment variable** are also available in
+`:CodeitSettings`, including preset and feature overrides. Unset or blank
+`base_url` uses OpenAI's default URL. Unset `api_key_env` reads `OPENAI_API_KEY`;
+blank disables authentication. Missing or empty environment variables omit the
+Authorization header, supporting keyless local servers. Only the variable name,
+not its secret value, is saved. When configuring another server, explicitly
+choose its key variable or disable authentication to avoid sending your OpenAI
+key to that server. Use HTTPS for remote servers carrying credentials.
+
+Requests support streaming, tool calls, and reported token usage. Choose a model
+with tool-calling support. Model browsing uses `GET <base_url>/models`; if your
+server does not implement it, enter a model ID manually. Context-limit detection
+uses `context_length` when reported; otherwise set `max_context_tokens` manually.
+No dollar cost is estimated when the endpoint omits `usage.cost`. This backend
+uses Chat Completions, not OpenAPI specifications or the Responses API.
 
 ### GitHub Copilot (experimental)
 
@@ -241,7 +282,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitContextFiles` | Toggle instruction files and skills |
 | `:CodeitSystemPrompt` | Edit the current conversation's system prompt |
 | `:CodeitSettings` | Configure providers, models, presets, and request options |
-| `:CodeitProvider {openrouter\|copilot\|codex}` | Switch providers and start a fresh chat |
+| `:CodeitProvider {openrouter\|copilot\|codex\|openai}` | Switch providers and start a fresh chat |
 | `:CodeitTrust`, `:CodeitTrust all`, `:CodeitTrust tracked` | Trust workspace reads, interactively or directly |
 | `:CodeitTrustStatus` | Show the workspace's trust mode |
 | `:CodeitWorkspaces` | Review known workspaces and their effective read trust |
@@ -561,7 +602,11 @@ Codex offers **Reasoning effort**, sent as `reasoning.effort` to the subscriptio
 backend. Main, preset, and feature settings can inherit or clear it just as with
 OpenRouter. Other OpenRouter/Copilot request options are not sent to Codex.
 
-`:CodeitProvider openrouter`, `:CodeitProvider copilot`, or `:CodeitProvider codex` switches providers and starts a fresh conversation.
+The OpenAI-compatible backend offers **Base URL** and **API key environment
+variable**; these routing/authentication settings are never sent as request-body
+fields. Main, preset, and feature settings can override them independently.
+
+`:CodeitProvider openrouter`, `:CodeitProvider copilot`, `:CodeitProvider codex`, or `:CodeitProvider openai` switches providers and starts a fresh conversation.
 
 Chat and model-metadata requests automatically retry HTTP 429 rate-limit responses up to three times. Retries honor `Retry-After` (seconds or an HTTP date); absent or invalid headers use delays of 2, 4, and 8 seconds. If the server requests a wait longer than 60 seconds, or retries are exhausted, the request ends with an error so you can retry manually later. Other HTTP errors, transport failures, and invalid successful responses are not retried. Copilot credential exchange does not use these retries.
 
@@ -577,7 +622,7 @@ Each user prompt displays its running **Turn cost** in USD. A turn includes its 
 
 Saved chats and turn records also contain `cost_by_function`: named buckets for `main_chat`, `context_review` (background pruning), `tool_assessment`, `tool_review`, `compaction`, `cost_review`, and `history_summary`. Each bucket stores full-precision USD `cost`, `requests`, and `missing_cost` (the number of requests without a reported charge). Manual and automatic compaction share the `compaction` bucket; only automatic compaction is assigned to a turn. History-summary charges belong to the chat being summarized, even if another chat is active. Older costs remain unattributed; absent buckets are not evidence of free requests.
 
-The chat's cost/token usage line stays visible at the top of the transcript as you scroll. For OpenRouter, Copilot, and Codex it shows session cost in USD, cumulative input (`In`) and output (`Out`) tokens in millions (`m`) across chat and reviewer requests, and the latest main-chat response's context length (`Context`) in thousands (`k`; from `total_tokens` or input + output tokens). Immediately after background context pruning, compacting, or editing the summary, `Context` updates to an approximate size of the effective message context, marked with `~`; the next main-chat response replaces it with reported usage. The estimate excludes tool definitions and uses roughly four characters per token. Displayed numbers have at most three decimal places. A `+` after a total means some requests omitted that usage field; `—` means the latest context is unavailable. Copilot cost comes from the server's `copilot_usage.total_nano_aiu`, converted to USD (one billion nano-AIU = one AI credit = $0.01); no catalog-based estimate is substituted when the charge is missing. Requests from all three providers contribute reported tokens and costs regardless of the main chat's provider. Codex subscription requests do not report dollar charges; they mark costs incomplete rather than estimating a USD value. `:CodeitNew`, switching providers, and `setup()` reset these figures for the new chat; resuming a saved chat restores its figures. Closing and reopening the sidebar preserves them.
+The chat's cost/token usage line stays visible at the top of the transcript as you scroll. For OpenRouter, Copilot, Codex, and OpenAI-compatible endpoints it shows session cost in USD, cumulative input (`In`) and output (`Out`) tokens in millions (`m`) across chat and reviewer requests, and the latest main-chat response's context length (`Context`) in thousands (`k`; from `total_tokens` or input + output tokens). Immediately after background context pruning, compacting, or editing the summary, `Context` updates to an approximate size of the effective message context, marked with `~`; the next main-chat response replaces it with reported usage. The estimate excludes tool definitions and uses roughly four characters per token. Displayed numbers have at most three decimal places. A `+` after a total means some requests omitted that usage field; `—` means the latest context is unavailable. Copilot cost comes from the server's `copilot_usage.total_nano_aiu`, converted to USD (one billion nano-AIU = one AI credit = $0.01); no catalog-based estimate is substituted when the charge is missing. Requests from all four providers contribute reported tokens and costs regardless of the main chat's provider. Codex subscription requests do not report dollar charges; they mark costs incomplete rather than estimating a USD value. `:CodeitNew`, switching providers, and `setup()` reset these figures for the new chat; resuming a saved chat restores its figures. Closing and reopening the sidebar preserves them.
 
 ### Automatic approval review
 

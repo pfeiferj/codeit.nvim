@@ -60,7 +60,7 @@ function M.load(workspace, id)
   local ok, chat = pcall(vim.json.decode, text)
   if not ok or type(chat) ~= 'table' or chat.workspace ~= workspace or chat.id ~= id
     or type(chat.messages) ~= 'table' or not vim.islist(chat.messages)
-    or (chat.provider ~= 'openrouter' and chat.provider ~= 'copilot' and chat.provider ~= 'codex') or type(chat.model) ~= 'string' then
+    or (chat.provider ~= 'openrouter' and chat.provider ~= 'copilot' and chat.provider ~= 'codex' and chat.provider ~= 'openai') or type(chat.model) ~= 'string' then
     return nil, 'invalid chat file'
   end
   for _, message in ipairs(chat.messages) do

@@ -5,6 +5,7 @@ local backends = {
   openrouter = 'codeit.providers.openrouter',
   copilot = 'codeit.providers.copilot',
   codex = 'codeit.providers.codex',
+  openai = 'codeit.providers.openai',
 }
 
 local function backend(provider)

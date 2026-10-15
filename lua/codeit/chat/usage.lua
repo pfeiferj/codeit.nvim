@@ -10,6 +10,7 @@ function M.attach(api, session, helpers)
   function helpers.render()
     local billing
     if session.config.provider == 'openrouter' or session.config.provider == 'copilot' or session.config.provider == 'codex'
+      or session.config.provider == 'openai'
       or session.cost > 0 or session.missing_cost > 0 then
       billing = string.format('Cost: %s | In: %s%s | Out: %s%s | Context: %s',
         usage_format.cost(session.cost, session.missing_cost > 0), format_tokens(session.tokens_in, 1000000, 'm'), session.missing_in and '+' or '',
@@ -36,7 +37,7 @@ function M.attach(api, session, helpers)
 
   function helpers.record_usage(usage, feature, provider, turn)
     provider = provider or session.config.provider
-    if provider ~= 'openrouter' and provider ~= 'copilot' and provider ~= 'codex' then return end
+    if provider ~= 'openrouter' and provider ~= 'copilot' and provider ~= 'codex' and provider ~= 'openai' then return end
     local amount = helpers.usage_number(usage and usage.cost)
     if amount then session.cost = session.cost + amount else session.missing_cost = session.missing_cost + 1 end
     local input_count = helpers.usage_number(usage and usage.prompt_tokens)

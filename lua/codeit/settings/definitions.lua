@@ -17,6 +17,6 @@ M.feature_labels = {
   cost_review = 'Cost review chat', subagent = 'Subagents',
 }
 M.option_providers = { preferred_provider = 'openrouter', service_tier = 'openrouter', routing_mode = 'openrouter',
-  allow_fallbacks = 'openrouter', effort = 'openrouter', api_host = 'copilot' }
+  allow_fallbacks = 'openrouter', effort = 'openrouter', api_host = 'copilot', base_url = 'openai', api_key_env = 'openai' }
 
 return M

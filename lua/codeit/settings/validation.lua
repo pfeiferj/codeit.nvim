@@ -2,12 +2,12 @@ local M = {}
 local definitions = require('codeit.settings.definitions')
 
 function M.validate(settings)
-  if type(settings) ~= 'table' or not vim.tbl_contains({ 'openrouter', 'copilot', 'codex' }, settings.provider)
+  if type(settings) ~= 'table' or not vim.tbl_contains({ 'openrouter', 'copilot', 'codex', 'openai' }, settings.provider)
     or type(settings.models) ~= 'table' then return false, 'invalid provider settings' end
-  for _, provider in ipairs({ 'openrouter', 'copilot', 'codex' }) do
+  for _, provider in ipairs({ 'openrouter', 'copilot', 'codex', 'openai' }) do
     local value = settings.models[provider]
-    -- Older snapshots have no Codex model; keep accepting them.
-    if (provider ~= 'codex' or value ~= nil or settings.provider == 'codex')
+    -- Older snapshots may lack models for newly added backends.
+    if ((provider ~= 'codex' and provider ~= 'openai') or value ~= nil or settings.provider == provider)
       and (type(value) ~= 'string' or vim.trim(value) == '') then
       return false, 'model IDs must be nonempty strings'
     end
@@ -16,11 +16,22 @@ function M.validate(settings)
   local options = settings.request_options
   if type(options) ~= 'table' then return false, 'invalid request options' end
   for provider, values in pairs(options) do
-    if not vim.tbl_contains({ 'openrouter', 'copilot', 'codex' }, provider) or type(values) ~= 'table' then
+    if not vim.tbl_contains({ 'openrouter', 'copilot', 'codex', 'openai' }, provider) or type(values) ~= 'table' then
       return false, 'invalid provider request options'
     end
     for key, value in pairs(values) do
-      if provider == 'copilot' then
+      if provider == 'openai' then
+        if key == 'base_url' then
+          local url, err = require('codeit.providers.openai').url(values)
+          if not url then return false, err end
+        elseif key == 'api_key_env' then
+          if type(value) ~= 'string' or (value ~= '' and not value:match('^[%a_][%w_]*$')) then
+            return false, 'invalid API key environment variable'
+          end
+        else
+          return false, 'unknown OpenAI-compatible request option: ' .. tostring(key)
+        end
+      elseif provider == 'copilot' then
         if key == 'api_host' then
           if not vim.tbl_contains(definitions.copilot_hosts, value) then return false, 'invalid Copilot API host' end
         elseif key == 'effort' then
@@ -67,7 +78,7 @@ local function validate_overrides(entries, names, label, allow_preset)
       if key == 'preset' and allow_preset then
         if value ~= '' and not vim.tbl_contains(definitions.presets, value) then return false, 'invalid feature preset' end
       elseif key == 'provider' then
-        if not vim.tbl_contains({ '', 'openrouter', 'copilot', 'codex' }, value) then return false, 'invalid ' .. label .. ' provider' end
+        if not vim.tbl_contains({ '', 'openrouter', 'copilot', 'codex', 'openai' }, value) then return false, 'invalid ' .. label .. ' provider' end
       elseif key == 'model' then
         if type(value) ~= 'string' or value:find('%c') or (value ~= '' and vim.trim(value) == '') then
           return false, 'invalid ' .. label .. ' model ID'
