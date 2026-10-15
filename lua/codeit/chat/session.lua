@@ -167,6 +167,25 @@ function M.attach(api, session, helpers)
     helpers.render()
   end
 
+  function M.clear()
+    helpers.sync_workspace()
+    local prompt = helpers.current_prompt()
+    session.generation = session.generation + 1
+    session.busy, session.stream_preview = false, nil
+    session.messages = { { role = 'system', content = prompt } }
+    session.command_results = {}
+    session.context_summary, session.compacted_until, session.context_summary_skills = nil, nil, nil
+    session.context_reviews = {}
+    session.review_revision = session.review_revision + 1
+    session.context_paths, session.selected_skills = {}, {}
+    session.read_versions = {}
+    -- Per-turn costs reference message indices that no longer exist; totals remain intact.
+    session.turn_costs, session.current_turn, session.turn_reviews = {}, nil, nil
+    helpers.estimate_context()
+    helpers.save(true)
+    helpers.set_status('Context cleared')
+  end
+
   function M.set_provider(name)
     if name ~= 'openrouter' and name ~= 'copilot' and name ~= 'codex' and name ~= 'openai' then
       vim.notify('codeit: provider must be openrouter, copilot, codex, or openai', vim.log.levels.ERROR)

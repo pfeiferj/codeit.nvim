@@ -9,6 +9,7 @@ local commands = {
     required = true, hint = 'Enter a skill name followed by optional literal arguments' },
   { name = 'stop', command = 'CodeitStop', description = 'Stop the current response' },
   { name = 'new', command = 'CodeitNew', description = 'Start a new conversation' },
+  { name = 'clear', command = 'CodeitClear', description = 'Delete the current chat context without summarizing' },
   { name = 'compact', command = 'CodeitCompact', description = 'Summarize conversation to reduce context' },
   { name = 'context', command = 'CodeitContext', description = 'Review the current context' },
   { name = 'contextFull', command = 'CodeitContextFull', description = 'Edit the full context' },

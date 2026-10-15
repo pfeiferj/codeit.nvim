@@ -276,6 +276,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitCosts` | Review saved usage and ask questions about costs |
 | `:CodeitTasks` | View background tasks and logs, or cancel a running task |
 | `:CodeitSubagents` | View session subagent runs and chat logs, or cancel a run |
+| `:CodeitClear` (`/clear`) | Delete the current chat context without summarizing; keep the session, system prompt, settings, and cumulative usage |
 | `:CodeitCompact[!]` | Summarize completed turns (`!` includes the most recent turn) |
 | `:CodeitContext` | Inspect effective context and edit its summary |
 | `:CodeitContextFull` | Edit the full effective request context as JSON |

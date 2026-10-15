@@ -12,10 +12,12 @@ local ui = require('codeit.ui')
 
 local names = {}
 for _, item in ipairs(slash.complete_items()) do names[item.word] = true end
-for _, name in ipairs({ '/toggle', '/send', '/new', '/compact', '/context', '/contextFull', '/systemPrompt',
+for _, name in ipairs({ '/toggle', '/send', '/new', '/clear', '/compact', '/context', '/contextFull', '/systemPrompt',
   '/history', '/trust', '/untrust', '/trustStatus', '/provider', '/contextFiles' }) do
   assert(names[name], 'missing completion: ' .. name)
 end
+assert(select(1, slash.parse('/clear')).command == 'CodeitClear')
+assert(select(1, slash.parse('/clear anything')) == false)
 assert(select(1, slash.parse('/compact')).command == 'CodeitCompact')
 assert(select(1, slash.parse('/contextFull')).command == 'CodeitContextFull')
 assert(select(1, slash.parse('/compact anything')) == false)

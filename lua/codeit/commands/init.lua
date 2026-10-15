@@ -32,6 +32,8 @@ function M.register(api)
   vim.api.nvim_create_user_command('CodeitStop', M.stop,
     { desc = 'Interrupt the current assistant turn', force = true })
   vim.api.nvim_create_user_command('CodeitNew', M.new, { desc = 'Start a new conversation', force = true })
+  vim.api.nvim_create_user_command('CodeitClear', M.clear,
+    { desc = 'Delete the current chat context without summarizing', force = true })
   vim.api.nvim_create_user_command('CodeitCompact', function(args) M.compact(args.bang) end,
     { bang = true, desc = 'Summarize older turns (! includes the recent tail)', force = true })
   vim.api.nvim_create_user_command('CodeitContext', M.context,
