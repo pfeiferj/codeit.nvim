@@ -696,6 +696,19 @@ reviewer's access. No history is sent until you ask a question. Review requests
 have their own usage line and are saved as a separate `Cost review` chat, included
 in future reviews. Esc/q closes the window; it does not cancel an in-flight charge.
 
+### Empty-response recovery
+
+When a provider reports `Response has no assistant message`, Codeit automatically
+retries the current request once after one second, provided no response text has
+already been displayed. Recovery preserves the transcript, completed tool results,
+streaming mode, and token budget; it does not restart the tool-execution loop.
+Stopping the request also cancels a pending retry. If the retry fails, its error is
+shown normally. Other failures, including token-limit and interrupted-stream errors,
+are not retried by this recovery mechanism.
+
+Recovery can incur an additional model charge. Failed attempts are still recorded
+in the provider error log, even when the retry succeeds.
+
 ### Error logs
 
 Provider chat errors and context-limit metadata lookup errors are appended to `stdpath('state')/codeit/provider-errors.log` (new files use mode `0600`). Entries include the provider/model, timestamp, error, and any failed HTTP response body for debugging. This file may contain sensitive response data; handle it accordingly.

@@ -171,13 +171,14 @@ answer = chat('both')
 assert(answer.content == 'Done')
 assert(calls[#calls].args[#calls[#calls].args] == 'https://api.githubcopilot.com/responses')
 
--- Failed and malformed Responses must never execute partial tool batches or silently retry.
+-- Failed and malformed Responses must never execute partial tool batches.
+-- Only a missing assistant message permits one recovery attempt.
 for _, case in ipairs({
   { response = { error = { message = 'Not allowed' } }, status = '400', error = 'HTTP 400: Not allowed' },
   { response = { status = 'failed', error = { message = 'Failed' } }, error = 'Copilot response failed: Failed' },
   { response = { status = 'incomplete', incomplete_details = { reason = 'max_output_tokens' }, output = {} },
     error = 'Copilot response incomplete: max_output_tokens' },
-  { response = { status = 'completed', output = {} }, error = 'Response has no assistant message' },
+  { response = { status = 'completed', output = {} }, error = 'Response has no assistant message', attempts = 2 },
   { response = { output = { { type = 'function_call', name = 'read_file', arguments = '{}' } } },
     error = 'Malformed tool call from Copilot Responses' },
   { response = { output = { vim.NIL } }, error = 'Malformed output item from Copilot Responses' },
@@ -202,7 +203,7 @@ for _, case in ipairs({
   before = #calls
   answer, err = chat('gpt-6-luna')
   assert(not answer and err == case.error, tostring(err))
-  assert(#calls == before + 1, 'errors must not retry a possibly billable chat')
+  assert(#calls == before + (case.attempts or 1), 'only missing assistant messages may retry a billable chat')
 end
 
 local adapter = require('codeit.providers.protocols.responses')

@@ -33,14 +33,32 @@ end
 
 --- Send a chat request, normalizing provider responses. callback(message, error, usage).
 function M.chat(config, messages, tools, callback, on_text, active, on_activity)
+  local implementation = backend(config.provider)
+  local retried, displayed, finished = false, false, false
+  local send
+  local function preview(text)
+    if finished or (active and not active()) then return end
+    if type(text) == 'string' and text ~= '' then displayed = true end
+    on_text(text)
+  end
   local function finish(message, err, usage, detail)
-    if active and not active() then return end
+    if finished or (active and not active()) then return end
     if err then log.error(config, err, detail) end
+    -- Retry only this request, before the caller can retain or execute tool calls.
+    -- Never replace text the user has already seen with a second generation.
+    if not message and err == 'Response has no assistant message' and not retried and not displayed then
+      retried = true
+      return vim.defer_fn(send, 1000)
+    end
+    finished = true
     callback(message, err, usage)
   end
-  local implementation = backend(config.provider)
   if not implementation then return finish(nil, 'Unknown provider: ' .. tostring(config.provider)) end
-  implementation.chat(config, messages, tools, finish, on_text, active, on_activity)
+  send = function()
+    if finished or (active and not active()) then return end
+    implementation.chat(config, messages, tools, finish, on_text and preview or nil, active, on_activity)
+  end
+  send()
 end
 
 return M
