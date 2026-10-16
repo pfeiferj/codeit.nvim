@@ -34,8 +34,8 @@ function M.register(api)
   vim.api.nvim_create_user_command('CodeitNew', M.new, { desc = 'Start a new conversation', force = true })
   vim.api.nvim_create_user_command('CodeitClear', M.clear,
     { desc = 'Delete the current chat context without summarizing', force = true })
-  vim.api.nvim_create_user_command('CodeitCompact', function(args) M.compact(args.bang) end,
-    { bang = true, desc = 'Summarize older turns (! includes the recent tail)', force = true })
+  vim.api.nvim_create_user_command('CodeitCompact', function(args) M.compact(args.bang, args.args) end,
+    { bang = true, nargs = '*', desc = 'Summarize older turns with optional instructions (! includes the recent tail)', force = true })
   vim.api.nvim_create_user_command('CodeitContext', M.context,
     { desc = 'View the effective chat context and edit its compacted summary', force = true })
   vim.api.nvim_create_user_command('CodeitContextFiles', M.context_files,

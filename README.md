@@ -284,7 +284,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitTasks` | View background tasks and logs, or cancel a running task |
 | `:CodeitSubagents` | View session subagent runs and chat logs, or cancel a run |
 | `:CodeitClear` (`/clear`) | Delete the current chat context without summarizing; keep the session, system prompt, settings, and cumulative usage |
-| `:CodeitCompact[!]` | Summarize completed turns (`!` includes the most recent turn) |
+| `:CodeitCompact[!] [instructions]` | Summarize completed turns with optional guidance (`!` includes the most recent turn) |
 | `:CodeitContext` | Inspect effective context and edit its summary |
 | `:CodeitContextFull` | Edit the full effective request context as JSON |
 | `:CodeitContextFiles` | Toggle instruction files and skills |
@@ -519,6 +519,20 @@ usage totals. Set `context_review = false` in `setup()` to disable this
 independently of automatic compaction.
 
 ### Conversation compaction
+
+Optionally add instructions to tell the compacting LLM what matters most:
+
+```vim
+:CodeitCompact Preserve API decisions, relevant paths, and unresolved test failures.
+:CodeitCompact! Focus on the migration plan and remaining work.
+```
+
+In chat, use `/compact Preserve API decisions and unresolved test failures`.
+From Lua, use `require('codeit').compact(false, 'Preserve API decisions')`
+(or `true` as the first argument to include all completed turns). Instructions
+apply to every batch and any fallback-model request for that invocation only.
+They are not added to the conversation or reused for automatic compaction;
+omitting them keeps the default behavior.
 
 `:CodeitCompact` summarizes older completed turns using the `compaction` feature's backend/model, without tools, preserving the most recent completed turn verbatim by default. `:CodeitCompact!` (or `require('codeit').compact(true)`) includes all completed turns. Future requests send stable instructions, the summary, and newer turns; the full transcript remains visible and saved. Summaries use structured goals, decisions, implementation, verification, and unresolved-work sections, removing superseded facts. Empty, oversized, or non-reducing summaries leave context unchanged; they are never blindly truncated. Compaction is unavailable during a response or an unfinished turn. Its summary and checkpoint survive resume. Summary requests may incur provider charges, including rejected summaries.
 

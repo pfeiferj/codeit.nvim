@@ -63,7 +63,8 @@ plugin.send('continue')
 local current = requests[#requests].messages
 assert(current[3].content == 'recent exact request' and current[4].content == 'recent exact answer')
 reply('done')
-vim.cmd('CodeitCompact!')
+vim.cmd('CodeitCompact! Preserve recent API decisions')
+assert(requests[#requests].messages[1].content:find('Preserve recent API decisions', 1, true))
 assert(requests[#requests].messages[2].content:find('recent exact request', 1, true))
 reply('All task state.')
 assert(saved().compacted_until == #saved().messages)
@@ -99,15 +100,19 @@ setup()
 for i = 1, 3 do turn(string.rep(tostring(i), 1300), string.rep('a', 700)) end
 feature_limit = 1100
 before = #requests
-plugin.compact(true)
+local instructions = 'Preserve decisions and unresolved errors.'
+plugin.compact(true, instructions)
 assert(#requests == before + 1)
+assert(requests[#requests].messages[1].content:find(instructions, 1, true))
 assert(requests[#requests].messages[2].content:find(string.rep('1', 100), 1, true))
 assert(not requests[#requests].messages[2].content:find(string.rep('2', 100), 1, true))
 reply('First state.')
 assert(saved().compacted_until == nil and #requests == before + 2)
+assert(requests[#requests].messages[1].content:find(instructions, 1, true))
 assert(requests[#requests].messages[2].content:find('Previous summary:\nFirst state.', 1, true))
 reply('Second state.')
 assert(saved().compacted_until == nil and #requests == before + 3)
+assert(requests[#requests].messages[1].content:find(instructions, 1, true))
 reply('Final state.')
 assert(saved().compacted_until == 7 and plugin.context_stats().compactions[1].passes == 3)
 setup()
@@ -122,6 +127,14 @@ turn(string.rep('q', 10000))
 feature_limit = 1100
 before = #requests
 plugin.compact(true)
+assert(#requests == before and saved().context_summary == nil)
+assert(plugin.context_stats().compactions[1].passes == 0)
+-- Additional instructions count toward the compaction model's input budget.
+setup()
+turn(string.rep('q', 100))
+feature_limit = 1100
+before = #requests
+plugin.compact(true, string.rep('preserve ', 1000))
 assert(#requests == before and saved().context_summary == nil)
 assert(plugin.context_stats().compactions[1].passes == 0)
 -- Oversized compaction turns fail over only when the long-context preset fits.
@@ -142,10 +155,11 @@ setup({ model_presets = { long_context = long_preset } })
 turn(string.rep('q', 1300), string.rep('a', 700))
 turn(string.rep('q', 10000))
 feature_limit, long_limit = 1100, 10000
-plugin.compact(true)
+plugin.compact(true, instructions)
 assert(requests[#requests].config.model == 'compact')
 reply('First batch state.')
 assert(requests[#requests].config.model == 'long-model' and saved().context_summary == nil)
+assert(requests[#requests].messages[1].content:find(instructions, 1, true))
 assert(requests[#requests].messages[2].content:find('Previous summary:\nFirst batch state.', 1, true))
 reply('Combined state.')
 assert(saved().compacted_until == 5 and plugin.context_stats().compactions[1].passes == 2)

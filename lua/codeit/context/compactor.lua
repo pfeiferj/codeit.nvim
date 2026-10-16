@@ -9,7 +9,7 @@ local settings = require('codeit.settings')
 
 function M.attach(api, session, helpers)
   local M = api
-  function helpers.compact_through(checkpoint, id, done, main_limit)
+  function helpers.compact_through(checkpoint, id, done, main_limit, instructions)
     local billed_turn = session.current_turn
     local started, before = vim.uv.hrtime(), 0
     for _, message in ipairs(helpers.request_messages()) do before = before + helpers.message_tokens(message) end
@@ -53,7 +53,7 @@ function M.attach(api, session, helpers)
     local function run(limit)
       if not active() then return end
       if limit then target = math.min(target, math.max(1, math.floor(limit * 0.15))) end
-      local prompt = { role = 'system', content = compaction.prompt(target) }
+      local prompt = { role = 'system', content = compaction.prompt(target, instructions) }
       local output_cap = math.ceil(target * 1.25)
       local input_limit = limit and math.max(1, math.floor(limit * 0.95 - output_cap)) or math.huge
       local function step()
@@ -79,7 +79,7 @@ function M.attach(api, session, helpers)
             -- Unknown metadata is not evidence that the fallback can fit.
             if not fallback_limit then return finish(err) end
             local fallback_target = math.min(target, math.max(1, math.floor(fallback_limit * 0.15)))
-            local fallback_prompt = { role = 'system', content = compaction.prompt(fallback_target) }
+            local fallback_prompt = { role = 'system', content = compaction.prompt(fallback_target, instructions) }
             local candidate = transcript .. groups[position] .. '\n'
             local fallback_budget = math.max(1, math.floor(fallback_limit * 0.95 - math.ceil(fallback_target * 1.25)))
             if helpers.message_tokens(fallback_prompt) + helpers.message_tokens({ role = 'user', content = candidate }) > fallback_budget then
@@ -148,7 +148,7 @@ function M.attach(api, session, helpers)
       helpers.redact_disabled_skill_results(projected), indices, session.messages)
   end
 
-  function M.compact(all)
+  function M.compact(all, instructions)
     helpers.sync_workspace()
     if session.busy then
       vim.notify('codeit: wait for the current response before compacting', vim.log.levels.WARN)
@@ -180,7 +180,7 @@ function M.attach(api, session, helpers)
       if err then return helpers.fail(err) end
       session.busy = false
       helpers.set_status('Context compacted')
-    end)
+    end, nil, instructions)
   end
 end
 
