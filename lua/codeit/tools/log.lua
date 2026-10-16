@@ -48,7 +48,9 @@ local function append(entry, result)
   local ok, err = vim.uv.fs_chmod(dir, 448) -- 0700
   if not ok then error(err) end
   local data = vim.json.encode(vim.tbl_extend('force', entry, { error = result })) .. '\n'
-  local fd, open_err = vim.uv.fs_open(dir .. '/tool-errors.jsonl', 'a', 384) -- 0600
+  local path = dir .. '/tool-errors.jsonl'
+  require('codeit.log_retention').prune(path, 'tool')
+  local fd, open_err = vim.uv.fs_open(path, 'a', 384) -- 0600
   if not fd then error(open_err) end
   local secured, chmod_err = vim.uv.fs_fchmod(fd, 384)
   if not secured then vim.uv.fs_close(fd); error(chmod_err) end

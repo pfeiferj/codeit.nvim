@@ -79,6 +79,7 @@ function M.attach(api, session, helpers)
     helpers.apply_settings(settings.resolve(session.base_settings, history.workspace()))
     M.new()
     require('codeit.commands').register(M)
+    require('codeit.log_retention').setup()
   end
 end
 
