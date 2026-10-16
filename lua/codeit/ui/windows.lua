@@ -56,7 +56,9 @@ function M.attach(api, state, options, helpers)
 
   local function hidden_popup()
     local config = vim.tbl_extend('force', helpers.popup_config(), { hide = true, noautocmd = true })
-    return vim.api.nvim_open_win(state.transcript, false, config)
+    local win = vim.api.nvim_open_win(state.transcript, false, config)
+    require('codeit.ui.popup_focus').track(win)
+    return win
   end
 
   function helpers.restore_sidebar()

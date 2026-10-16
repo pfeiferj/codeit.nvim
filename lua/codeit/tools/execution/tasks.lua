@@ -115,6 +115,7 @@ function M.show()
   local win = vim.api.nvim_open_win(buf, true, { relative = 'editor', style = 'minimal',
     border = 'rounded', title = ' Background tasks ', width = width, height = height,
     row = 2, col = 2 })
+  require('codeit.ui.popup_focus').track(win)
   view = { buf = buf, win = win }
   local selected, rows, shown = nil, {}, {}
   local previous

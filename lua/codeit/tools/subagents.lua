@@ -243,6 +243,7 @@ function M.show()
   vim.bo[buf].bufhidden = 'wipe'
   local win = vim.api.nvim_open_win(buf, true, { relative = 'editor', style = 'minimal', border = 'rounded',
     title = ' Subagents ', width = math.max(1, vim.o.columns - 6), height = math.max(1, vim.o.lines - 6), row = 2, col = 2 })
+  require('codeit.ui.popup_focus').track(win)
   view = win
   local selected, rows, previous = nil, {}, nil
   refresh = function()

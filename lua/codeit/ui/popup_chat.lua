@@ -3,6 +3,7 @@ local M = {}
 --- Overlay the popup with a separate read-only transcript, leaving its state intact.
 --- Returns an idempotent cleanup to call before completing the pending prompt.
 function M.attach(win)
+  require('codeit.ui.popup_focus').track(win)
   local buf = vim.api.nvim_win_get_buf(win)
   local chat_win, chat_buf, chat_view
   local finished = false
@@ -36,6 +37,7 @@ function M.attach(win)
       title = ' Chat context — Ctrl-G / Esc: back ', title_pos = 'center',
       zindex = math.max(50, vim.api.nvim_win_get_config(win).zindex or 50) + 1,
     })
+    require('codeit.ui.popup_focus').track(chat_win)
     vim.wo[chat_win].wrap = true
     vim.wo[chat_win].linebreak = true
     require('codeit.ui').decorate_chat(chat_win)

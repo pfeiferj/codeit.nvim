@@ -58,6 +58,7 @@ function M.select(items, opts, callback)
     style = 'minimal', border = 'rounded', title = ' ' .. (opts.prompt or 'Settings') .. ' ', title_pos = 'center',
     zindex = math.max(50, vim.api.nvim_win_get_config(origin).zindex or 50) + 1,
   })
+  require('codeit.ui.popup_focus').track(win)
   vim.wo[win].wrap = false
   vim.wo[win].cursorline = true
   vim.wo[win].scrolloff = 2

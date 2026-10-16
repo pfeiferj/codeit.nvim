@@ -20,6 +20,7 @@ function M.show(workspace, list, toggle)
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
     style = 'minimal', border = 'rounded', title = ' Context files ', title_pos = 'center',
   })
+  require('codeit.ui.popup_focus').track(win)
   vim.wo[win].wrap = false
   vim.wo[win].cursorline = true
   local choices = {}

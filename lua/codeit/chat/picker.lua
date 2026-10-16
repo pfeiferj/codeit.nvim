@@ -38,6 +38,7 @@ function M.show(entries, workspace, callback, delete_chat, archive_chat)
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
     style = 'minimal', border = 'rounded', title = ' Chat history ', title_pos = 'center',
   })
+  require('codeit.ui.popup_focus').track(win)
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
   vim.wo[win].cursorline = true

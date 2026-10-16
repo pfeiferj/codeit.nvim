@@ -76,6 +76,7 @@ function M.show()
     relative = 'editor', width = width, height = height, row = 1, col = 1,
     style = 'minimal', border = 'rounded', title = ' Workspace trust ',
   })
+  require('codeit.ui.popup_focus').track(win)
   current = win
   vim.wo[win].wrap = false
   vim.wo[win].cursorline = true

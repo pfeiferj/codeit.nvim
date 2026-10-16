@@ -145,6 +145,7 @@ function M.show()
     style = 'minimal', border = 'rounded', title = ' Table · q/Esc: close ', title_pos = 'center',
     zindex = math.max(50, vim.api.nvim_win_get_config(origin).zindex or 50) + 1,
   })
+  require('codeit.ui.popup_focus').track(win)
   vim.wo[win].wrap = false
   vim.wo[win].scrolloff = 0
   vim.wo[win].conceallevel = 0
