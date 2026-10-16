@@ -35,6 +35,11 @@ prompt_ui.show = function(prompt, options, cb, config)
   else cb(nil) end
 end
 require('codeit.ui.input').show = function(config, cb)
+  if config.title == ' Confirm tool approval ' then
+    assert(config.expected == 'approve run_command', 'confirmation must provide the exact phrase as a virtual hint')
+  else
+    assert(config.expected == nil, 'rejection reasons must not have a confirmation hint')
+  end
   input_prompts[#input_prompts + 1] = config.prompt
   cb(table.remove(inputs, 1))
 end

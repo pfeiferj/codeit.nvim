@@ -21,7 +21,7 @@ local function popup(options)
   end
 end
 local field, buf, context, check = popup({
-  title = ' Confirm approval ', approval = true, safety_score = 8,
+  title = ' Confirm approval ', approval = true, safety_score = 8, expected = 'approve run_command',
   body = '# Confirm tool\n\nSummary: Deletes files.\n\n**Safety score:** 8/10\n\nType **`approve run_command`** exactly.',
 })
 local body = vim.api.nvim_win_get_buf(context)
@@ -37,16 +37,47 @@ assert(groups.CodeitInputLabel and groups.CodeitInputHint and groups.CodeitAppro
   'highlight input labels, hints, and risky safety assessment')
 local field_marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
 assert(field_marks[1][4].line_hl_group == 'CodeitInputField')
-vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'approve run_command' })
+local function check_hint(value, hint, errors)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { value })
+  local found_hint, found_errors = nil, {}
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+    local details = mark[4]
+    if details.virt_text then
+      assert(mark[3] == #value and details.virt_text_pos == 'overlay')
+      assert(details.virt_text[1][2] == 'CodeitInputHint')
+      found_hint = details.virt_text[1][1]
+    elseif details.hl_group == 'CodeitInputError' then
+      found_errors[#found_errors + 1] = { mark[3], details.end_col }
+    end
+  end
+  assert(found_hint == hint, 'hint must show only the untyped suffix')
+  assert(vim.deep_equal(found_errors, errors), vim.inspect(found_errors))
+  assert(vim.api.nvim_buf_get_lines(buf, 0, -1, false)[1] == value, 'hint must not change the actual input')
+end
+check_hint('', 'approve run_command', {})
+check_hint('app', 'rove run_command', {})
+check_hint('axp', 'rove run_command', { { 1, 2 } })
+check_hint('app', 'rove run_command', {})
+check_hint('', 'approve run_command', {})
+check_hint('approve run_command!', nil, { { 19, 20 } })
+check_hint('approve run_command', nil, {})
 mapping(buf, '<CR>', 'i')()
 check('approve run_command')
 
 field, buf, context, check = popup({ prompt = 'Model ID', default = 'vendor/model' })
 assert(not vim.b[buf].codeit_approval, 'non-approval inputs must retain the normal idle delay')
 assert(vim.api.nvim_get_current_line() == 'vendor/model')
+assert(#vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {}) == 1, 'ordinary input must not have validation hints')
 assert(vim.api.nvim_win_get_cursor(field)[2] == #'vendor/model')
 mapping(buf, '<C-s>')()
 check('vendor/model')
+
+field, buf, context, check = popup({ expected = 'aé界z', default = 'aé' })
+check_hint('aé', '界z', {})
+check_hint('a界界', 'z', { { 1, 4 } })
+check_hint('aé界z', nil, {})
+mapping(buf, '<CR>')()
+check('aé界z')
 
 field, buf, context, check = popup({ prompt = 'Optional reason' })
 mapping(buf, '<CR>')()

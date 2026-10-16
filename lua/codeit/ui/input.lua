@@ -2,10 +2,12 @@ local M = {}
 local namespace = vim.api.nvim_create_namespace('codeit_input')
 
 --- A single-line answer field below read-only Markdown context.
+--- options.expected adds a virtual hint and highlights mismatched characters.
 function M.show(options, callback)
   options = options or {}
   for name, link in pairs({
     CodeitInputField = 'Visual', CodeitInputLabel = 'Title', CodeitInputHint = 'Comment',
+    CodeitInputError = 'DiagnosticError',
   }) do
     vim.api.nvim_set_hl(0, name, { default = true, link = link })
   end
@@ -51,7 +53,33 @@ function M.show(options, callback)
   vim.bo[input].bufhidden = 'wipe'
   vim.b[input].codeit_approval = options.approval or false
   vim.api.nvim_buf_set_lines(input, 0, -1, false, { options.default or '' })
-  vim.api.nvim_buf_set_extmark(input, namespace, 0, 0, { line_hl_group = 'CodeitInputField' })
+  local expected = options.expected and vim.fn.split(options.expected, '\\zs')
+  local function update_field()
+    vim.api.nvim_buf_clear_namespace(input, namespace, 0, -1)
+    vim.api.nvim_buf_set_extmark(input, namespace, 0, 0, { line_hl_group = 'CodeitInputField' })
+    if not expected then return end
+    local value = vim.api.nvim_buf_get_lines(input, 0, 1, false)[1] or ''
+    local characters = vim.fn.split(value, '\\zs')
+    local col = 0
+    for index, character in ipairs(characters) do
+      if character ~= expected[index] then
+        vim.api.nvim_buf_set_extmark(input, namespace, 0, col, {
+          end_col = col + #character, hl_group = 'CodeitInputError', priority = 200,
+        })
+      end
+      col = col + #character
+    end
+    if #characters < #expected then
+      vim.api.nvim_buf_set_extmark(input, namespace, 0, #value, {
+        virt_text = { { table.concat(expected, '', #characters + 1), 'CodeitInputHint' } },
+        virt_text_pos = 'overlay', hl_mode = 'combine', priority = 200,
+      })
+    end
+  end
+  update_field()
+  if expected then
+    vim.api.nvim_buf_attach(input, false, { on_lines = update_field })
+  end
   local field = vim.api.nvim_open_win(input, true, {
     relative = 'win', win = win, width = math.max(1, frame.width - 2), height = 1,
     row = math.max(0, frame.height - 3), col = 0, style = 'minimal', zindex = 51,

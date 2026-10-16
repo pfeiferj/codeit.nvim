@@ -557,7 +557,7 @@ function M.request(name, args, prompt, active, done, action, context)
         if not needs_confirmation() then return approve() end
         local phrase = 'approve ' .. name
         require('codeit.ui.input').show({ title = ' Confirm tool approval ', approval = true,
-          safety_score = score, risk_unknown = score == nil,
+          expected = phrase, safety_score = score, risk_unknown = score == nil,
           body = prompt_text() .. '\n\n## Explicit confirmation\n\nType **`' .. phrase
             .. '`** exactly to approve **once**. This approval cannot be remembered.',
           prompt = 'Safety score: ' .. (score and score .. '/10' or 'unavailable')
