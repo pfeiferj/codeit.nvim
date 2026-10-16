@@ -31,6 +31,8 @@ function M.attach(api, state, options, helpers)
         bottom.topline, bottom.topfill, bottom.skipcol = topline, 0, 0
         vim.fn.winrestview(bottom)
       end
+      -- Normal-mode scrolling clamps an Insert-mode cursor onto the last character.
+      vim.api.nvim_win_set_cursor(win, cursor)
       vim.wo[win].scrolloff = scrolloff
     end)
   end
