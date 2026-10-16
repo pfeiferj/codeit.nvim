@@ -1,6 +1,6 @@
 local M = {}
 M.url = 'https://chatgpt.com/backend-api/codex'
-M.client_version = '0.110.0'
+M.client_version = '0.163.0'
 
 local function nonempty(value)
   return type(value) == 'string' and value ~= '' and not value:find('%c')
