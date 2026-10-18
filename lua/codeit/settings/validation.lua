@@ -13,6 +13,13 @@ function M.validate(settings)
     end
   end
 
+  for _, provider in ipairs({ 'typesafe', 'decisions' }) do
+    local value = settings.models[provider]
+    if value ~= nil and (type(value) ~= 'string' or vim.trim(value) == '' or value:find('%c')) then
+      return false, 'model IDs must be nonempty strings'
+    end
+  end
+
   local limit = settings.max_context_tokens
   if limit ~= nil and limit ~= 'auto' and limit ~= false
     and (type(limit) ~= 'number' or limit <= 0 or limit >= math.huge or limit ~= limit) then
@@ -23,20 +30,24 @@ function M.validate(settings)
     if type(settings.approval) ~= 'table' then return false, 'invalid approval settings' end
     for key, value in pairs(settings.approval) do
       if key ~= 'tool_call_safety' then return false, 'unknown approval setting: ' .. tostring(key) end
-      if type(value) ~= 'boolean' then return false, 'approval.tool_call_safety must be a boolean' end
+      if type(value) ~= 'boolean' and value ~= 'decisions' then
+        return false, 'approval.tool_call_safety must be a boolean or decisions'
+      end
     end
   end
 
   local options = settings.request_options
   if type(options) ~= 'table' then return false, 'invalid request options' end
   for provider, values in pairs(options) do
-    if not vim.tbl_contains({ 'openrouter', 'copilot', 'codex', 'openai' }, provider) or type(values) ~= 'table' then
+    if not vim.tbl_contains({ 'openrouter', 'copilot', 'codex', 'openai', 'typesafe', 'decisions' }, provider) or type(values) ~= 'table' then
       return false, 'invalid provider request options'
     end
     for key, value in pairs(values) do
-      if provider == 'openai' then
+      if provider == 'openai' or provider == 'typesafe' or provider == 'decisions' then
         if key == 'base_url' then
-          local url, err = require('codeit.providers.openai').url(values)
+          local url, err
+          if provider == 'openai' then url, err = require('codeit.providers.openai').url(values)
+          else url, err = require('codeit.providers.decisions').url(provider, values) end
           if not url then return false, err end
         elseif key == 'api_key_env' then
           if type(value) ~= 'string' or (value ~= '' and not value:match('^[%a_][%w_]*$')) then
@@ -81,6 +92,15 @@ function M.validate(settings)
     local ok, err = M.validate_model_presets(settings.model_presets)
     if not ok then return false, err end
   end
+  local assessment = (settings.feature_settings or {}).tool_assessment or {}
+  local provider = assessment.provider
+  if (settings.approval or {}).tool_call_safety == 'decisions' then
+    if provider ~= nil and not vim.tbl_contains({ '', 'typesafe', 'decisions', 'openrouter' }, provider) then
+      return false, 'decisions assessments require typesafe, decisions, or openrouter'
+    end
+  elseif (settings.approval or {}).tool_call_safety ~= nil and (provider == 'typesafe' or provider == 'decisions') then
+    return false, 'typesafe and decisions assessment providers require approval.tool_call_safety = decisions'
+  end
   return true
 end
 
@@ -94,7 +114,9 @@ local function validate_overrides(entries, names, label, allow_preset)
       if key == 'preset' and allow_preset then
         if value ~= '' and not vim.tbl_contains(definitions.presets, value) then return false, 'invalid feature preset' end
       elseif key == 'provider' then
-        if not vim.tbl_contains({ '', 'openrouter', 'copilot', 'codex', 'openai' }, value) then return false, 'invalid ' .. label .. ' provider' end
+        local allowed = { '', 'openrouter', 'copilot', 'codex', 'openai' }
+        if allow_preset and name == 'tool_assessment' then vim.list_extend(allowed, { 'typesafe', 'decisions' }) end
+        if not vim.tbl_contains(allowed, value) then return false, 'invalid ' .. label .. ' provider' end
       elseif key == 'model' then
         if type(value) ~= 'string' or value:find('%c') or (value ~= '' and vim.trim(value) == '') then
           return false, 'invalid ' .. label .. ' model ID'

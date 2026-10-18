@@ -13,6 +13,7 @@ local function routing_label(value)
 end
 
 local function tool_call_safety_label(value)
+  if value == 'decisions' then return 'Decisions model (chat model supplies summary)' end
   return value == true and 'Enabled (trust chat model assessment)'
     or 'Disabled (separate automatic assessment)'
 end
@@ -126,7 +127,9 @@ function M.show(current, apply, live)
       { id = 'model', label = 'Browse models: ' .. selected.model },
       { id = 'manual', label = 'Enter model ID manually' },
     }
-    if not preset then
+    local decisions_mode = not preset and name == 'tool_assessment'
+      and (draft.approval or {}).tool_call_safety == 'decisions'
+    if not preset and not decisions_mode then
       local assigned = settings.feature_preset(draft, name)
       table.insert(items, 1, { id = 'preset', label = 'Preset: '
         .. (settings.preset_labels[assigned] or '(main settings only)')
@@ -140,7 +143,7 @@ function M.show(current, apply, live)
       end
     elseif selected.provider == 'codex' then
       items[#items + 1] = { id = 'effort', label = 'Reasoning effort: ' .. option_label('effort') }
-    elseif selected.provider == 'openai' then
+    elseif selected.provider == 'openai' or selected.provider == 'typesafe' or selected.provider == 'decisions' then
       items[#items + 1] = { id = 'base_url', label = 'Base URL: ' .. option_label('base_url') }
       items[#items + 1] = { id = 'api_key_env', label = 'API key environment variable: ' .. option_label('api_key_env') }
     else
@@ -183,7 +186,9 @@ function M.show(current, apply, live)
           back()
         end)
       elseif id == 'provider' then
-        select({ '', 'openrouter', 'copilot', 'codex', 'openai' }, { prompt = title .. ' backend',
+        local choices = decisions_mode and { 'typesafe', 'openrouter', 'decisions' }
+          or { '', 'openrouter', 'copilot', 'codex', 'openai' }
+        select(choices, { prompt = title .. ' backend',
           format_item = function(value) return value == '' and '(inherit backend)' or value end }, function(value)
           if not valid() then return end
           if value ~= nil then store(); feature.provider = value end
@@ -280,8 +285,10 @@ function M.show(current, apply, live)
     for _, name in ipairs({ 'tool_assessment', 'tool_review', 'context_review', 'compaction', 'history_summary', 'cost_review', 'subagent' }) do
       local selected = settings.feature_config(draft, name)
       local assigned = settings.feature_preset(draft, name)
+      local source = name == 'tool_assessment' and (draft.approval or {}).tool_call_safety == 'decisions'
+        and 'decisions' or (settings.preset_labels[assigned] or 'main')
       items[#items + 1] = { id = name, section = 'Feature overrides', label = settings.feature_labels[name] .. ' ['
-        .. (settings.preset_labels[assigned] or 'main') .. ']: ' .. selected.provider .. ' / ' .. selected.model }
+        .. source .. ']: ' .. selected.provider .. ' / ' .. selected.model }
     end
     vim.list_extend(items, {
       { id = 'session', label = 'Apply for this session' },
@@ -300,7 +307,7 @@ function M.show(current, apply, live)
           menu()
         end)
       elseif id == 'tool_call_safety' then
-        select({ false, true }, { prompt = 'Tool-call safety (enabled trusts the acting model, not an independent reviewer)',
+        select({ false, true, 'decisions' }, { prompt = 'Tool-call safety assessment source',
           format_item = tool_call_safety_label }, function(value)
           if not valid() then return end
           if value ~= nil then

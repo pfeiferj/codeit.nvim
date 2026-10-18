@@ -69,6 +69,7 @@ function M.attach(api, session, helpers)
     end
     local valid, settings_err = settings.validate({ provider = session.config.provider, models = session.config.models,
       feature_settings = session.config.feature_settings,
+      approval = { tool_call_safety = session.config.approval.tool_call_safety },
       model_presets = session.config.model_presets, request_options = session.config.request_options })
     if not valid then error('codeit: ' .. settings_err) end
     session.base_settings = { provider = session.config.provider, models = vim.deepcopy(session.config.models),

@@ -8,7 +8,9 @@ local command_rules = require('codeit.tools.approval.command_rules')
 local read_commands = {}
 local tool_call_safety = false
 
-function M.uses_tool_call_safety() return tool_call_safety end
+function M.uses_tool_call_safety() return tool_call_safety == true end
+function M.uses_decisions() return tool_call_safety == 'decisions' end
+function M.requires_summary() return tool_call_safety ~= false end
 
 local save_tools = { save_buffer = true, save_loaded_buffer = true, save_source_buffer = true }
 local edit_tools = { edit_file = true, edit_loaded_buffer = true, edit_source_buffer = true }
@@ -213,10 +215,10 @@ end
 --- A validator error fails closed. Context includes workspace and the current user request.
 function M.setup(opts)
   opts = opts or {}
-  if opts.tool_call_safety ~= nil and type(opts.tool_call_safety) ~= 'boolean' then
-    error('codeit: approval.tool_call_safety must be a boolean')
+  if opts.tool_call_safety ~= nil and type(opts.tool_call_safety) ~= 'boolean' and opts.tool_call_safety ~= 'decisions' then
+    error('codeit: approval.tool_call_safety must be a boolean or decisions')
   end
-  tool_call_safety = opts.tool_call_safety == true
+  tool_call_safety = opts.tool_call_safety or false
   local configured_commands = opts.read_commands
   if configured_commands == nil then configured_commands = {} end
   read_commands = command_rules.compile(configured_commands)
@@ -399,7 +401,7 @@ Execution uses argv directly in the supplied workspace, with no implicit shell. 
 --- Start a review without waiting for this call's turn in the execution queue.
 --- The returned function delivers the result immediately if it is already available.
 function M.prefetch(name, args, context, active)
-  if tool_call_safety then
+  if tool_call_safety == true then
     local summary, score, safe = supplied_assessment(args, context)
     local rules = read_commands
     local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
@@ -410,7 +412,7 @@ function M.prefetch(name, args, context, active)
     end
   end
   if require('codeit.tools.subagents').names[name] then return nil end
-  if not context or not context.review then return nil end
+  if not context or not (M.uses_decisions() and context.decide or not M.uses_decisions() and context.review) then return nil end
   -- Relative resource arguments need a resolved location before review or approval caching.
   if name == 'read_skill_resource' and not context.skill_resource_path then return nil end
   local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
@@ -422,7 +424,12 @@ if name == 'ask_user' or require('codeit.tools.windows').names[name] or save_too
     if matched and #matched > 0 then definitions = matched end
   end
   load()
-  if not definitions and remembered[vim.fn.sha256(canonical({ workspace = workspace, name = name, args = args,
+  local identity_args = args
+  if M.uses_decisions() then
+    identity_args = vim.tbl_extend('force', {}, args)
+    identity_args.summary, identity_args.safety_score, identity_args.is_write = nil, nil, nil
+  end
+  if not definitions and remembered[vim.fn.sha256(canonical({ workspace = workspace, name = name, args = identity_args,
     resource_path = context.skill_resource_path }))] then return nil end
   local summary, score, command_safe, ready = nil, nil, nil, false
   local reviewed_rules = read_commands
@@ -438,6 +445,30 @@ if name == 'ask_user' or require('codeit.tools.windows').names[name] or save_too
     ready = true
     for _, listener in ipairs(listeners) do deliver(listener) end
     listeners = {}
+  end
+  if M.uses_decisions() then
+    local data = context.tool_call_safety or args
+    local supplied_summary, summary_valid = assessment_data({ summary = data.summary, safety_score = 0 })
+    local arguments = vim.deepcopy(args)
+    arguments.summary, arguments.safety_score, arguments.is_write = nil, nil, nil
+    local decisions = require('codeit.tools.approval.decisions')
+    local function decided(answers, err)
+      if ready or active and not active() then return end
+      local result = not err and summary_valid ~= nil and decisions.parse(answers, definitions ~= nil) or nil
+      summary, score = supplied_summary, result and result.safety_score or nil
+      command_safe = result ~= nil and not result.is_write and result.rule_compliant == true and score <= 5
+      ready = true
+      for _, listener in ipairs(listeners) do deliver(listener) end
+      listeners = {}
+    end
+    local ok, err = pcall(context.decide, { user_request = context.user_request or '', tool = name,
+      arguments = arguments, summary = data.summary, workspace = workspace,
+      resolved_resource = context.skill_resource_path, matched_read_only_rules = definitions },
+      decisions.questions(definitions ~= nil), decided, active)
+    if not ok then decided(nil, err) end
+    return function(listener)
+      if ready then deliver(listener) else listeners[#listeners + 1] = listener end
+    end
   end
   local ok, err = pcall(context.review, {
     { role = 'system', content = assessment_system .. (definitions and command_assessment_system or '') },
@@ -490,13 +521,17 @@ function M.request(name, args, prompt, active, done, action, context)
 
   local function manual(assessed_summary, assessed_score)
   if context.no_prompt then return done('Error: this call requires approval; subagents cannot prompt the user') end
-  if tool_call_safety then assessed_summary, assessed_score = supplied_assessment(args, context) end
+  if tool_call_safety == true then assessed_summary, assessed_score = supplied_assessment(args, context) end
 
   local function live() return not active or active() end
   local skip_summary = context.diff or save_tools[name] or require('codeit.tools.windows').names[name]
     or workspace_read(name, args, context, workspace)
-  local summary = assessed_summary or (context.review and 'Waiting for provider…' or 'Review unavailable (reviewer not configured)')
-  local score, ready = assessed_score, assessed_summary ~= nil or not context.review or skip_summary
+  local has_assessor = M.uses_decisions() and context.decide or not M.uses_decisions() and context.review
+  local summary = assessed_summary or (has_assessor and 'Waiting for provider…' or 'Review unavailable (reviewer not configured)')
+  if M.uses_decisions() then
+    summary = assessment_data({ summary = (context.tool_call_safety or args).summary, safety_score = 0 })
+  end
+  local score, ready = assessed_score, assessed_summary ~= nil or not has_assessor or skip_summary
   local update_prompt
   local prompt_version = 0
   local function needs_confirmation()
@@ -507,7 +542,7 @@ function M.request(name, args, prompt, active, done, action, context)
       .. (context.skill_resource_path and ('\n\n**Resolved resource:** ' .. canonical(context.skill_resource_path)) or '')
       .. (skip_summary and '' or '\n\nSummary: ' .. summary
         .. '\n\n**Safety score:** ' .. (score and score .. '/10' or (ready and 'Unavailable' or 'Pending'))
-        .. ' (0 safest; 10 most dangerous)'
+        .. (M.uses_decisions() and ' (1 safest; 10 most dangerous)' or ' (0 safest; 10 most dangerous)')
         .. (ready and needs_confirmation() and '\n\n**Approval requires typing `approve ' .. name .. '` and cannot be remembered.**' or ''))
       .. (reason and '\n\n**Reason:** ' .. tostring(reason) or '')
       .. '\n\n**Workspace:** `' .. workspace .. '`'
@@ -617,7 +652,7 @@ function M.request(name, args, prompt, active, done, action, context)
     end, prompt_config())
     if version == prompt_version then update_prompt = update end
   end
-  if not tool_call_safety and context.review and not skip_summary and assessed_summary == nil then
+  if tool_call_safety ~= true and has_assessor and not skip_summary and assessed_summary == nil then
     local subscribe = context.assessment or M.prefetch(name, args, context, active)
     if subscribe then subscribe(function(text, risk)
       if not live() then return end
@@ -633,7 +668,7 @@ function M.request(name, args, prompt, active, done, action, context)
   end
 
   if not needs_command_check then return manual() end
-  local subscribe = tool_call_safety and M.prefetch(name, args, context, active)
+  local subscribe = tool_call_safety == true and M.prefetch(name, args, context, active)
     or context.assessment or M.prefetch(name, args, context, active)
   if not subscribe then
     reason = 'Automatic command approval requires a read-only safety assessment'

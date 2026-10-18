@@ -16,9 +16,19 @@ end
 --- Fetch available models from the selected backend (no completion request).
 --- Optional options uses the same per-provider request options as chat.
 function M.models(provider, callback, options)
+  if provider == 'typesafe' then return callback({ { id = 'jev-latest', name = 'Jev (latest)' } }) end
+  if provider == 'decisions' then return callback({}, nil) end
   local implementation = backend(provider)
   if not implementation then return callback(nil, 'Unknown provider: ' .. tostring(provider)) end
   implementation.models(callback, options)
+end
+
+--- Evaluate typed decisions questions without requesting generated text.
+function M.decisions(config, state, questions, callback, active)
+  require('codeit.providers.decisions').evaluate(config, state, questions, function(answers, err, usage, detail)
+    if err then log.error(config, err, detail) end
+    callback(answers, err, usage)
+  end, active)
 end
 
 --- Fetch model-specific OpenRouter upstream endpoints, including their pricing.

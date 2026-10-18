@@ -216,6 +216,15 @@ function M.attach(api, session, helpers)
             require('codeit.tools.reviewer').chat(selected_config, history, session.messages, respond, active_review, usage)
           end
         end
+        local function decide(state, questions, callback, assessment_active)
+          local config = helpers.request_config('tool_assessment')
+          local function live() return active() and (not assessment_active or assessment_active()) end
+          providers.decisions(config, state, questions, function(answers, err, usage)
+            if not live() then return end
+            if not err then helpers.record_usage(usage, 'tool_assessment', config.provider, billed_turn) end
+            callback(answers, err)
+          end, live)
+        end
         local function prepare(path)
           if type(path) == 'string' and path ~= '' and not vim.tbl_contains(session.context_paths, path) then
             session.context_paths[#session.context_paths + 1] = path
@@ -231,7 +240,7 @@ function M.attach(api, session, helpers)
             if fn.name == 'ask_user' then break end -- Later calls may be invalidated by the answer.
             if args and type(fn.name) == 'string' and not tools.validate(fn.name, args) then
               local prefetched, assessment = pcall(approval.prefetch, fn.name, args,
-                { user_request = user_request, review = review, source_buffer = session.source },
+                { user_request = user_request, review = review, decide = decide, source_buffer = session.source },
                 function() return id == session.generation end)
               if prefetched then assessments[index] = assessment end
             end
@@ -317,6 +326,7 @@ function M.attach(api, session, helpers)
             subagent_usage = subagent_usage,
             tool_log_entry = tool_log_entries[index],
             review = review,
+            decide = decide,
             assessment = assessments[index],
             prepare = prepare,
             read_versions = session.read_versions,

@@ -21,7 +21,10 @@ local function resolve_config(settings, preset, feature, main_model)
   for _, overrides in ipairs({ preset, feature }) do
     for key, value in pairs(overrides.options or {}) do
       if definitions.option_providers[key] == provider
-        or (key == 'effort' and (provider == 'codex' or provider == 'copilot')) then options[key] = value end
+        or (key == 'effort' and (provider == 'codex' or provider == 'copilot'))
+        or ((key == 'base_url' or key == 'api_key_env') and (provider == 'typesafe' or provider == 'decisions')) then
+        options[key] = value
+      end
     end
   end
   return { provider = provider, model = model or settings.models[provider], options = options }
@@ -33,6 +36,14 @@ end
 
 function M.feature_config(settings, name, main_model)
   local feature = (settings.feature_settings or {})[name] or {}
+  if name == 'tool_assessment' and (settings.approval or {}).tool_call_safety == 'decisions' then
+    -- A chat preset is not a usable default for a decisions-only API.
+    feature = vim.tbl_extend('force', {}, feature, { provider = chosen(feature.provider) and feature.provider or 'typesafe' })
+    local config = resolve_config(settings, {}, feature, main_model)
+    config.model = feature.model ~= nil and feature.model ~= '' and feature.model
+      or (config.provider == 'openrouter' and 'typesafe/jev-1.13' or settings.models[config.provider] or 'jev-latest')
+    return config
+  end
   local preset = (settings.model_presets or {})[M.feature_preset(settings, name)] or {}
   return resolve_config(settings, preset, feature, main_model)
 end

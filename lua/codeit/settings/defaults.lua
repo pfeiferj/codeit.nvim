@@ -1,6 +1,7 @@
 return {
   provider = 'openrouter',
-  models = { openrouter = 'openai/gpt-4o-mini', copilot = 'gpt-4o', codex = 'gpt-5.3-codex', openai = 'gpt-4o-mini' },
+  models = { openrouter = 'openai/gpt-4o-mini', copilot = 'gpt-4o', codex = 'gpt-5.3-codex', openai = 'gpt-4o-mini',
+    typesafe = 'jev-latest', decisions = 'jev-latest' },
   model_presets = {}, -- fast, long_context, reasoning; unset fields inherit main chat settings
   feature_settings = {}, -- preset selection plus per-feature overrides
   request_options = {},

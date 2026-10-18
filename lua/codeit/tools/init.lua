@@ -76,7 +76,7 @@ local function with_safety_fields(definition)
   local copy = vim.deepcopy(definition)
   local parameters = copy['function'].parameters
   parameters.required = parameters.required or {}
-  for _, key in ipairs({ 'summary', 'safety_score', 'is_write' }) do
+  for _, key in ipairs(approval.uses_decisions() and { 'summary' } or { 'summary', 'safety_score', 'is_write' }) do
     parameters.properties[key] = vim.deepcopy(safety_fields[key])
     parameters.required[#parameters.required + 1] = key
   end
@@ -95,7 +95,7 @@ function M.request_specs(workspace, mode, selected)
   for _, definition in ipairs(M.specs) do
     local allowed = enabled[definition['function'].name]
     if allowed == nil or allowed then
-      specs[#specs + 1] = approval.uses_tool_call_safety() and with_safety_fields(definition) or definition
+      specs[#specs + 1] = approval.requires_summary() and with_safety_fields(definition) or definition
     end
   end
   return specs
@@ -105,7 +105,7 @@ local execute_approved
 
 function M.validate(name, args, context)
   local specs = M.specs
-  if approval.uses_tool_call_safety() and not (context and context.no_prompt) then
+  if approval.requires_summary() and not (context and context.no_prompt) then
     for _, definition in ipairs(M.specs) do
       if definition['function'].name == name then
         specs = { with_safety_fields(definition) }
@@ -115,7 +115,7 @@ function M.validate(name, args, context)
   end
   local invalid = require('codeit.tools.validation').validate(specs, name, args)
   if invalid then return invalid end
-  if approval.uses_tool_call_safety() and not (context and context.no_prompt) and vim.trim(args.summary) == '' then
+  if approval.requires_summary() and not (context and context.no_prompt) and vim.trim(args.summary) == '' then
     return 'summary must be nonempty text'
   end
 end
@@ -141,7 +141,7 @@ function M.execute(name, args, source, done, active, context)
     -- Validate before approval and editor API calls.
     local invalid = M.validate(name, args, context)
     if invalid then return done('Error: ' .. invalid) end
-    if approval.uses_tool_call_safety() and not (context and context.no_prompt) then
+    if approval.requires_summary() and not (context and context.no_prompt) then
       context = vim.tbl_extend('force', context or {}, { tool_call_safety = {
         summary = args.summary, safety_score = args.safety_score, is_write = args.is_write,
       } })

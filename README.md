@@ -928,6 +928,72 @@ own assessment; there is no independent reviewer checking read-only behavior or
 rule scope. The user-initiated **Ask reviewer** action remains available and still
 makes a separate LLM request.
 
+### Decisions / System 1 safety assessments
+
+Set `approval.tool_call_safety = 'decisions'` to use a decisions model for automatic
+safety assessments. Every main-chat tool call requires **only `summary`** (1–160
+characters); `safety_score` and `is_write` are not accepted from the chat model.
+The decisions API supplies the risk rating and write classification without
+being asked to generate text. The default is TypeSafe's Jev:
+
+```lua
+require('codeit').setup({
+  approval = { tool_call_safety = 'decisions' },
+  feature_settings = {
+    tool_assessment = { provider = 'typesafe', model = 'jev-latest' },
+  },
+})
+-- Set TYPESAFE_API_KEY in the environment.
+```
+
+The **Tool safety** setting and **Tool safety assessments** feature override in
+`:CodeitSettings` also expose this mode and its backend/model options. Decisions
+assessments do not inherit shared chat-model presets. Other features, including
+**Ask reviewer**, continue to use their normal text-generating models. TypeSafe
+and generic decisions providers are assessment-only, not main-chat backends.
+
+For OpenRouter, use its Decisions endpoint with your existing
+`OPENROUTER_API_KEY`:
+
+```lua
+feature_settings = {
+  tool_assessment = { provider = 'openrouter', model = 'typesafe/jev-1.13' },
+}
+```
+
+This sends requests to `https://openrouter.ai/api/alpha/decisions`, not chat
+completions. OpenRouter routing preferences and fallback settings apply.
+
+For a local or other TypeSafe-compatible API, select the `decisions` provider:
+
+```lua
+feature_settings = {
+  tool_assessment = {
+    provider = 'decisions', model = 'jev-latest',
+    options = { base_url = 'http://localhost:8080/v1', api_key_env = '' },
+  },
+}
+```
+
+The generic provider appends `/systemone` to `base_url` and needs no API key by
+default. Set `api_key_env` to an environment-variable name if authentication is
+needed. TypeSafe defaults to `https://api.typesafe.ai/v1` and `TYPESAFE_API_KEY`;
+its `base_url` and `api_key_env` can also be overridden. Options may be set on the
+feature or under `request_options.typesafe` / `request_options.decisions`.
+No raw API keys are stored in settings. Proposed arguments and the current user
+request are sent to the selected assessment endpoint; choose an endpoint you trust.
+
+The risk question uses ten ordered rubric levels, **1 (safest) to 10 (most
+dangerous)**. APIs return a zero-based, probability-weighted score (0–9); Codeit
+adds one and rounds up to an integer. Write/read-only classification treats
+uncertain behavior as a possible write. Matched command rules also require an
+independent rule-scope classification before automatic approval. Failed or
+malformed assessments leave risk unavailable and cannot auto-approve commands;
+manual approvals retain typed confirmation for unavailable risk or scores above
+5. Existing trusted reads, validators, exact-call approvals, file previews, and
+explicit save approvals are unchanged. Usage is attributed to `tool_assessment`;
+when the API does not return a monetary cost it is reported as missing, not zero.
+
 ### Remembered approvals and validators
 
 Always-approved signatures include the workspace's resolved path, tool name, and full arguments (independent of JSON object key order); their hashes are saved across Neovim sessions in `stdpath('data')/codeit/approvals.json`. Explicit per-call approvals remain effective even if workspace trust changes; delete that file to revoke saved approvals. Configure `approval.validators` in `setup()` with functions receiving `(name, args, context)` that return `'approve'`, `'ask'`, `'reject'`, or `nil`, optionally with a reason. Validators run for **every** call, including saved approvals and `ask_user`; all save tools require their own explicit approval window, even for an approve decision. Rejection wins over asking, and asking wins over approval or saved/default auto-approval. Errors or invalid decisions reject the call.
