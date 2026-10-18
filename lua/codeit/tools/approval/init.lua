@@ -6,6 +6,9 @@ local approval_queue = require('codeit.ui.approval_queue')
 local buffers = require('codeit.file_buffer')
 local command_rules = require('codeit.tools.approval.command_rules')
 local read_commands = {}
+local tool_call_safety = false
+
+function M.uses_tool_call_safety() return tool_call_safety end
 
 local save_tools = { save_buffer = true, save_loaded_buffer = true, save_source_buffer = true }
 local edit_tools = { edit_file = true, edit_loaded_buffer = true, edit_source_buffer = true }
@@ -210,6 +213,10 @@ end
 --- A validator error fails closed. Context includes workspace and the current user request.
 function M.setup(opts)
   opts = opts or {}
+  if opts.tool_call_safety ~= nil and type(opts.tool_call_safety) ~= 'boolean' then
+    error('codeit: approval.tool_call_safety must be a boolean')
+  end
+  tool_call_safety = opts.tool_call_safety == true
   local configured_commands = opts.read_commands
   if configured_commands == nil then configured_commands = {} end
   read_commands = command_rules.compile(configured_commands)
@@ -314,22 +321,35 @@ function M.set_workspace_trust(mode, workspace)
   return true
 end
 
-local function assessment(answer, err)
-  if err then return 'Review unavailable (reviewer error)', nil end
-  if type(answer) ~= 'string' then return 'Review unavailable (invalid response)', nil end
-  local ok, data = pcall(vim.json.decode, vim.trim(answer))
-  if not ok or type(data) ~= 'table' or type(data.summary) ~= 'string'
+local function assessment_data(data)
+  if type(data) ~= 'table' or type(data.summary) ~= 'string'
     or type(data.safety_score) ~= 'number' or data.safety_score < 0 or data.safety_score > 10
     or data.safety_score % 1 ~= 0 then
     return 'Review unavailable (invalid response)', nil
   end
   local summary = vim.trim(data.summary:gsub('%s+', ' ')):sub(1, 160)
   if summary == '' then return 'Review unavailable (empty summary)', nil end
-  -- Reviewer output is untrusted Markdown. Keep it on one line and prevent it
+  -- Assessment output is untrusted Markdown. Keep it on one line and prevent it
   -- from injecting headings, links, or choices into the approval window.
   summary = summary:gsub('([\\`*_{}%[%]()<>#!|])', '\\%1')
   return summary, data.safety_score,
     data.read_only == true and data.rule_compliant == true and data.safety_score <= 5
+end
+
+local function assessment(answer, err)
+  if err then return 'Review unavailable (reviewer error)', nil end
+  if type(answer) ~= 'string' then return 'Review unavailable (invalid response)', nil end
+  local ok, data = pcall(vim.json.decode, vim.trim(answer))
+  return assessment_data(ok and data or nil)
+end
+
+local function supplied_assessment(args, context)
+  local data = context and context.tool_call_safety or args
+  if type(data) ~= 'table' or type(data.is_write) ~= 'boolean' then
+    return 'Review unavailable (invalid tool-call safety fields)', nil, false
+  end
+  local summary, score = assessment_data(data)
+  return summary, score, score ~= nil and score <= 5 and not data.is_write
 end
 
 local function workspace_read(name, args, context, workspace)
@@ -379,6 +399,16 @@ Execution uses argv directly in the supplied workspace, with no implicit shell. 
 --- Start a review without waiting for this call's turn in the execution queue.
 --- The returned function delivers the result immediately if it is already available.
 function M.prefetch(name, args, context, active)
+  if tool_call_safety then
+    local summary, score, safe = supplied_assessment(args, context)
+    local rules = read_commands
+    local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
+    return function(listener)
+      if active and not active() then return end
+      listener(summary, score, safe and rules == read_commands
+        and workspace == (vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()))
+    end
+  end
   if require('codeit.tools.subagents').names[name] then return nil end
   if not context or not context.review then return nil end
   -- Relative resource arguments need a resolved location before review or approval caching.
@@ -460,6 +490,7 @@ function M.request(name, args, prompt, active, done, action, context)
 
   local function manual(assessed_summary, assessed_score)
   if context.no_prompt then return done('Error: this call requires approval; subagents cannot prompt the user') end
+  if tool_call_safety then assessed_summary, assessed_score = supplied_assessment(args, context) end
 
   local function live() return not active or active() end
   local skip_summary = context.diff or save_tools[name] or require('codeit.tools.windows').names[name]
@@ -586,7 +617,7 @@ function M.request(name, args, prompt, active, done, action, context)
     end, prompt_config())
     if version == prompt_version then update_prompt = update end
   end
-  if context.review and not skip_summary and assessed_summary == nil then
+  if not tool_call_safety and context.review and not skip_summary and assessed_summary == nil then
     local subscribe = context.assessment or M.prefetch(name, args, context, active)
     if subscribe then subscribe(function(text, risk)
       if not live() then return end
@@ -602,7 +633,8 @@ function M.request(name, args, prompt, active, done, action, context)
   end
 
   if not needs_command_check then return manual() end
-  local subscribe = context.assessment or M.prefetch(name, args, context, active)
+  local subscribe = tool_call_safety and M.prefetch(name, args, context, active)
+    or context.assessment or M.prefetch(name, args, context, active)
   if not subscribe then
     reason = 'Automatic command approval requires a read-only safety assessment'
     return manual('Review unavailable (reviewer not configured)', nil)

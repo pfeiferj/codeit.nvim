@@ -891,6 +891,39 @@ interaction. Editors with fewer than 10 lines omit it. Clarifications use
 Codeit's own near-full-screen Markdown popup with choices or a multiline answer
 field, not `vim.ui.select` / `vim.ui.input`.
 
+### Tool-call safety metadata
+
+To use the main chat model's assessment instead of a separate automatic safety
+request, enable this setup option (disabled by default):
+
+```lua
+require('codeit').setup({
+  approval = { tool_call_safety = true },
+})
+```
+
+When enabled, every main-chat tool schema includes three **required** arguments:
+
+- `summary`: a short plain-language sentence (1–160 characters).
+- `safety_score`: an integer from 0 (safest) to 10 (most dangerous).
+- `is_write`: a boolean; true for possible writes, deletion, state changes,
+  external side effects, or uncertain behavior. False means confidently read-only.
+
+Missing or invalid fields reject the call before approval or execution. When
+disabled, these fields are absent from the schemas and are not accepted. Subagent
+schemas remain unchanged. Metadata is excluded from execution arguments,
+validators, and remembered exact-call signatures.
+
+This mode makes **no automatic `tool_assessment` LLM request**. Eligible approval
+prompts use the supplied summary and score, including the existing typed
+confirmation for scores above 5. Existing file previews, explicit save approvals,
+workspace trust, validators, and command-rule/file-operand checks still apply.
+Matched read-only commands can auto-approve only with `is_write = false` and a
+score no higher than 5. Unlike the default mode, this trusts the acting model's
+own assessment; there is no independent reviewer checking read-only behavior or
+rule scope. The user-initiated **Ask reviewer** action remains available and still
+makes a separate LLM request.
+
 ### Remembered approvals and validators
 
 Always-approved signatures include the workspace's resolved path, tool name, and full arguments (independent of JSON object key order); their hashes are saved across Neovim sessions in `stdpath('data')/codeit/approvals.json`. Explicit per-call approvals remain effective even if workspace trust changes; delete that file to revoke saved approvals. Configure `approval.validators` in `setup()` with functions receiving `(name, args, context)` that return `'approve'`, `'ask'`, `'reject'`, or `nil`, optionally with a reason. Validators run for **every** call, including saved approvals and `ask_user`; all save tools require their own explicit approval window, even for an approve decision. Rejection wins over asking, and asking wins over approval or saved/default auto-approval. Errors or invalid decisions reject the call.
@@ -954,7 +987,8 @@ the command approval prompt, which identifies a path needing read approval.
 Existing remembered exact-command approvals and explicit command approval
 validators remain effective when trust alone would not auto-approve the files.
 
-Before an eligible rule-based command runs automatically, it must also pass a
+Unless `approval.tool_call_safety` is enabled as described above, before an
+eligible rule-based command runs automatically, it must also pass a
 tool-free model assessment using `tool_assessment` (the **fast** preset by
 default, configurable through the existing feature settings). The model receives
 the argv, workspace, user request, and matching rule definitions. It must confirm
