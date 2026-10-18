@@ -24,11 +24,16 @@ local function setup(enabled)
 end
 local function check(enabled)
   assert(plugin.get_settings().approval.tool_call_risk == enabled)
-  assert(approval.uses_tool_call_risk() == enabled, 'settings must update approval at runtime')
+  assert(approval.uses_tool_call_risk() == (enabled == true), 'settings must update approval at runtime')
+  assert(approval.risk_review_disabled() == (enabled == 'disabled'))
   plugin.send('Check the current tool schemas')
   for _, definition in ipairs(requests[#requests]) do
     local params = definition['function'].parameters
-    assert((params.properties.risk_score ~= nil) == enabled, 'next request must use the selected mode')
+    assert((params.properties.risk_score ~= nil) == (enabled == true), 'next request must use the selected mode')
+    if enabled == 'disabled' then
+      assert(params.properties.summary and vim.tbl_contains(params.required, 'summary'))
+      assert(params.properties.is_write == nil)
+    end
   end
 end
 setup(false)
@@ -77,4 +82,12 @@ for _, bad in ipairs({ false, 'yes', { tool_call_risk = 'true' }, { tool_call_ri
   assert(not settings.validate(values), 'invalid approval settings must be rejected')
   assert(not plugin.configure(values))
 end
+local disabled = vim.deepcopy(base)
+disabled.approval.tool_call_risk = 'disabled'
+assert(plugin.configure(disabled, 'workspace'))
+check('disabled')
+setup(false)
+check('disabled')
+assert(plugin.configure(base))
+check(false)
 print('codeit tool-call risk settings tests passed')

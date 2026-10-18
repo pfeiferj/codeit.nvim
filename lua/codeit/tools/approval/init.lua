@@ -10,6 +10,7 @@ local tool_call_risk = false
 
 function M.uses_tool_call_risk() return tool_call_risk == true end
 function M.uses_decisions() return tool_call_risk == 'decisions' end
+function M.risk_review_disabled() return tool_call_risk == 'disabled' end
 function M.requires_summary() return tool_call_risk ~= false end
 
 local save_tools = { save_buffer = true, save_loaded_buffer = true, save_source_buffer = true }
@@ -215,8 +216,9 @@ end
 --- A validator error fails closed. Context includes workspace and the current user request.
 function M.setup(opts)
   opts = require('codeit.risk').approval(opts or {})
-  if opts.tool_call_risk ~= nil and type(opts.tool_call_risk) ~= 'boolean' and opts.tool_call_risk ~= 'decisions' then
-    error('codeit: approval.tool_call_risk must be a boolean or decisions')
+  if opts.tool_call_risk ~= nil and type(opts.tool_call_risk) ~= 'boolean'
+    and opts.tool_call_risk ~= 'decisions' and opts.tool_call_risk ~= 'disabled' then
+    error('codeit: approval.tool_call_risk must be a boolean, decisions, or disabled')
   end
   tool_call_risk = opts.tool_call_risk or false
   local configured_commands = opts.read_commands
@@ -348,6 +350,10 @@ end
 
 local function supplied_assessment(args, context)
   local data = context and context.tool_call_risk or args
+  if M.risk_review_disabled() then
+    local summary = assessment_data({ summary = type(data) == 'table' and data.summary, risk_score = 0 })
+    return summary, 0, true
+  end
   if type(data) ~= 'table' or type(data.is_write) ~= 'boolean' then
     return 'Review unavailable (invalid tool-call risk fields)', nil, false
   end
@@ -402,7 +408,7 @@ Execution uses argv directly in the supplied workspace, with no implicit shell. 
 --- Start a review without waiting for this call's turn in the execution queue.
 --- The returned function delivers the result immediately if it is already available.
 function M.prefetch(name, args, context, active)
-  if tool_call_risk == true then
+  if tool_call_risk == true or M.risk_review_disabled() then
     local summary, score, safe = supplied_assessment(args, context)
     local rules = read_commands
     local workspace = vim.uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
@@ -522,12 +528,15 @@ function M.request(name, args, prompt, active, done, action, context)
 
   local function manual(assessed_summary, assessed_score)
   if context.no_prompt then return done('Error: this call requires approval; subagents cannot prompt the user') end
-  if tool_call_risk == true then assessed_summary, assessed_score = supplied_assessment(args, context) end
+  if tool_call_risk == true or M.risk_review_disabled() then
+    assessed_summary, assessed_score = supplied_assessment(args, context)
+  end
 
   local function live() return not active or active() end
   local skip_summary = context.diff or save_tools[name] or require('codeit.tools.windows').names[name]
     or workspace_read(name, args, context, workspace)
-  local has_assessor = M.uses_decisions() and context.decide or not M.uses_decisions() and context.review
+  local has_assessor = not M.risk_review_disabled()
+    and (M.uses_decisions() and context.decide or not M.uses_decisions() and context.review)
   local summary = assessed_summary or (has_assessor and 'Waiting for provider…' or 'Review unavailable (reviewer not configured)')
   if M.uses_decisions() then
     summary = assessment_data({ summary = (context.tool_call_risk or args).summary, risk_score = 0 })
@@ -542,8 +551,9 @@ function M.request(name, args, prompt, active, done, action, context)
     return approval_format.call(name, args)
       .. (context.skill_resource_path and ('\n\n**Resolved resource:** ' .. canonical(context.skill_resource_path)) or '')
       .. (skip_summary and '' or '\n\nSummary: ' .. summary
-        .. '\n\n**Risk score:** ' .. (score and score .. '/10' or (ready and 'Unavailable' or 'Pending'))
-        .. (M.uses_decisions() and ' (1 safest; 10 most dangerous)' or ' (0 safest; 10 most dangerous)')
+        .. (M.risk_review_disabled() and '' or '\n\n**Risk score:** '
+          .. (score and score .. '/10' or (ready and 'Unavailable' or 'Pending'))
+          .. (M.uses_decisions() and ' (1 safest; 10 most dangerous)' or ' (0 safest; 10 most dangerous)'))
         .. (ready and needs_confirmation() and '\n\n**Approval requires typing `approve ' .. name .. '` and cannot be remembered.**' or ''))
       .. (reason and '\n\n**Reason:** ' .. tostring(reason) or '')
       .. '\n\n**Workspace:** `' .. workspace .. '`'
@@ -669,7 +679,7 @@ function M.request(name, args, prompt, active, done, action, context)
   end
 
   if not needs_command_check then return manual() end
-  local subscribe = tool_call_risk == true and M.prefetch(name, args, context, active)
+  local subscribe = (tool_call_risk == true or M.risk_review_disabled()) and M.prefetch(name, args, context, active)
     or context.assessment or M.prefetch(name, args, context, active)
   if not subscribe then
     reason = 'Automatic command approval requires a read-only risk assessment'

@@ -13,9 +13,10 @@ local function routing_label(value)
 end
 
 local function tool_call_risk_label(value)
+  if value == 'disabled' then return 'Disabled (chat model supplies summary only)' end
   if value == 'decisions' then return 'Decisions model (chat model supplies summary)' end
   return value == true and 'Enabled (trust chat model assessment)'
-    or 'Disabled (separate automatic assessment)'
+    or 'Separate automatic assessment (default)'
 end
 
 local function context_review_label(value)
@@ -316,7 +317,7 @@ function M.show(current, apply, live)
           menu()
         end)
       elseif id == 'tool_call_risk' then
-        select({ false, true, 'decisions' }, { prompt = 'Tool-call risk assessment source',
+        select({ false, true, 'decisions', 'disabled' }, { prompt = 'Tool-call risk assessment source',
           format_item = tool_call_risk_label }, function(value)
           if not valid() then return end
           if value ~= nil then

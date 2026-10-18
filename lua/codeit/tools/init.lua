@@ -76,7 +76,8 @@ local function with_risk_fields(definition)
   local copy = vim.deepcopy(definition)
   local parameters = copy['function'].parameters
   parameters.required = parameters.required or {}
-  for _, key in ipairs(approval.uses_decisions() and { 'summary' } or { 'summary', 'risk_score', 'is_write' }) do
+  local summary_only = approval.uses_decisions() or approval.risk_review_disabled()
+  for _, key in ipairs(summary_only and { 'summary' } or { 'summary', 'risk_score', 'is_write' }) do
     parameters.properties[key] = vim.deepcopy(risk_fields[key])
     parameters.required[#parameters.required + 1] = key
   end
@@ -145,7 +146,9 @@ function M.execute(name, args, source, done, active, context)
     if invalid then return done('Error: ' .. invalid) end
     if approval.requires_summary() and not (context and context.no_prompt) then
       context = vim.tbl_extend('force', context or {}, { tool_call_risk = {
-        summary = args.summary, risk_score = args.risk_score, is_write = args.is_write,
+        summary = args.summary,
+        risk_score = approval.risk_review_disabled() and 0 or args.risk_score,
+        is_write = not approval.risk_review_disabled() and args.is_write,
       } })
       -- Risk metadata must not affect execution, validators, or remembered-call identities.
       args = vim.tbl_extend('force', {}, args)

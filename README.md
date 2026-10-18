@@ -961,10 +961,11 @@ When enabled, every main-chat tool schema includes three **required** arguments:
 - `is_write`: a boolean; true for possible writes, deletion, state changes,
   external side effects, or uncertain behavior. False means confidently read-only.
 
-Missing or invalid fields reject the call before approval or execution. When
-disabled, these fields are absent from the schemas and are not accepted. Subagent
-schemas remain unchanged. Metadata is excluded from execution arguments,
-validators, and remembered exact-call signatures.
+Missing or invalid fields reject the call before approval or execution. With
+`tool_call_risk = false` (the default separate-assessment mode), these fields are
+absent from the schemas and are not accepted. Subagent schemas remain unchanged.
+Metadata is excluded from execution arguments, validators, and remembered
+exact-call signatures.
 
 This mode makes **no automatic `tool_assessment` LLM request**. Eligible approval
 prompts use the supplied summary and score, including the existing typed
@@ -983,6 +984,31 @@ are normalized to the new names when loaded and written using the new names on
 subsequent saves. If both names are present, the new name takes precedence,
 including explicit `false` and zero values. Tool schemas and new model prompts
 use only the risk terminology.
+
+### Disabling risk review
+
+Set `approval.tool_call_risk = 'disabled'` to turn off automatic risk review:
+
+```lua
+require('codeit').setup({
+  approval = { tool_call_risk = 'disabled' },
+})
+```
+
+This mode is also available as **Disabled (chat model supplies summary only)**
+in the **Tool-call risk** settings picker. Every main-chat tool call still
+requires a nonempty `summary` (1–160 characters), but `risk_score` and `is_write`
+are absent from the schemas and are not accepted. No automatic risk assessment
+request is made. Internal risk checks treat calls as risk 0 and non-write, so
+risk-based typed confirmation is not required and matching read-only command
+rules do not need an assessment. This trusts the configured rules without an
+independent check of read-only behavior or rule scope.
+
+Normal approvals, validators, workspace trust, command-rule/file-operand checks,
+write previews, and explicit save approvals still apply. **Ask reviewer** remains
+available as an optional, user-initiated action. The default remains
+`tool_call_risk = false`, which uses a separate automatic assessment rather than
+disabling risk review.
 
 ### Decisions / System 1 risk assessments
 
@@ -1113,9 +1139,9 @@ the command approval prompt, which identifies a path needing read approval.
 Existing remembered exact-command approvals and explicit command approval
 validators remain effective when trust alone would not auto-approve the files.
 
-Unless `approval.tool_call_risk` is enabled as described above, before an
-eligible rule-based command runs automatically, it must also pass a
-tool-free model assessment using `tool_assessment` (the **fast** preset by
+With `approval.tool_call_risk = false` (the default), before an eligible
+rule-based command runs automatically, it must also pass a tool-free model
+assessment using `tool_assessment` (the **fast** preset by
 default, configurable through the existing feature settings). The model receives
 the argv, workspace, user request, and matching rule definitions. It must confirm
 both that the invocation is read-only and that it stays within the intended rule
@@ -1132,6 +1158,8 @@ change explicit approvals for commands without an eligible read-only rule.
 Rules and file permissions are rechecked after the model responds, and a changed
 rule configuration requires manual approval. Model assessments are an additional
 probabilistic safeguard, not a sandbox or a guarantee of read-only behavior.
+Setting `approval.tool_call_risk = 'disabled'` skips this assessment and assumes
+risk 0 and non-write; command-rule and file-permission checks still apply.
 
 Commands read **disk**, not buffer contents: visible-buffer permissions and
 remembered exact file/buffer-read approvals do not automatically authorize file
