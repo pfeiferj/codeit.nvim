@@ -12,8 +12,14 @@ function M.attach(api, session, helpers)
     if session.config.provider == 'openrouter' or session.config.provider == 'copilot' or session.config.provider == 'codex'
       or session.config.provider == 'openai'
       or session.cost > 0 or session.missing_cost > 0 then
-      billing = string.format('Cost: %s | In: %s%s | Out: %s%s | Context: %s',
-        usage_format.cost(session.cost, session.missing_cost > 0), format_tokens(session.tokens_in, 1000000, 'm'), session.missing_in and '+' or '',
+      local subscription_count, dollars = cost_breakdown.subscription_requests(session.cost_by_function)
+      local cost = 'Cost: ' .. usage_format.cost(session.cost, session.missing_cost > 0)
+      if session.config.provider == 'codex' or subscription_count > 0 then
+        cost = usage_format.with_subscription(usage_format.subscription(session.codex_subscription),
+          session.cost, session.missing_cost > 0, dollars)
+      end
+      billing = string.format('%s | In: %s%s | Out: %s%s | Context: %s',
+        cost, format_tokens(session.tokens_in, 1000000, 'm'), session.missing_in and '+' or '',
         format_tokens(session.tokens_out, 1000000, 'm'), session.missing_out and '+' or '',
         session.context_tokens and (session.context_estimated and '~' or '') .. format_tokens(session.context_tokens, 1000, 'k') or '—')
     end
@@ -35,19 +41,28 @@ function M.attach(api, session, helpers)
     if number and number >= 0 and number < math.huge then return number end
   end
 
+  function helpers.record_subscription(usage, provider)
+    if provider == 'codex' and usage and usage.codex_subscription then
+      session.codex_subscription = vim.tbl_extend('force', session.codex_subscription or {}, usage.codex_subscription)
+    end
+  end
+
   function helpers.record_usage(usage, feature, provider, turn)
     provider = provider or session.config.provider
     if provider ~= 'openrouter' and provider ~= 'copilot' and provider ~= 'codex' and provider ~= 'openai'
       and not (feature == 'context_review' and (provider == 'typesafe' or provider == 'decisions')) then return end
-    local amount = helpers.usage_number(usage and usage.cost)
+    helpers.record_subscription(usage, provider)
+    -- Subscription requests are accounted for in quota, not in per-request USD charges.
+    local subscription = provider == 'codex'
+    local amount = subscription and 0 or helpers.usage_number(usage and usage.cost)
     if amount then session.cost = session.cost + amount else session.missing_cost = session.missing_cost + 1 end
     local input_count = helpers.usage_number(usage and usage.prompt_tokens)
     local output_count = helpers.usage_number(usage and usage.completion_tokens)
-    cost_breakdown.add(session.cost_by_function, feature, amount, input_count, output_count)
+    cost_breakdown.add(session.cost_by_function, feature, amount, input_count, output_count, subscription)
     if turn then
       if amount then turn.cost = turn.cost + amount else turn.missing_cost = turn.missing_cost + 1 end
       turn.cost_by_function = turn.cost_by_function or {}
-      cost_breakdown.add(turn.cost_by_function, feature, amount, input_count, output_count)
+      cost_breakdown.add(turn.cost_by_function, feature, amount, input_count, output_count, subscription)
     end
     if input_count then session.tokens_in = session.tokens_in + input_count else session.missing_in = true end
     if output_count then session.tokens_out = session.tokens_out + output_count else session.missing_out = true end

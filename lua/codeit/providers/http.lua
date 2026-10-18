@@ -39,7 +39,7 @@ local function http_json(args, options, callback, metadata, streaming, active, m
       parser = require('codeit.providers.protocols.stream').new(streaming.responses, streaming.on_text, function()
         if activity then activity() end
         if streaming.on_activity then streaming.on_activity() end
-      end)
+      end, streaming.on_codex_usage)
       attempt_options.stdout = function(err, chunk)
         if finished or err or not chunk then return end
         output[#output + 1] = chunk
@@ -78,19 +78,19 @@ local function http_json(args, options, callback, metadata, streaming, active, m
         end
         if parser and tonumber(status) >= 200 and tonumber(status) < 300 then
           local response, err, streamed = parser.finish()
-          if streamed then return callback(response, err, err and data or nil) end
+          if streamed then return callback(response, err, err and data or nil, headers) end
         end
         local ok, decoded = pcall(vim.json.decode, data)
         if tonumber(status) < 200 or tonumber(status) >= 300 then
           local err = ok and type(decoded) == 'table' and decoded.error or nil
           if type(err) == 'table' then err = err.message end
-          return callback(nil, 'HTTP ' .. status .. ': ' .. tostring(err or data:sub(1, 300)), data)
+          return callback(nil, 'HTTP ' .. status .. ': ' .. tostring(err or data:sub(1, 300)), data, headers)
         end
         if not ok or (metadata and type(decoded) ~= 'table') then
           return callback(nil, metadata and 'Invalid model metadata response'
             or 'Invalid JSON response: ' .. data:sub(1, 300), data)
         end
-        callback(decoded)
+        callback(decoded, nil, nil, headers)
       end)
     end)
     if not metadata then

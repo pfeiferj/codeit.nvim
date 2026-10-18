@@ -1,7 +1,7 @@
 local M = {}
 
 -- Assemble SSE events into the same response shapes used by the non-streaming adapters.
-function M.new(responses, on_text, on_activity)
+function M.new(responses, on_text, on_activity, on_codex_usage)
   local pending, headers, sse, successful = '', true, false, false
   local failure, completed, result, usage, finish_reason
   local message = { role = 'assistant', content = '' }
@@ -24,6 +24,7 @@ function M.new(responses, on_text, on_activity)
       error(tostring(err or 'Provider streaming error'))
     end
     if responses then
+      if value.type == 'codex.rate_limits' and on_codex_usage then on_codex_usage(value) end
       if value.type == 'response.output_text.delta' or value.type == 'response.refusal.delta' then
         text(value.delta)
       elseif value.type == 'response.completed' or value.type == 'response.failed'

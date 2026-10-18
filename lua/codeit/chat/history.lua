@@ -48,6 +48,7 @@ function M.attach(api, session, helpers)
     session.disabled_context_files = type(chat.disabled_context_files) == 'table' and chat.disabled_context_files or {}
     context_files.set_disabled(session.workspace, session.disabled_context_files)
     session.cost, session.missing_cost = tonumber(chat.cost) or 0, tonumber(chat.missing_cost) or 0
+    session.codex_subscription = nil
     session.turn_costs, session.current_turn = chat.turn_costs, nil
     session.cost_by_function = chat.cost_by_function
     session.tokens_in, session.tokens_out = tonumber(chat.tokens_in) or 0, tonumber(chat.tokens_out) or 0
@@ -145,12 +146,13 @@ function M.attach(api, session, helpers)
         if session.workspace == selected_workspace and session.chat_id == chat.id and history.workspace() == selected_workspace then
           helpers.record_usage(usage, 'history_summary', summary_config.provider)
         else
-          local amount = helpers.usage_number(usage and usage.cost)
+          local subscription = summary_config.provider == 'codex'
+          local amount = subscription and 0 or helpers.usage_number(usage and usage.cost)
           current.missing_cost = helpers.usage_number(current.missing_cost) or (helpers.usage_number(current.cost) and 0 or 1)
           current.cost = (helpers.usage_number(current.cost) or 0) + (amount or 0)
           if not amount then current.missing_cost = current.missing_cost + 1 end
           cost_breakdown.add(current.cost_by_function, 'history_summary', amount,
-            helpers.usage_number(usage and usage.prompt_tokens), helpers.usage_number(usage and usage.completion_tokens))
+            helpers.usage_number(usage and usage.prompt_tokens), helpers.usage_number(usage and usage.completion_tokens), subscription)
           for _, pair in ipairs({ { 'tokens_in', 'prompt_tokens', 'missing_in' }, { 'tokens_out', 'completion_tokens', 'missing_out' } }) do
             local count = helpers.usage_number(usage and usage[pair[2]])
             current[pair[3]] = current[pair[3]] == true or not helpers.usage_number(current[pair[1]]) or not count

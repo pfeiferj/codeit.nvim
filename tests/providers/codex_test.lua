@@ -59,9 +59,16 @@ vim.system = function(args, options, callback)
   if args[#args]:find('/models?', 1, true) then
     raw = vim.json.encode(failure_body or catalog) .. '\n' .. status
   elseif status ~= '200' then
-    raw = vim.json.encode(failure_body) .. '\n' .. status
+    raw = 'HTTP/2 ' .. status .. '\r\nx-codex-primary-used-percent: 100\r\n'
+      .. 'x-codex-primary-window-minutes: 300\r\n\r\n' .. vim.json.encode(failure_body) .. '\n' .. status
   else
-    raw = 'HTTP/2 200\r\ncontent-type: text/event-stream\r\n\r\n'
+    raw = 'HTTP/2 200\r\ncontent-type: text/event-stream\r\n'
+      .. 'X-Codex-Primary-Used-Percent: 12.5\r\nx-codex-primary-window-minutes: 300\r\n'
+      .. 'x-codex-secondary-used-percent: 62.5\r\nx-codex-secondary-window-minutes: 10080\r\n\r\n'
+      .. 'data: ' .. vim.json.encode({ type = 'codex.rate_limits',
+        rate_limits = { primary = { used_percent = 25, window_minutes = 300 } } }) .. '\n\n'
+      .. 'data: ' .. vim.json.encode({ type = 'codex.rate_limits', metered_limit_name = 'codex_other',
+        rate_limits = { primary = { used_percent = 99, window_minutes = 60 } } }) .. '\n\n'
       .. 'data: ' .. vim.json.encode({ type = 'response.output_text.delta', delta = 'hel' }) .. '\n\n'
       .. 'data: ' .. vim.json.encode({ type = 'response.output_text.delta', delta = 'lo' }) .. '\n\n'
     if not truncated then
@@ -116,6 +123,9 @@ assert(answer.tool_calls[1].id == 'call-1' and answer.tool_calls[1]['function'].
 assert(answer._codex_reasoning[1].encrypted_content == 'encrypted-reasoning' and answer._copilot_reasoning == nil)
 assert(usage.prompt_tokens == 100 and usage.completion_tokens == 25 and usage.total_tokens == 125)
 assert(usage.cached_tokens == 60 and usage.cost == nil, 'subscription usage must not invent a dollar charge')
+assert(usage.codex_subscription.primary.used_percent == 25, 'SSE usage supersedes response headers')
+assert(usage.codex_subscription.primary.window_minutes == 300)
+assert(usage.codex_subscription.secondary.used_percent == 62.5, 'headers supply windows absent from SSE')
 local body = calls[#calls].body
 assert(body.model == 'gpt-5.3-codex' and body.stream == true and body.store == false)
 assert(body.instructions == 'First instruction\n\nSecond instruction')
@@ -144,8 +154,9 @@ status, failure_body = '401', { error = { message = 'expired ' .. token } }
 answer, failure = chat({ provider = 'codex', model = 'gpt-5.3-codex' })
 assert(not answer and failure:find('codex login', 1, true))
 status = '400'
-answer, failure = chat({ provider = 'codex', model = 'gpt-5.3-codex' })
+answer, failure, usage = chat({ provider = 'codex', model = 'gpt-5.3-codex' })
 assert(not answer and failure:find('[redacted]', 1, true) and not failure:find(token, 1, true))
+assert(usage.codex_subscription.primary.used_percent == 100, 'failed requests may still report quota')
 local log = table.concat(vim.fn.readfile(vim.fn.stdpath('state') .. '/codeit/provider-errors.log'), '\n')
 for _, secret in ipairs({ token, id_token, 'private-refresh-token' }) do
   assert(not log:find(secret, 1, true), 'credentials must not appear in provider logs')
@@ -204,13 +215,20 @@ assert(vim.wait(2000, function()
   end
   return false
 end))
-assert(saved.tokens_in == 20 and saved.tokens_out == 5 and saved.missing_cost > 0)
+assert(saved.tokens_in == 20 and saved.tokens_out == 5 and saved.missing_cost == 0)
+assert(saved.cost == 0 and saved.cost_by_function.main_chat.subscription_requests == 1)
+assert(saved.turn_costs[1].cost_by_function.main_chat.subscription_requests == 1)
+local display = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
+assert(display:find('Codex: 5h 25% used · 7d 62.5% used', 1, true))
+assert(not display:find('$0.000+', 1, true))
 assert(saved.messages[#saved.messages]._codex_reasoning[1].encrypted_content == 'saved-reasoning')
 assert(table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
   :find('Codex thought', 1, true))
 plugin.new()
 assert(plugin.resume(saved.id))
 assert(plugin.get_settings().provider == 'codex')
+assert(table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
+  :find('Codex: usage unknown', 1, true), 'resuming must not present a historical quota snapshot as current')
 assert(vim.tbl_contains(vim.fn.getcompletion('CodeitProvider ', 'cmdline'), 'codex'))
 local command = require('codeit.commands.slash').parse('/provider codex')
 assert(vim.tbl_contains(command.choices, 'codex'))

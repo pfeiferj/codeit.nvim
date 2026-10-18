@@ -122,13 +122,14 @@ function M.attach(api, session, helpers)
       -- Background billing belongs to the originating chat, never the active one.
       local chat = history.load(subagent_workspace, subagent_chat)
       if not chat then return end
-      local amount = helpers.usage_number(usage and usage.cost)
+      local subscription = subagent_config.provider == 'codex'
+      local amount = subscription and 0 or helpers.usage_number(usage and usage.cost)
       local input, output = helpers.usage_number(usage and usage.prompt_tokens), helpers.usage_number(usage and usage.completion_tokens)
       local function add(target)
         target.cost = (target.cost or 0) + (amount or 0)
         target.missing_cost = (target.missing_cost or 0) + (amount and 0 or 1)
         target.cost_by_function = target.cost_by_function or {}
-        cost_breakdown.add(target.cost_by_function, 'subagent', amount, input, output)
+        cost_breakdown.add(target.cost_by_function, 'subagent', amount, input, output, subscription)
       end
       add(chat)
       local turn = chat.turn_costs and chat.turn_costs[subagent_turn_index]
@@ -141,6 +142,7 @@ function M.attach(api, session, helpers)
       response_pending = false
       if not active() then return end
       session.stream_preview = nil
+      helpers.record_subscription(usage, selected_config.provider)
       if err then return helpers.fail(err) end
       helpers.record_usage(usage, 'main_chat', selected_config.provider, billed_turn)
       local calls = message.tool_calls

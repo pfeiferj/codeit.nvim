@@ -4,6 +4,7 @@ local http = require('codeit.providers.http')
 local responses = require('codeit.providers.protocols.responses')
 local usage = require('codeit.providers.protocols.usage')
 local models = require('codeit.providers.models')
+local subscription_usage = require('codeit.providers.codex.usage')
 
 function M.models(callback)
   local credentials, err = auth.credentials()
@@ -39,12 +40,22 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   headers[#headers + 1] = 'Accept: text/event-stream'
   local options = config.options or {}
   if options.effort and options.effort ~= '' then body.reasoning = { effort = options.effort } end
-  http.post(auth.url .. '/responses', headers, body, function(response, failure, detail)
-    if failure then return callback(nil, auth.redact(failure, credentials), nil, auth.redact(detail, credentials)) end
+  local rate_limits = {}
+  http.post(auth.url .. '/responses', headers, body, function(response, failure, detail, response_headers)
+    local billing = usage.codex(response)
+    local subscription = vim.tbl_extend('force', subscription_usage.parse(response_headers) or {}, rate_limits)
+    if next(subscription) then
+      billing = billing or {}
+      billing.codex_subscription = subscription
+    end
+    if failure then return callback(nil, auth.redact(failure, credentials), billing, auth.redact(detail, credentials)) end
     local message, response_error = responses.message(response, 'Codex')
     local response_detail = response_error and vim.json.encode(response) or nil
-    callback(message, auth.redact(response_error, credentials), usage.codex(response), auth.redact(response_detail, credentials))
-  end, { responses = true, on_text = on_text or function() end, on_activity = on_activity }, active)
+    callback(message, auth.redact(response_error, credentials), billing, auth.redact(response_detail, credentials))
+  end, { responses = true, on_text = on_text or function() end, on_activity = on_activity,
+    on_codex_usage = function(event)
+      rate_limits = vim.tbl_extend('force', rate_limits, subscription_usage.parse(nil, event) or {})
+    end }, active)
 end
 
 return M

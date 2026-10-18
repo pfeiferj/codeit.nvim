@@ -216,7 +216,7 @@ function M.attach(api, state, options, helpers)
           local label = message.role == 'user' and '**You**' or ('**' .. (options.assistant_label or 'Assistant') .. '**')
           if message.role == 'user' and turn_costs then
             local turn = costs_by_message[index]
-            label = label .. ' · Turn cost: ' .. (turn and usage_format.cost(turn.cost, turn.missing_cost > 0) or 'unknown')
+            label = label .. ' · Turn cost: ' .. (turn and usage_format.turn_cost(turn) or 'unknown')
           end
           state.role_marks[#state.role_marks + 1] = { row = #lines, text = label,
             group = message.role == 'user' and 'CodeitUser' or 'CodeitAssistant' }

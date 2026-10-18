@@ -231,8 +231,20 @@ credential changes are picked up without restarting Neovim. The backend requires
 streaming even for internal reviews/summaries, but those requests do not display
 live previews. It does not accept `max_output_tokens`, so internal summary token
 caps are not sent; summary-size targets still apply through the prompt. Token and
-cache usage are recorded when reported; dollar costs are unknown, not assumed
-free.
+cache usage are recorded when reported. The billing line shows the latest reported
+Codex subscription usage windows (percent **used**), followed by other providers'
+chat costs in parentheses, for example `Codex: 5h 23% used · 7d 41% used ($0.012)`.
+Subscription usage refreshes from response headers/stream events after Codex
+requests; it is account-wide, not usage attributable to this chat. Before a report
+arrives, or once a reported window expires, usage is shown as unknown. Snapshots
+are not restored from saved chats. Only the default Codex quota pool is displayed.
+Codex subscription-covered requests are excluded from per-request USD totals and
+missing-dollar-cost counts; no API-equivalent prices are estimated. This does not
+mean the subscription is free. Other providers' reported charges (including
+secondary reviews, summaries, and subagents) still contribute to dollar totals;
+`+` inside the parentheses means some of those dollar costs were not reported.
+Saved cost breakdowns retain a `subscription_requests` count; older unknown costs
+are left unchanged.
 
 **Compatibility warning:** This is the Codex CLI's subscription backend, not a
 stable public API. It may change independently of Codeit.

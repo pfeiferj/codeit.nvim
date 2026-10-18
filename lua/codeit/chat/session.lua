@@ -81,6 +81,7 @@ function M.attach(api, session, helpers)
     session.read_versions = {}
     session.auto_approvals = {}
     session.cost, session.missing_cost = 0, 0
+    session.codex_subscription = nil
     session.turn_costs, session.current_turn = {}, nil
     session.cost_by_function = {}
     session.tokens_in, session.tokens_out, session.missing_in, session.missing_out = 0, 0, false, false
@@ -167,6 +168,7 @@ function M.attach(api, session, helpers)
     session.auto_approvals = {}
     context_files.set_disabled(session.workspace, session.disabled_context_files)
     session.cost, session.missing_cost = 0, 0
+    session.codex_subscription = nil
     session.turn_costs, session.current_turn = {}, nil
     session.cost_by_function = {}
     session.tokens_in, session.tokens_out, session.missing_in, session.missing_out = 0, 0, false, false

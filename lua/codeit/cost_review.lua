@@ -33,6 +33,7 @@ function M.show(config, workspace)
     summary = 'Cost review', messages = conversation, cost = 0, missing_cost = 0, turn_costs = {}, cost_by_function = {},
     tokens_in = 0, tokens_out = 0, missing_in = false, missing_out = false }
   local id = history.new_id()
+  local codex_subscription
   local grouping, offset, scope = 'day', 0, nil
   local previous_pages = {}
   local waiting, finished, chat = false, false, nil
@@ -67,7 +68,7 @@ function M.show(config, workspace)
         usage_format.cost(result.totals.cost, result.totals.missing_cost > 0), result.totals.chats,
         usage_format.tokens(result.totals.tokens_in), result.totals.missing_in and '+' or '',
         usage_format.tokens(result.totals.tokens_out), result.totals.missing_out and '+' or ''),
-      string.format('Missing cost reports: %d. + means incomplete usage.', result.totals.missing_cost), '' })
+      string.format('Missing cost reports: %d. + means incomplete usage. Subscription-covered Codex requests are excluded from USD.', result.totals.missing_cost), '' })
     local rows = { by_function and { 'Function', 'Requests', 'USD', 'Input tokens', 'Output tokens', 'Missing cost reports' }
       or { 'Group', 'Chats', 'USD', 'Input tokens', 'Output tokens' } }
     for _, group in ipairs(result.groups) do
@@ -134,11 +135,14 @@ function M.show(config, workspace)
       if message.role == 'user' then
         turn_index = turn_index + 1
         local turn_cost = session.turn_costs[turn_index]
-        display_costs[#display_costs + 1] = { first = index, cost = turn_cost.cost, missing_cost = turn_cost.missing_cost }
+        display_costs[#display_costs + 1] = { first = index, cost = turn_cost.cost, missing_cost = turn_cost.missing_cost,
+          cost_by_function = turn_cost.cost_by_function }
       end
     end
+    local billing = usage_format.cost(session.cost, session.missing_cost > 0)
+    if config.provider == 'codex' then billing = usage_format.subscription(codex_subscription) end
     chat.render(messages, waiting and 'Reviewing costs…' or 'Ready', config.provider, config.model,
-      'This review: ' .. usage_format.cost(session.cost, session.missing_cost > 0), nil, not waiting, display_costs)
+      'This review: ' .. billing, nil, not waiting, display_costs)
     vim.api.nvim_buf_clear_namespace(buf, highlight_ns, 0, -1)
     for _, span in ipairs(highlights) do
       vim.api.nvim_buf_set_extmark(buf, highlight_ns, span[1], span[2], {
@@ -153,7 +157,11 @@ function M.show(config, workspace)
     if not ok then vim.notify('codeit: could not save cost review: ' .. tostring(err), vim.log.levels.ERROR) end
   end
   local function record_usage(usage, turn_cost)
-    local amount = costs.number(usage and usage.cost)
+    local subscription = config.provider == 'codex'
+    local amount = subscription and 0 or costs.number(usage and usage.cost)
+    if subscription and usage and usage.codex_subscription then
+      codex_subscription = vim.tbl_extend('force', codex_subscription or {}, usage.codex_subscription)
+    end
     if amount then
       session.cost, turn_cost.cost = session.cost + amount, turn_cost.cost + amount
     else
@@ -161,8 +169,8 @@ function M.show(config, workspace)
     end
     local input_count = costs.number(usage and usage.prompt_tokens)
     local output_count = costs.number(usage and usage.completion_tokens)
-    cost_breakdown.add(session.cost_by_function, 'cost_review', amount, input_count, output_count)
-    cost_breakdown.add(turn_cost.cost_by_function, 'cost_review', amount, input_count, output_count)
+    cost_breakdown.add(session.cost_by_function, 'cost_review', amount, input_count, output_count, subscription)
+    cost_breakdown.add(turn_cost.cost_by_function, 'cost_review', amount, input_count, output_count, subscription)
     for _, pair in ipairs({ { 'tokens_in', 'prompt_tokens', 'missing_in' }, { 'tokens_out', 'completion_tokens', 'missing_out' } }) do
       local count = costs.number(usage and usage[pair[2]])
       if count then session[pair[1]] = session[pair[1]] + count else session[pair[3]] = true end
