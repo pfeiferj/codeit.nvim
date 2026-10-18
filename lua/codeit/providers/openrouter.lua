@@ -4,10 +4,12 @@ local chat = require('codeit.providers.protocols.chat')
 local usage = require('codeit.providers.protocols.usage')
 local models = require('codeit.providers.models')
 
-function M.models(callback)
+function M.models(callback, options)
   local token = vim.env.OPENROUTER_API_KEY
   if not token or token == '' then return callback(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
-  http.get('https://openrouter.ai/api/v1/models', { 'Authorization: Bearer ' .. token }, function(response, err, detail)
+  local url = 'https://openrouter.ai/api/v1/models'
+  if (options or {}).output_modalities == 'decisions' then url = url .. '?output_modalities=decisions' end
+  http.get(url, { 'Authorization: Bearer ' .. token }, function(response, err, detail)
     if err then return callback(nil, err, detail) end
     callback(models.normalize('openrouter', response))
   end)

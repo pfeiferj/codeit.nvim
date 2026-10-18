@@ -44,6 +44,11 @@ function M.show(current, apply, live)
       or settings.feature_config(draft, feature)) or {
       provider = draft.provider, options = draft.request_options[draft.provider],
     }
+    local options = selected.options
+    if not preset and feature == 'tool_assessment' and selected.provider == 'openrouter'
+      and (draft.approval or {}).tool_call_risk == 'decisions' then
+      options = vim.tbl_extend('force', {}, options or {}, { output_modalities = 'decisions' })
+    end
     vim.notify('codeit: loading ' .. selected.provider .. ' models…')
     providers.models(selected.provider, function(models, err)
       if not valid() then return end
@@ -66,7 +71,7 @@ function M.show(current, apply, live)
         end
         back()
       end)
-    end, selected.options)
+    end, options)
   end
   local function choose_upstream(options, model, back, inherit)
     model, back = model or draft.models.openrouter, back or menu
