@@ -12,6 +12,11 @@ local function routing_label(value)
     price = 'Lowest price', latency = 'Lowest latency', throughput = 'Highest throughput' })[value or '']
 end
 
+local function tool_call_safety_label(value)
+  return value == true and 'Enabled (trust chat model assessment)'
+    or 'Disabled (separate automatic assessment)'
+end
+
 local function boolean_label(value)
   if value == true then return 'Enabled' end
   if value == false then return 'Disabled' end
@@ -262,6 +267,8 @@ function M.show(current, apply, live)
         and 'Main chat' or 'Main chat request options'
       if item.label:sub(-2) == ': ' then item.label = item.label .. '(provider default)' end
     end
+    items[#items + 1] = { id = 'tool_call_safety', section = 'Tool safety', label = 'Tool-call safety: '
+      .. tool_call_safety_label((draft.approval or {}).tool_call_safety) }
     local limit = draft.max_context_tokens
     items[#items + 1] = { id = 'max_context_tokens', section = 'Context', label = 'Max context length (tokens): '
       .. (limit == false and 'Disabled' or ((limit == nil or limit == 'auto') and 'Automatic (provider limit)' or tostring(limit))) }
@@ -290,6 +297,16 @@ function M.show(current, apply, live)
         select({ 'openrouter', 'copilot', 'codex', 'openai' }, { prompt = 'Backend' }, function(provider)
           if not valid() then return end
           if provider then draft.provider = provider end
+          menu()
+        end)
+      elseif id == 'tool_call_safety' then
+        select({ false, true }, { prompt = 'Tool-call safety (enabled trusts the acting model, not an independent reviewer)',
+          format_item = tool_call_safety_label }, function(value)
+          if not valid() then return end
+          if value ~= nil then
+            draft.approval = draft.approval or {}
+            draft.approval.tool_call_safety = value
+          end
           menu()
         end)
       elseif id == 'max_context_tokens' then

@@ -902,6 +902,10 @@ require('codeit').setup({
 })
 ```
 
+You can also change **Tool-call safety** under **Tool safety** in `:CodeitSettings`
+(or `/settings`) and apply it for the session, globally, or for the current
+workspace. Changes take effect on the next chat request.
+
 When enabled, every main-chat tool schema includes three **required** arguments:
 
 - `summary`: a short plain-language sentence (1–160 characters).

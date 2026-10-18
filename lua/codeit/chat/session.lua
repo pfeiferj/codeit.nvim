@@ -23,6 +23,11 @@ function M.attach(api, session, helpers)
     session.config.model_presets = vim.deepcopy(values.model_presets or session.config.model_presets or {})
     session.config.feature_settings = vim.deepcopy(values.feature_settings or session.config.feature_settings or {})
     session.config.request_options = vim.deepcopy(values.request_options)
+    if values.approval and values.approval.tool_call_safety ~= nil
+      and values.approval.tool_call_safety ~= session.config.approval.tool_call_safety then
+      session.config.approval.tool_call_safety = values.approval.tool_call_safety
+      require('codeit.tools').configure(session.config.approval)
+    end
     if values.max_context_tokens ~= nil then
       if values.max_context_tokens == 'auto' then session.config.max_context_tokens = nil
       else session.config.max_context_tokens = values.max_context_tokens end

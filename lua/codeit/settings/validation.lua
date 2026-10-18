@@ -19,6 +19,14 @@ function M.validate(settings)
     return false, 'max_context_tokens must be a positive number, auto, or false'
   end
 
+  if settings.approval ~= nil then
+    if type(settings.approval) ~= 'table' then return false, 'invalid approval settings' end
+    for key, value in pairs(settings.approval) do
+      if key ~= 'tool_call_safety' then return false, 'unknown approval setting: ' .. tostring(key) end
+      if type(value) ~= 'boolean' then return false, 'approval.tool_call_safety must be a boolean' end
+    end
+  end
+
   local options = settings.request_options
   if type(options) ~= 'table' then return false, 'invalid request options' end
   for provider, values in pairs(options) do

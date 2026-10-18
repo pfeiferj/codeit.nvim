@@ -11,6 +11,7 @@ function M.attach(api, session, helpers)
       max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens,
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),
+      approval = { tool_call_safety = session.config.approval.tool_call_safety },
       request_options = vim.deepcopy(session.config.request_options) }
     values.models[session.config.provider] = helpers.model()
     return values
@@ -24,6 +25,10 @@ function M.attach(api, session, helpers)
     values = vim.deepcopy(values)
     if values.max_context_tokens == nil then
       values.max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens
+    end
+    values.approval = values.approval or {}
+    if values.approval.tool_call_safety == nil then
+      values.approval.tool_call_safety = session.config.approval.tool_call_safety
     end
     if values.model_presets == nil then values.model_presets = vim.deepcopy(session.config.model_presets) end
     if values.feature_settings == nil then values.feature_settings = vim.deepcopy(session.config.feature_settings) end

@@ -75,6 +75,7 @@ function M.attach(api, session, helpers)
       max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens,
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),
+      approval = { tool_call_safety = session.config.approval.tool_call_safety },
       request_options = vim.deepcopy(session.config.request_options) }
     helpers.apply_settings(settings.resolve(session.base_settings, history.workspace()))
     M.new()
