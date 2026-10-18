@@ -19,10 +19,10 @@ local text_value
 require('codeit.ui.input').show = function(_, callback) callback(text_value) end
 local settings = require('codeit.settings')
 local current = vim.deepcopy(require('codeit.settings.defaults'))
-current.approval = { tool_call_safety = false }
+current.approval = { tool_call_risk = false }
 local applied, scope
 require('codeit.settings.picker').show(current, function(values, selected_scope) applied, scope = values, selected_scope end)
-choose('tool_call_safety')
+choose('tool_call_risk')
 assert(contains(false) and contains(true) and contains('decisions'))
 choose('decisions')
 choose('tool_assessment')
@@ -40,9 +40,9 @@ choose('manual')
 choose('back')
 choose('session')
 assert(applied and scope == 'session' and settings.validate(applied))
-assert(applied.approval.tool_call_safety == 'decisions')
+assert(applied.approval.tool_call_risk == 'decisions')
 local config = settings.feature_config(applied, 'tool_assessment')
 assert(config.provider == 'decisions' and config.model == 'local-jev')
 assert(config.options.base_url == 'http://localhost:8080/v1' and config.options.api_key_env == '')
-assert(current.approval.tool_call_safety == false and current.feature_settings.tool_assessment == nil)
+assert(current.approval.tool_call_risk == false and current.feature_settings.tool_assessment == nil)
 print('decisions settings picker tests passed')

@@ -101,7 +101,7 @@ prompt_ui.show = function(text, _, cb)
   cb(nil)
 end
 local function safe_review(_, cb)
-  cb('{"summary":"Reads information.","safety_score":1,"read_only":true,"rule_compliant":true}')
+  cb('{"summary":"Reads information.","risk_score":1,"read_only":true,"rule_compliant":true}')
 end
 local function call(argv, expected_prompt, name, context)
   context = vim.tbl_extend('force', { review = safe_review }, context or {})

@@ -61,7 +61,7 @@ assert(prompts[#prompts]:find('# run_command\n\n```bash\necho a\n```', 1, true))
 assert(result == 'Rejected by user: do not expose this file' and actions == 1)
 choices = { 'always' }
 call('run_command', { argv = { 'echo', 'a' } }, { review = function(_, cb)
-  cb('{"summary":"Prints text.","safety_score":1}')
+  cb('{"summary":"Prints text.","risk_score":1}')
 end })
 assert(actions == 2)
 call('run_command', { argv = { 'echo', 'a' } })
@@ -74,7 +74,7 @@ choices = { 'review', 'once' }
 questions = { 'Is this safe?', 'What does it do?' }
 call('run_command', { argv = { 'echo', 'c' } }, { user_request = 'test', review = function(history, cb)
   if history[1].content:find('JSON object', 1, true) then
-    return cb('{"summary":"Prints text.","safety_score":1}')
+    return cb('{"summary":"Prints text.","risk_score":1}')
   end
   reviews = reviews + 1
   assert(history[1].role == 'system' and history[2].content:find('echo', 1, true))
@@ -88,12 +88,12 @@ end })
 assert(reviews == 2 and result == 'executed' and reviewer_sessions == 1)
 choices = { 'review', 'reject' }; questions = { 'Another question?' }
 call('run_command', { argv = { 'echo', 'review escape' } }, { review = function(history, cb)
-  cb(history[1].content:find('JSON object', 1, true) and '{"summary":"Prints text.","safety_score":1}' or 'No issue')
+  cb(history[1].content:find('JSON object', 1, true) and '{"summary":"Prints text.","risk_score":1}' or 'No issue')
 end })
 assert(result == 'Rejected by user', 'dismissing reviewer returns to approval')
 choices = { 'review', 'once' }; questions = { 'Is this safe?' }
 call('run_command', { argv = { 'echo', 'review back' } }, { review = function(history, cb)
-  cb(history[1].content:find('JSON object', 1, true) and '{"summary":"Prints text.","safety_score":1}' or 'Yes')
+  cb(history[1].content:find('JSON object', 1, true) and '{"summary":"Prints text.","risk_score":1}' or 'Yes')
 end })
 assert(result == 'executed')
 local saved_ask, pending_review, review_active, late_answers = prompt_ui.ask_reviewer, nil, nil, 0
@@ -103,7 +103,7 @@ prompt_ui.ask_reviewer = function(_, _, ask, back)
 end
 choices = { 'review', 'once' }
 call('run_command', { argv = { 'echo', 'review pending' } }, { review = function(history, cb, feature, active)
-  if feature == 'tool_assessment' then return cb('{"summary":"Prints text.","safety_score":1}') end
+  if feature == 'tool_assessment' then return cb('{"summary":"Prints text.","risk_score":1}') end
   pending_review, review_active = cb, active
   assert(active())
 end })
@@ -153,10 +153,10 @@ approval.setup({})
 assert(not prompts[1]:find('Summary:', 1, true), 'read-only calls must not display a waiting summary')
 local assessments = 0
 local function assessed(answer, err)
-  return { user_request = 'check command safety', review = function(history, cb)
+  return { user_request = 'check command risk', review = function(history, cb)
     assessments = assessments + 1
     assert(history[1].role == 'system' and history[1].content:find('JSON object', 1, true))
-    assert(history[2].content:find('check command safety', 1, true))
+    assert(history[2].content:find('check command risk', 1, true))
     cb(answer, err)
   end }
 end
@@ -164,7 +164,7 @@ local function check_assessment(args, answer, expected, decision, err)
   choices = { 'hold' }
   inputs = { false }
   local pending
-  call('run_command', args, { user_request = 'check command safety', review = function(history, cb)
+  call('run_command', args, { user_request = 'check command risk', review = function(history, cb)
     assessments = assessments + 1
     assert(history[1].content:find('JSON object', 1, true))
     pending = cb
@@ -175,14 +175,14 @@ local function check_assessment(args, answer, expected, decision, err)
   assert(prompts[#prompts]:find(expected, 1, true))
   held_choice(decision)
 end
-check_assessment({ argv = { 'echo', 'safe summary' } }, '{"summary":"Prints a message.","safety_score":1}',
+check_assessment({ argv = { 'echo', 'safe summary' } }, '{"summary":"Prints a message.","risk_score":1}',
   'Summary: Prints a message.', 'once')
-check_assessment({ argv = { 'rm', '-rf', '/' } }, '{"summary":"Deletes all files.","safety_score":10}',
+check_assessment({ argv = { 'rm', '-rf', '/' } }, '{"summary":"Deletes all files.","risk_score":10}',
   'Summary: Deletes all files.', 'reject')
-assert(prompts[#prompts]:find('**Safety score:** 10/10', 1, true))
-assert(prompt_configs[#prompts].safety_score == 10)
+assert(prompts[#prompts]:find('**Risk score:** 10/10', 1, true))
+assert(prompt_configs[#prompts].risk_score == 10)
 assert(result == 'Rejected by user', 'unsafe calls still require an explicit decision')
-check_assessment({ argv = { 'echo', 'markdown' } }, '{"summary":"# Inject **heading** [link](url)","safety_score":7}',
+check_assessment({ argv = { 'echo', 'markdown' } }, '{"summary":"# Inject **heading** [link](url)","risk_score":7}',
   'Summary: \\# Inject \\*\\*heading\\*\\* \\[link\\]\\(url\\)', 'reject')
 check_assessment({ argv = { 'echo', 'malformed' } }, 'not json',
   'Review unavailable (invalid response)', 'reject')
@@ -196,7 +196,7 @@ vim.api.nvim_buf_set_name(external_buffer, vim.fn.tempname())
 local read_reviews = 0
 local read_context = { review = function(_, cb)
   read_reviews = read_reviews + 1
-  cb('{"summary":"Reads an external buffer.","safety_score":1}')
+  cb('{"summary":"Reads an external buffer.","risk_score":1}')
 end }
 read_context.source_buffer = workspace_buffer
 assert(approval.prefetch('read_source_buffer', {}, read_context) == nil)
@@ -209,7 +209,7 @@ vim.api.nvim_buf_delete(workspace_buffer, { force = true })
 vim.api.nvim_buf_delete(external_buffer, { force = true })
 -- Only explicitly remembered or policy-approved calls skip the reviewer.
 choices = { 'always' }
-call('run_command', { argv = { 'echo', 'remembered review' } }, assessed('{"summary":"Prints text.","safety_score":1}'))
+call('run_command', { argv = { 'echo', 'remembered review' } }, assessed('{"summary":"Prints text.","risk_score":1}'))
 local count = assessments
 call('run_command', { argv = { 'echo', 'remembered review' } }, assessed('unexpected'))
 assert(assessments == count)
@@ -221,7 +221,7 @@ approval.request('run_command', { argv = { 'echo', 'stale review' } }, 'Review s
   { review = function(_, cb) pending = cb end })
 assert(#prompts == before + 1 and pending, 'approval must open before the reviewer responds')
 live = false
-pending('{"summary":"Prints text.","safety_score":1}')
+pending('{"summary":"Prints text.","risk_score":1}')
 assert(prompts[#prompts]:find('Waiting for provider…', 1, true), 'stale reviewer response must not update approval')
 local write_ui = require('codeit.tools.approval.write')
 local old_write_show = write_ui.show
@@ -253,9 +253,9 @@ write_ui.show = old_write_show
 for score = 0, 10 do
   choices = { 'hold' }
   call('run_command', { argv = { 'echo', 'score ' .. score } },
-    assessed(vim.json.encode({ summary = 'Prints text.', safety_score = score })))
-  assert(prompts[#prompts]:find('**Safety score:** ' .. score .. '/10', 1, true))
-  assert(prompt_configs[#prompts].safety_score == score)
+    assessed(vim.json.encode({ summary = 'Prints text.', risk_score = score })))
+  assert(prompts[#prompts]:find('**Risk score:** ' .. score .. '/10', 1, true))
+  assert(prompt_configs[#prompts].risk_score == score)
   local before_inputs = #input_prompts
   inputs = { 'approve run_command' }
   held_choice('once')
@@ -266,7 +266,7 @@ end
 for index, input in ipairs({ '', '\n', '1', 'approve', 'approve run', false }) do
   choices, inputs = { 'hold' }, { input }
   call('run_command', { argv = { 'echo', 'accidental ' .. index } },
-    assessed('{"summary":"Runs a risky command.","safety_score":6}'))
+    assessed('{"summary":"Runs a risky command.","risk_score":6}'))
   local before_actions = actions
   held_choice('once')
   assert(result == 'Rejected: explicit confirmation did not match' and actions == before_actions)
@@ -274,13 +274,13 @@ end
 -- Invalid, missing, legacy, fractional, and out-of-range scores remain unknown, not safe.
 for index, answer in ipairs({
   'not json', '{"summary":"Prints text."}', '{"summary":"Prints text.","safe":true}',
-  '{"summary":"Prints text.","safety_score":"1"}', '{"summary":"Prints text.","safety_score":null}',
-  '{"summary":"Prints text.","safety_score":-1}', '{"summary":"Prints text.","safety_score":11}',
-  '{"summary":"Prints text.","safety_score":1.5}', '{"summary":" ","safety_score":0}',
+  '{"summary":"Prints text.","risk_score":"1"}', '{"summary":"Prints text.","risk_score":null}',
+  '{"summary":"Prints text.","risk_score":-1}', '{"summary":"Prints text.","risk_score":11}',
+  '{"summary":"Prints text.","risk_score":1.5}', '{"summary":" ","risk_score":0}',
 }) do
   choices, inputs = { 'hold' }, { '1' }
   call('run_command', { argv = { 'echo', 'invalid ' .. index } }, assessed(answer))
-  assert(prompts[#prompts]:find('**Safety score:** Unavailable', 1, true))
+  assert(prompts[#prompts]:find('**Risk score:** Unavailable', 1, true))
   assert(prompt_configs[#prompts].risk_unknown)
   local before_actions = actions
   held_choice('once')
@@ -294,7 +294,7 @@ for _, context in ipairs({ assessed(nil, 'offline'), {} }) do
   assert(result == 'executed' and prompt_configs[#prompts].risk_unknown)
 end
 -- High-risk and unknown approvals cannot be remembered.
-for _, context in ipairs({ assessed('{"summary":"Risky.","safety_score":6}'), {} }) do
+for _, context in ipairs({ assessed('{"summary":"Risky.","risk_score":6}'), {} }) do
   for attempt = 1, 2 do
     choices, inputs = { 'hold' }, { 'approve run_command' }
     local before_prompts = #prompts
@@ -311,7 +311,7 @@ call('run_command', { argv = { 'echo', 'pending score' } }, { review = function(
 local before_actions, before_prompts = actions, #prompts
 held_choice('always')
 assert(actions == before_actions and result == nil and #prompts == before_prompts + 1)
-delayed('{"summary":"Risky.","safety_score":6}')
+delayed('{"summary":"Risky.","risk_score":6}')
 inputs = { '1' }
 held_choice('once')
 assert(actions == before_actions and result == 'Rejected: explicit confirmation did not match')
@@ -321,7 +321,7 @@ require('codeit.ui.input').show = function(_, cb) confirmation = cb end
 choices = { 'hold' }
 approval.request('run_command', { argv = { 'echo', 'cancel confirmation' } }, 'Confirm', function() return current end,
   function() error('inactive confirmation completed') end, function() error('inactive confirmation executed') end,
-  assessed('{"summary":"Risky.","safety_score":6}'))
+  assessed('{"summary":"Risky.","risk_score":6}'))
 held_choice('once')
 assert(confirmation)
 current = false

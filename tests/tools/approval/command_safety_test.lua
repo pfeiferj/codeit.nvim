@@ -5,10 +5,10 @@ local definitions = require('codeit.settings.definitions')
 assert(definitions.feature_presets.tool_assessment == 'fast')
 local rule = { argv = { 'inspect', '--', { string = true } } }
 local args = { argv = { 'inspect', '--', 'topic' } }
-local safe = '{"summary":"Reads information.","safety_score":1,"read_only":true,"rule_compliant":true}'
-local write = '{"summary":"Writes a file.","safety_score":3,"read_only":false,"rule_compliant":true}'
-local escape = '{"summary":"Reads beyond the allowed scope.","safety_score":2,"read_only":true,"rule_compliant":false}'
-local risky = '{"summary":"Risky invocation.","safety_score":7,"read_only":true,"rule_compliant":true}'
+local safe = '{"summary":"Reads information.","risk_score":1,"read_only":true,"rule_compliant":true}'
+local write = '{"summary":"Writes a file.","risk_score":3,"read_only":false,"rule_compliant":true}'
+local escape = '{"summary":"Reads beyond the allowed scope.","risk_score":2,"read_only":true,"rule_compliant":false}'
+local risky = '{"summary":"Risky invocation.","risk_score":7,"read_only":true,"rule_compliant":true}'
 local original_show, original_input = prompt_ui.show, require('codeit.ui.input').show
 local prompts, choose, result, actions, reviews, pending, live, typed = {}, nil, nil, 0, 0, nil, true, nil
 prompt_ui.show = function(text, _, cb)
@@ -68,11 +68,11 @@ choose('once')
 assert(result == 'executed' and typed:find('approve run_command', 1, true))
 for _, answer in ipairs({
   'not json',
-  '{"summary":"Reads.","safety_score":1}',
-  '{"summary":"Reads.","safety_score":1,"read_only":"true","rule_compliant":true}',
-  '{"summary":"Reads.","safety_score":1,"read_only":true,"rule_compliant":1}',
-  '{"summary":"Reads.","safety_score":1,"read_only":true}',
-  '{"summary":"Reads.","safety_score":99,"read_only":true,"rule_compliant":true}',
+  '{"summary":"Reads.","risk_score":1}',
+  '{"summary":"Reads.","risk_score":1,"read_only":"true","rule_compliant":true}',
+  '{"summary":"Reads.","risk_score":1,"read_only":true,"rule_compliant":1}',
+  '{"summary":"Reads.","risk_score":1,"read_only":true}',
+  '{"summary":"Reads.","risk_score":99,"read_only":true,"rule_compliant":true}',
 }) do
   request({ review = reviewer(answer) })
   assert(result == nil and #prompts == 1, answer)
@@ -109,7 +109,7 @@ assert(result == nil and #prompts == 1)
 choose(nil)
 configure({ function(name) if name == 'run_command' then return 'approve' end end })
 request({ review = reviewer(escape) })
-assert(result == nil and #prompts == 1, 'command approval validator must not bypass a matching rule safety gate')
+assert(result == nil and #prompts == 1, 'command approval validator must not bypass a matching rule risk gate')
 choose(nil)
 -- Commands approved explicitly without a rule retain the existing policy.
 before = reviews

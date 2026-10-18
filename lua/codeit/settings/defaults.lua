@@ -44,7 +44,7 @@ Verification and reviews
 Communication
 - Be brief and meaningful. After the initial approach, give progress updates only when you meaningfully change direction, not for routine milestones or tool calls.
 - Finish with a short account of the result, checks performed, and remaining caveats, including unsaved changes. Reserve detailed reasoning and trade-offs for when the user asks.]],
-  approval = { validators = {}, read_commands = {}, tool_call_safety = false },
+  approval = { validators = {}, read_commands = {}, tool_call_risk = false },
   max_tool_rounds = 12,
   max_subagent_tool_rounds = 40,
   context_review = true, -- prune completed turns asynchronously with the context_review feature model

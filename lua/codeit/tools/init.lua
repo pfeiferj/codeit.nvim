@@ -63,21 +63,21 @@ for _, definition in ipairs(M.specs) do
   definition['function'].parameters.additionalProperties = false
 end
 
-local safety_fields = {
+local risk_fields = {
   summary = { type = 'string', minLength = 1, maxLength = 160,
     description = 'One short plain-language sentence describing what this call will do; no Markdown.' },
-  safety_score = { type = 'integer', minimum = 0, maximum = 10,
+  risk_score = { type = 'integer', minimum = 0, maximum = 10,
     description = 'Risk from 0 (safest) to 10 (most dangerous). Consider authorization, sensitive data, untrusted inputs, privileges, scope, reversibility, and verification. 1: relevant non-sensitive read; 3: bounded reversible change with tests; 5: substantial uncertainty; 7: untrusted code or excessive privileges; 9: irreversible sensitive-data exposure. Authorization alone does not make an action safe.' },
   is_write = { type = 'boolean',
     description = 'True if the call may write, delete, mutate state, or cause external side effects, including through executed code; also true when uncertain. False only when confident it is read-only.' },
 }
 
-local function with_safety_fields(definition)
+local function with_risk_fields(definition)
   local copy = vim.deepcopy(definition)
   local parameters = copy['function'].parameters
   parameters.required = parameters.required or {}
-  for _, key in ipairs(approval.uses_decisions() and { 'summary' } or { 'summary', 'safety_score', 'is_write' }) do
-    parameters.properties[key] = vim.deepcopy(safety_fields[key])
+  for _, key in ipairs(approval.uses_decisions() and { 'summary' } or { 'summary', 'risk_score', 'is_write' }) do
+    parameters.properties[key] = vim.deepcopy(risk_fields[key])
     parameters.required[#parameters.required + 1] = key
   end
   return copy
@@ -95,7 +95,7 @@ function M.request_specs(workspace, mode, selected)
   for _, definition in ipairs(M.specs) do
     local allowed = enabled[definition['function'].name]
     if allowed == nil or allowed then
-      specs[#specs + 1] = approval.requires_summary() and with_safety_fields(definition) or definition
+      specs[#specs + 1] = approval.requires_summary() and with_risk_fields(definition) or definition
     end
   end
   return specs
@@ -104,11 +104,12 @@ end
 local execute_approved
 
 function M.validate(name, args, context)
+  args = require('codeit.risk').assessment(args)
   local specs = M.specs
   if approval.requires_summary() and not (context and context.no_prompt) then
     for _, definition in ipairs(M.specs) do
       if definition['function'].name == name then
-        specs = { with_safety_fields(definition) }
+        specs = { with_risk_fields(definition) }
         break
       end
     end
@@ -122,6 +123,7 @@ end
 
 --- Execute a tool and call done(result_string, optional_cancel_signal).
 function M.execute(name, args, source, done, active, context)
+  args = require('codeit.risk').assessment(args)
   local completed, callback = false, done
   local entry = context and context.tool_log_entry or tool_log.start(name, args)
   done = function(result, signal)
@@ -142,12 +144,12 @@ function M.execute(name, args, source, done, active, context)
     local invalid = M.validate(name, args, context)
     if invalid then return done('Error: ' .. invalid) end
     if approval.requires_summary() and not (context and context.no_prompt) then
-      context = vim.tbl_extend('force', context or {}, { tool_call_safety = {
-        summary = args.summary, safety_score = args.safety_score, is_write = args.is_write,
+      context = vim.tbl_extend('force', context or {}, { tool_call_risk = {
+        summary = args.summary, risk_score = args.risk_score, is_write = args.is_write,
       } })
-      -- Safety metadata must not affect execution, validators, or remembered-call identities.
+      -- Risk metadata must not affect execution, validators, or remembered-call identities.
       args = vim.tbl_extend('force', {}, args)
-      args.summary, args.safety_score, args.is_write = nil, nil, nil
+      args.summary, args.risk_score, args.is_write = nil, nil, nil
     end
     local subagents = require('codeit.tools.subagents')
     if context and context.no_prompt and not subagents.allowed[name] then

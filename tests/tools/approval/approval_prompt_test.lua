@@ -116,22 +116,22 @@ local risk_ns = vim.api.nvim_get_namespaces().codeit_approval_risk
 local function risk_marks(buf)
   return vim.api.nvim_buf_get_extmarks(buf, risk_ns, 0, -1, { details = true })
 end
-local score_prompt = '# run_command\n\nSummary: Prints text.\n\n**Safety score:** '
+local score_prompt = '# run_command\n\nSummary: Prints text.\n\n**Risk score:** '
 for score = 0, 10 do
-  local update_risk = prompt.show(score_prompt .. score .. '/10', options, function() end, { safety_score = score })
+  local update_risk = prompt.show(score_prompt .. score .. '/10', options, function() end, { risk_score = score })
   local buf = vim.api.nvim_get_current_buf()
   assert(#risk_marks(buf) == (score > 2 and 2 or 0), 'wrong risk highlighting at score ' .. score)
   for _, mark in ipairs(risk_marks(buf)) do
     local expected = score > 5 and 'CodeitApprovalRisk' or 'CodeitApprovalWarning'
     assert(mark[4].hl_group == expected and mark[4].priority == 200)
   end
-  update_risk(score_prompt .. '6/10', { safety_score = 6 })
+  update_risk(score_prompt .. '6/10', { risk_score = 6 })
   assert(#risk_marks(buf) == 2)
   for _, mark in ipairs(risk_marks(buf)) do assert(mark[4].hl_group == 'CodeitApprovalRisk') end
-  update_risk(score_prompt .. '3/10', { safety_score = 3 })
+  update_risk(score_prompt .. '3/10', { risk_score = 3 })
   assert(#risk_marks(buf) == 2)
   for _, mark in ipairs(risk_marks(buf)) do assert(mark[4].hl_group == 'CodeitApprovalWarning') end
-  update_risk(score_prompt .. '2/10', { safety_score = 2 })
+  update_risk(score_prompt .. '2/10', { risk_score = 2 })
   assert(#risk_marks(buf) == 0, 'updating a score must clear stale risk highlights')
   update_risk(score_prompt .. 'Unavailable', { risk_unknown = true })
   assert(#risk_marks(buf) == 2, 'unknown risk must be highlighted')
@@ -148,7 +148,7 @@ local shift_prompt = prompt.show(score_prompt .. 'Pending', options, function(ch
 local shift_win, shift_buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
 local original_row = vim.api.nvim_win_get_cursor(shift_win)[1]
 vim.api.nvim_win_set_cursor(shift_win, { original_row + 1, 0 })
-shift_prompt(score_prompt .. '6/10\n\nType approve run_command to confirm.', { safety_score = 6 })
+shift_prompt(score_prompt .. '6/10\n\nType approve run_command to confirm.', { risk_score = 6 })
 assert(vim.api.nvim_win_get_cursor(shift_win)[1] == original_row + 3)
 for _, item in ipairs(vim.api.nvim_buf_get_keymap(shift_buf, 'n')) do
   if item.lhs == '<CR>' then item.callback(); break end

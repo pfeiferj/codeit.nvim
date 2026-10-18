@@ -3,7 +3,7 @@ local settings = require('codeit.settings')
 local defaults = require('codeit.settings.defaults')
 local values = vim.deepcopy(defaults)
 -- Persisted settings exclude setup-only approval options.
-values.approval = { tool_call_safety = 'decisions' }
+values.approval = { tool_call_risk = 'decisions' }
 assert(settings.validate(values))
 local config = settings.feature_config(values, 'tool_assessment')
 assert(config.provider == 'typesafe' and config.model == 'jev-latest')
@@ -31,8 +31,8 @@ assert(config.provider == 'decisions' and config.model == 'local')
 assert(config.options.base_url == 'http://localhost:8080/v1' and config.options.api_key_env == '')
 local workspace = vim.fn.tempname()
 assert(settings.save(values, 'workspace', workspace))
-local saved = settings.resolve(vim.tbl_extend('force', values, { approval = { tool_call_safety = false } }), workspace)
-assert(saved.approval.tool_call_safety == 'decisions')
+local saved = settings.resolve(vim.tbl_extend('force', values, { approval = { tool_call_risk = false } }), workspace)
+assert(saved.approval.tool_call_risk == 'decisions')
 assert(vim.deep_equal(settings.feature_config(saved, 'tool_assessment'), config))
 values.feature_settings.tool_assessment = { provider = 'typesafe', options = { api_key_env = 'CUSTOM_TYPESAFE_KEY' } }
 assert(settings.validate(values))
@@ -46,7 +46,7 @@ values.request_options.decisions.api_key_env = ''
 values.request_options.decisions.base_url = 'file:///tmp'
 assert(not settings.validate(values))
 values.request_options.decisions = nil
-values.approval.tool_call_safety = false
+values.approval.tool_call_risk = false
 assert(not settings.validate(values), 'decisions-only providers cannot generate text in the legacy mode')
 values.feature_settings.tool_assessment = nil
 config = settings.feature_config(values, 'tool_assessment')
@@ -54,16 +54,16 @@ assert(config.provider == 'copilot' and config.model == 'chat-only-model', 'lega
 
 local decisions = require('codeit.tools.approval.decisions')
 local questions = decisions.questions(true)
-assert(questions.safety_score.type == 'score' and #questions.safety_score.criteria == 10)
+assert(questions.risk_score.type == 'score' and #questions.risk_score.criteria == 10)
 assert(questions.is_write and questions.rule_compliant and not questions.summary)
 local function answers(score, write, compliant)
-  return { safety_score = { type = 'score', score = score },
+  return { risk_score = { type = 'score', score = score },
     is_write = { type = 'choice', choice = write or 'false' },
     rule_compliant = { type = 'choice', choice = compliant or 'true' } }
 end
-assert(decisions.parse(answers(0), true).safety_score == 1)
-assert(decisions.parse(answers(9), true).safety_score == 10)
-assert(decisions.parse(answers(4.01), true).safety_score == 6, 'fractional scores round up')
+assert(decisions.parse(answers(0), true).risk_score == 1)
+assert(decisions.parse(answers(9), true).risk_score == 10)
+assert(decisions.parse(answers(4.01), true).risk_score == 6, 'fractional scores round up')
 assert(decisions.parse(answers(0, 'true'), true).is_write == true)
 assert(decisions.parse(answers(0, 'false', 'false'), true).rule_compliant == false)
 for _, score in ipairs({ -1, 10, '0', math.huge, 0/0 }) do assert(not decisions.parse(answers(score), true)) end

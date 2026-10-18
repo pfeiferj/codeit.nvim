@@ -12,7 +12,7 @@ local function routing_label(value)
     price = 'Lowest price', latency = 'Lowest latency', throughput = 'Highest throughput' })[value or '']
 end
 
-local function tool_call_safety_label(value)
+local function tool_call_risk_label(value)
   if value == 'decisions' then return 'Decisions model (chat model supplies summary)' end
   return value == true and 'Enabled (trust chat model assessment)'
     or 'Disabled (separate automatic assessment)'
@@ -25,7 +25,7 @@ local function boolean_label(value)
 end
 
 function M.show(current, apply, live)
-  local draft = vim.deepcopy(current)
+  local draft = require('codeit.risk').settings(current)
   draft.feature_settings = draft.feature_settings or {}
   draft.model_presets = draft.model_presets or {}
   local function valid() return not live or live() end
@@ -128,7 +128,7 @@ function M.show(current, apply, live)
       { id = 'manual', label = 'Enter model ID manually' },
     }
     local decisions_mode = not preset and name == 'tool_assessment'
-      and (draft.approval or {}).tool_call_safety == 'decisions'
+      and (draft.approval or {}).tool_call_risk == 'decisions'
     if not preset and not decisions_mode then
       local assigned = settings.feature_preset(draft, name)
       table.insert(items, 1, { id = 'preset', label = 'Preset: '
@@ -272,8 +272,8 @@ function M.show(current, apply, live)
         and 'Main chat' or 'Main chat request options'
       if item.label:sub(-2) == ': ' then item.label = item.label .. '(provider default)' end
     end
-    items[#items + 1] = { id = 'tool_call_safety', section = 'Tool safety', label = 'Tool-call safety: '
-      .. tool_call_safety_label((draft.approval or {}).tool_call_safety) }
+    items[#items + 1] = { id = 'tool_call_risk', section = 'Tool risk', label = 'Tool-call risk: '
+      .. tool_call_risk_label((draft.approval or {}).tool_call_risk) }
     local limit = draft.max_context_tokens
     items[#items + 1] = { id = 'max_context_tokens', section = 'Context', label = 'Max context length (tokens): '
       .. (limit == false and 'Disabled' or ((limit == nil or limit == 'auto') and 'Automatic (provider limit)' or tostring(limit))) }
@@ -285,7 +285,7 @@ function M.show(current, apply, live)
     for _, name in ipairs({ 'tool_assessment', 'tool_review', 'context_review', 'compaction', 'history_summary', 'cost_review', 'subagent' }) do
       local selected = settings.feature_config(draft, name)
       local assigned = settings.feature_preset(draft, name)
-      local source = name == 'tool_assessment' and (draft.approval or {}).tool_call_safety == 'decisions'
+      local source = name == 'tool_assessment' and (draft.approval or {}).tool_call_risk == 'decisions'
         and 'decisions' or (settings.preset_labels[assigned] or 'main')
       items[#items + 1] = { id = name, section = 'Feature overrides', label = settings.feature_labels[name] .. ' ['
         .. source .. ']: ' .. selected.provider .. ' / ' .. selected.model }
@@ -306,13 +306,13 @@ function M.show(current, apply, live)
           if provider then draft.provider = provider end
           menu()
         end)
-      elseif id == 'tool_call_safety' then
-        select({ false, true, 'decisions' }, { prompt = 'Tool-call safety assessment source',
-          format_item = tool_call_safety_label }, function(value)
+      elseif id == 'tool_call_risk' then
+        select({ false, true, 'decisions' }, { prompt = 'Tool-call risk assessment source',
+          format_item = tool_call_risk_label }, function(value)
           if not valid() then return end
           if value ~= nil then
             draft.approval = draft.approval or {}
-            draft.approval.tool_call_safety = value
+            draft.approval.tool_call_risk = value
           end
           menu()
         end)

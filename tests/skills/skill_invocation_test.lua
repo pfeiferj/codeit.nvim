@@ -165,7 +165,7 @@ prompt.show = function(message, _, callback)
 end
 local reviewed = { review = function(messages, callback)
   assert(messages[2].content:find('Resolved resource:', 1, true))
-  callback('{"summary":"Reads a supporting text file.","safety_score":1}')
+  callback('{"summary":"Reads a supporting text file.","risk_score":1}')
 end }
 assert(vim.json.decode(resource('global', 'remembered.md', {}, reviewed)).lines[1] == 'Global resource')
 assert(prompts == 5)

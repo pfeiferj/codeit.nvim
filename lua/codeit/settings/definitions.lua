@@ -13,7 +13,7 @@ M.feature_presets = {
   history_summary = 'fast', compaction = 'long_context', cost_review = 'fast', subagent = 'fast',
 }
 M.feature_labels = {
-  tool_assessment = 'Tool safety assessments', tool_review = 'Interactive tool reviews',
+  tool_assessment = 'Tool risk assessments', tool_review = 'Interactive tool reviews',
   context_review = 'Background context review', history_summary = 'History summaries', compaction = 'Compaction',
   cost_review = 'Cost review chat', subagent = 'Subagents',
 }

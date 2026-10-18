@@ -21,8 +21,8 @@ local function popup(options)
   end
 end
 local field, buf, context, check = popup({
-  title = ' Confirm approval ', approval = true, safety_score = 8, expected = 'approve run_command',
-  body = '# Confirm tool\n\nSummary: Deletes files.\n\n**Safety score:** 8/10\n\nType **`approve run_command`** exactly.',
+  title = ' Confirm approval ', approval = true, risk_score = 8, expected = 'approve run_command',
+  body = '# Confirm tool\n\nSummary: Deletes files.\n\n**Risk score:** 8/10\n\nType **`approve run_command`** exactly.',
 })
 local body = vim.api.nvim_win_get_buf(context)
 assert(not vim.bo[body].modifiable and vim.bo[buf].modifiable, 'context must be read-only; only the field is editable')
@@ -34,7 +34,7 @@ local marks = vim.api.nvim_buf_get_extmarks(body, ns, 0, -1, { details = true })
 local groups = {}
 for _, mark in ipairs(marks) do groups[mark[4].hl_group] = (groups[mark[4].hl_group] or 0) + 1 end
 assert(groups.CodeitInputLabel and groups.CodeitInputHint and groups.CodeitApprovalRisk == 2,
-  'highlight input labels, hints, and risky safety assessment')
+  'highlight input labels, hints, and risky risk assessment')
 local field_marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
 assert(field_marks[1][4].line_hl_group == 'CodeitInputField')
 local function check_hint(value, hint, errors)

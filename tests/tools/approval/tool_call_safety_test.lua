@@ -7,7 +7,7 @@ local approval = require('codeit.tools.approval')
 local prompt = require('codeit.tools.approval.prompt')
 local input = require('codeit.ui.input')
 local process = require('codeit.process')
-local fields = { 'summary', 'safety_score', 'is_write' }
+local fields = { 'summary', 'risk_score', 'is_write' }
 local rule = { argv = { 'inspect', '--', { string = true } } }
 local prompts, choose, result, typed, actions, reviews = {}, nil, nil, nil, 0, 0
 local original_show, original_input, original_run = prompt.show, input.show, process.run
@@ -25,14 +25,14 @@ process.run = function(argv, _, callback)
 end
 local function reviewer(_, callback)
   reviews = reviews + 1
-  callback('{"summary":"Independent assessment.","safety_score":1,"read_only":true,"rule_compliant":true}')
+  callback('{"summary":"Independent assessment.","risk_score":1,"read_only":true,"rule_compliant":true}')
 end
 local function configure(enabled, validators)
-  tools.configure({ tool_call_safety = enabled, read_commands = { rule }, validators = validators })
+  tools.configure({ tool_call_risk = enabled, read_commands = { rule }, validators = validators })
 end
 local function args(overrides)
   return vim.tbl_extend('force', { argv = { 'inspect', '--', 'topic' },
-    summary = 'Reads information.', safety_score = 1, is_write = false }, overrides or {})
+    summary = 'Reads information.', risk_score = 1, is_write = false }, overrides or {})
 end
 local function execute(arguments, context)
   prompts, choose, result, typed = {}, nil, nil, nil
@@ -41,14 +41,14 @@ local function execute(arguments, context)
   assert(vim.wait(2000, function() return result ~= nil or choose ~= nil end))
 end
 
-assert(require('codeit.settings.defaults').approval.tool_call_safety == false)
+assert(require('codeit.settings.defaults').approval.tool_call_risk == false)
 configure(false)
 for _, definition in ipairs(tools.request_specs(dir)) do
   for _, key in ipairs(fields) do assert(definition['function'].parameters.properties[key] == nil) end
 end
 assert(tools.validate('run_command', args()):find('unknown argument', 1, true))
 for _, bad in ipairs({ 'true', 1, {}, vim.NIL }) do
-  assert(not pcall(approval.setup, { tool_call_safety = bad }))
+  assert(not pcall(approval.setup, { tool_call_risk = bad }))
 end
 configure(true)
 for _, definition in ipairs(tools.request_specs(dir)) do
@@ -56,7 +56,7 @@ for _, definition in ipairs(tools.request_specs(dir)) do
   for _, key in ipairs(fields) do
     assert(parameters.properties[key] and vim.tbl_contains(parameters.required, key))
   end
-  assert(parameters.properties.safety_score.minimum == 0 and parameters.properties.safety_score.maximum == 10)
+  assert(parameters.properties.risk_score.minimum == 0 and parameters.properties.risk_score.maximum == 10)
   assert(parameters.additionalProperties == false)
 end
 -- Shared definitions remain unchanged for subagents and subsequent disabled requests.
@@ -72,7 +72,7 @@ for _, key in ipairs(fields) do
   assert(result:find('missing argument ' .. key, 1, true) and #prompts == 0)
 end
 for _, invalid in ipairs({
-  { safety_score = -1 }, { safety_score = 11 }, { safety_score = 1.5 }, { safety_score = '1' },
+  { risk_score = -1 }, { risk_score = 11 }, { risk_score = 1.5 }, { risk_score = '1' },
   { summary = '' }, { summary = '  \n ' }, { summary = string.rep('x', 161) },
   { summary = false }, { is_write = 'false' }, { is_write = vim.NIL },
 }) do
@@ -91,17 +91,17 @@ assert(reviews == 0)
 execute(args())
 assert(result:find('inspected', 1, true) and #prompts == 0 and actions == 1 and reviews == 0)
 -- The write flag blocks rule auto-approval even with a low score.
-execute(args({ is_write = true, safety_score = 3, summary = 'Writes a file.' }))
+execute(args({ is_write = true, risk_score = 3, summary = 'Writes a file.' }))
 assert(result == nil and #prompts == 1 and prompts[1]:find('Writes a file.', 1, true))
 assert(prompts[1]:find('3/10', 1, true))
 choose('once')
 assert(result:find('inspected', 1, true) and not typed and actions == 2)
-execute(args({ safety_score = 7 }))
+execute(args({ risk_score = 7 }))
 assert(result == nil and prompts[1]:find('7/10', 1, true))
 choose('always')
 assert(result:find('inspected', 1, true) and typed == 'approve run_command')
 -- Non-matching commands also use supplied values without an automatic review.
-execute(args({ argv = { 'unmatched' }, summary = '**Danger**\n# heading', safety_score = 9 }))
+execute(args({ argv = { 'unmatched' }, summary = '**Danger**\n# heading', risk_score = 9 }))
 assert(result == nil and #prompts == 1 and prompts[1]:find('9/10', 1, true))
 assert(prompts[1]:find('\\*\\*Danger\\*\\* \\# heading', 1, true))
 choose(nil)
@@ -138,4 +138,4 @@ assert(result:find('inspected', 1, true) and reviews == 1, 'disabled mode retain
 prompt.show, input.show, process.run = original_show, original_input, original_run
 vim.cmd.cd(root)
 vim.fn.delete(dir, 'rf')
-print('tool_call_safety_test: ok')
+print('tool_call_risk_test: ok')

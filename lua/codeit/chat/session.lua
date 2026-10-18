@@ -18,14 +18,15 @@ function M.attach(api, session, helpers)
   end
 
   function helpers.apply_settings(values)
+    values = require('codeit.risk').settings(values)
     session.config.provider = values.provider
     session.config.models = vim.tbl_extend('force', {}, defaults.models, values.models)
     session.config.model_presets = vim.deepcopy(values.model_presets or session.config.model_presets or {})
     session.config.feature_settings = vim.deepcopy(values.feature_settings or session.config.feature_settings or {})
     session.config.request_options = vim.deepcopy(values.request_options)
-    if values.approval and values.approval.tool_call_safety ~= nil
-      and values.approval.tool_call_safety ~= session.config.approval.tool_call_safety then
-      session.config.approval.tool_call_safety = values.approval.tool_call_safety
+    if values.approval and values.approval.tool_call_risk ~= nil
+      and values.approval.tool_call_risk ~= session.config.approval.tool_call_risk then
+      session.config.approval.tool_call_risk = values.approval.tool_call_risk
       require('codeit.tools').configure(session.config.approval)
     end
     if values.max_context_tokens ~= nil then

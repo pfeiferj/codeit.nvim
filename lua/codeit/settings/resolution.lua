@@ -36,7 +36,7 @@ end
 
 function M.feature_config(settings, name, main_model)
   local feature = (settings.feature_settings or {})[name] or {}
-  if name == 'tool_assessment' and (settings.approval or {}).tool_call_safety == 'decisions' then
+  if name == 'tool_assessment' and require('codeit.risk').approval(settings.approval or {}).tool_call_risk == 'decisions' then
     -- A chat preset is not a usable default for a decisions-only API.
     feature = vim.tbl_extend('force', {}, feature, { provider = chosen(feature.provider) and feature.provider or 'typesafe' })
     local config = resolve_config(settings, {}, feature, main_model)

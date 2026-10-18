@@ -21,11 +21,12 @@ function M.resolve(base, workspace)
   local data, err = read()
   if not data then
     vim.notify('codeit: ' .. err, vim.log.levels.WARN)
-    return vim.deepcopy(base)
+    return require('codeit.risk').settings(base)
   end
-  local result = vim.deepcopy(base)
+  local result = require('codeit.risk').settings(base)
   for _, saved in ipairs({ data.global or {}, data.workspaces[workspace] or {} }) do
     if type(saved) ~= 'table' or next(saved) then
+      saved = require('codeit.risk').settings(saved)
       local ok, message = validation.validate(saved)
       if ok then
         -- Legacy snapshots keep optional settings from the lower-precedence snapshot.
@@ -46,6 +47,7 @@ function M.resolve(base, workspace)
 end
 
 function M.save(settings, scope, workspace)
+  settings = require('codeit.risk').settings(settings)
   local ok, err = validation.validate(settings)
   if not ok then return false, err end
   if scope ~= 'global' and scope ~= 'workspace' then return false, 'invalid settings scope' end

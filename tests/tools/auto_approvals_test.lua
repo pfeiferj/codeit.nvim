@@ -53,11 +53,11 @@ request('read_file', { path = 'remember-this' })
 assert(#session.auto_approvals == 2, 'the first remembered approval is still manual')
 request('read_file', { path = 'remember-this' })
 assert(session.auto_approvals[3].reason == 'remembered_exact_call')
-local answer = '{"summary":"Reads information.","safety_score":1,"read_only":true,"rule_compliant":true}'
+local answer = '{"summary":"Reads information.","risk_score":1,"read_only":true,"rule_compliant":true}'
 approval.setup({ read_commands = { { argv = { 'inspect', { string = true } } } } })
 request('run_command', { argv = { 'inspect', 'a' } }, { review = function(_, cb) cb(answer) end })
 assert(#session.auto_approvals == 4 and session.auto_approvals[4].reason == 'read_only_command_rule')
-assert(session.auto_approvals[4].safety_score == 1 and session.auto_approvals[4].summary == 'Reads information.')
+assert(session.auto_approvals[4].risk_score == 1 and session.auto_approvals[4].summary == 'Reads information.')
 choice = 'reject'
 request('run_command', { argv = { 'inspect', 'b' } }, { review = function(_, cb) cb('invalid') end })
 assert(#session.auto_approvals == 4, 'failed command assessment is not auto-approved')
@@ -91,7 +91,7 @@ assert(commands.inspect == 2 and commands['/usr/bin/inspect'] == 1, 'group by ex
 local calls = execute('list_auto_approvals', { name = 'run_command', command = 'inspect' })
 assert(#calls.entries == 2)
 local detail = execute('read_auto_approval', { id = calls.entries[1].id })
-assert(table.concat(detail.lines, '\n'):find('safety_score = 1', 1, true))
+assert(table.concat(detail.lines, '\n'):find('risk_score = 1', 1, true))
 local context = execute('read_auto_approval_chat', { id = calls.entries[1].id })
 assert(table.concat(context.lines, '\n'):find('Investigate this project', 1, true))
 assert(not table.concat(context.lines, '\n'):find('private-secret', 1, true))

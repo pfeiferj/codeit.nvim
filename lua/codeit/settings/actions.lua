@@ -11,7 +11,7 @@ function M.attach(api, session, helpers)
       max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens,
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),
-      approval = { tool_call_safety = session.config.approval.tool_call_safety },
+      approval = { tool_call_risk = session.config.approval.tool_call_risk },
       request_options = vim.deepcopy(session.config.request_options) }
     values.models[session.config.provider] = helpers.model()
     return values
@@ -20,6 +20,7 @@ function M.attach(api, session, helpers)
   function M.configure(values, scope)
     helpers.sync_workspace()
     if session.busy then return false, 'wait for the current response before changing settings' end
+    values = require('codeit.risk').settings(values)
     local ok, err = settings.validate(values)
     if not ok then return false, err end
     values = vim.deepcopy(values)
@@ -27,8 +28,8 @@ function M.attach(api, session, helpers)
       values.max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens
     end
     values.approval = values.approval or {}
-    if values.approval.tool_call_safety == nil then
-      values.approval.tool_call_safety = session.config.approval.tool_call_safety
+    if values.approval.tool_call_risk == nil then
+      values.approval.tool_call_risk = session.config.approval.tool_call_risk
     end
     if values.model_presets == nil then values.model_presets = vim.deepcopy(session.config.model_presets) end
     if values.feature_settings == nil then values.feature_settings = vim.deepcopy(session.config.feature_settings) end

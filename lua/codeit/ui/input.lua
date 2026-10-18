@@ -25,11 +25,11 @@ function M.show(options, callback)
   vim.api.nvim_buf_set_extmark(buf, namespace, #lines - 3, 0, {
     end_col = #lines[#lines - 2], hl_group = 'CodeitInputHint', priority = 200,
   })
-  if options.safety_score or options.risk_unknown then
-    local group = (options.risk_unknown or options.safety_score > 5)
+  if options.risk_score or options.risk_unknown then
+    local group = (options.risk_unknown or options.risk_score > 5)
       and 'CodeitApprovalRisk' or 'CodeitApprovalWarning'
     for row, line in ipairs(lines) do
-      if line:match('^Summary: ') or line:match('^%*%*Safety score:%*%* ') then
+      if line:match('^Summary: ') or line:match('^%*%*Risk score:%*%* ') then
         vim.api.nvim_buf_set_extmark(buf, namespace, row - 1, 0, {
           end_col = #line, hl_group = group, priority = 200,
         })

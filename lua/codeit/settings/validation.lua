@@ -2,6 +2,7 @@ local M = {}
 local definitions = require('codeit.settings.definitions')
 
 function M.validate(settings)
+  settings = require('codeit.risk').settings(settings)
   if type(settings) ~= 'table' or not vim.tbl_contains({ 'openrouter', 'copilot', 'codex', 'openai' }, settings.provider)
     or type(settings.models) ~= 'table' then return false, 'invalid provider settings' end
   for _, provider in ipairs({ 'openrouter', 'copilot', 'codex', 'openai' }) do
@@ -29,9 +30,9 @@ function M.validate(settings)
   if settings.approval ~= nil then
     if type(settings.approval) ~= 'table' then return false, 'invalid approval settings' end
     for key, value in pairs(settings.approval) do
-      if key ~= 'tool_call_safety' then return false, 'unknown approval setting: ' .. tostring(key) end
+      if key ~= 'tool_call_risk' then return false, 'unknown approval setting: ' .. tostring(key) end
       if type(value) ~= 'boolean' and value ~= 'decisions' then
-        return false, 'approval.tool_call_safety must be a boolean or decisions'
+        return false, 'approval.tool_call_risk must be a boolean or decisions'
       end
     end
   end
@@ -94,12 +95,12 @@ function M.validate(settings)
   end
   local assessment = (settings.feature_settings or {}).tool_assessment or {}
   local provider = assessment.provider
-  if (settings.approval or {}).tool_call_safety == 'decisions' then
+  if (settings.approval or {}).tool_call_risk == 'decisions' then
     if provider ~= nil and not vim.tbl_contains({ '', 'typesafe', 'decisions', 'openrouter' }, provider) then
       return false, 'decisions assessments require typesafe, decisions, or openrouter'
     end
-  elseif (settings.approval or {}).tool_call_safety ~= nil and (provider == 'typesafe' or provider == 'decisions') then
-    return false, 'typesafe and decisions assessment providers require approval.tool_call_safety = decisions'
+  elseif (settings.approval or {}).tool_call_risk ~= nil and (provider == 'typesafe' or provider == 'decisions') then
+    return false, 'typesafe and decisions assessment providers require approval.tool_call_risk = decisions'
   end
   return true
 end

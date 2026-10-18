@@ -263,7 +263,7 @@ advance(2000)
 assert(not displayed and actions == 0)
 mode = 'n'
 advance(250)
-assert(displayed:find('Ready assessment', 1, true) and displayed_config.safety_score == 1,
+assert(displayed:find('Ready assessment', 1, true) and displayed_config.risk_score == 1,
   'the opened prompt must show the latest assessment')
 assert(actions == 0, 'deferred display must never imply approval')
 choose('once')

@@ -7,7 +7,7 @@ function M.attach(api, session, helpers)
   local M = api
   local defaults = require('codeit.settings.defaults')
   function M.setup(opts)
-    session.config = vim.tbl_deep_extend('force', vim.deepcopy(defaults), opts or {})
+    session.config = vim.tbl_deep_extend('force', vim.deepcopy(defaults), require('codeit.risk').settings(opts or {}))
     if type(session.config.compaction) ~= 'table' then error('codeit: compaction must be a table') end
     for _, key in ipairs({ 'summary_tokens', 'output_reserve', 'manual_keep_turns' }) do
       local value = session.config.compaction[key]
@@ -69,14 +69,14 @@ function M.attach(api, session, helpers)
     end
     local valid, settings_err = settings.validate({ provider = session.config.provider, models = session.config.models,
       feature_settings = session.config.feature_settings,
-      approval = { tool_call_safety = session.config.approval.tool_call_safety },
+      approval = { tool_call_risk = session.config.approval.tool_call_risk },
       model_presets = session.config.model_presets, request_options = session.config.request_options })
     if not valid then error('codeit: ' .. settings_err) end
     session.base_settings = { provider = session.config.provider, models = vim.deepcopy(session.config.models),
       max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens,
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),
-      approval = { tool_call_safety = session.config.approval.tool_call_safety },
+      approval = { tool_call_risk = session.config.approval.tool_call_risk },
       request_options = vim.deepcopy(session.config.request_options) }
     helpers.apply_settings(settings.resolve(session.base_settings, history.workspace()))
     M.new()

@@ -21,7 +21,7 @@ vim.api.nvim_buf_set_name(source, vim.fn.getcwd() .. '/test.lua')
 vim.api.nvim_buf_set_lines(source, 0, -1, false, { 'before' })
 local plugin = require('codeit')
 plugin.setup({ max_context_tokens = false, context_review = false, approval = {
-  tool_call_safety = true,
+  tool_call_risk = true,
   read_commands = { { argv = { 'inspect' } } },
 } })
 plugin.open()
@@ -29,7 +29,7 @@ plugin.send('Inspect and propose an edit')
 assert(#requests == 1)
 for _, definition in ipairs(requests[1].specs) do
   local parameters = definition['function'].parameters
-  for _, key in ipairs({ 'summary', 'safety_score', 'is_write' }) do
+  for _, key in ipairs({ 'summary', 'risk_score', 'is_write' }) do
     assert(parameters.properties[key] and vim.tbl_contains(parameters.required, key))
   end
 end
@@ -42,9 +42,9 @@ process.run = function(argv, _, callback)
   callback({ code = 0, stdout = 'inspected', stderr = '' })
 end
 reply({ role = 'assistant', tool_calls = {
-  call('read_source_buffer', { summary = 'Reads the source.', safety_score = 1, is_write = false }),
-  call('run_command', { argv = { 'inspect' }, summary = 'Inspects the project.', safety_score = 1, is_write = false }),
-  call('run_command', { argv = { 'inspect' }, summary = 'Missing write flag.', safety_score = 1 }),
+  call('read_source_buffer', { summary = 'Reads the source.', risk_score = 1, is_write = false }),
+  call('run_command', { argv = { 'inspect' }, summary = 'Inspects the project.', risk_score = 1, is_write = false }),
+  call('run_command', { argv = { 'inspect' }, summary = 'Missing write flag.', risk_score = 1 }),
 } })
 assert(vim.wait(2000, function() return #requests >= 2 end))
 assert(#requests == 2 and #responses == 1 and runs == 1, 'no secondary assessment request should be made')
@@ -57,7 +57,7 @@ local original_show = writes.show
 local preview, choose
 writes.show = function(diff, _, callback) preview, choose = diff, callback end
 reply({ role = 'assistant', tool_calls = {
-  call('edit_source_buffer', { summary = 'Changes the source.', safety_score = 3, is_write = true,
+  call('edit_source_buffer', { summary = 'Changes the source.', risk_score = 3, is_write = true,
     edits = { { old_text = 'before', new_text = 'after' } } }),
 } })
 assert(vim.wait(2000, function() return choose ~= nil end))
@@ -69,4 +69,4 @@ assert(vim.api.nvim_buf_get_lines(source, 0, -1, false)[1] == 'after')
 reply({ role = 'assistant', content = 'Done.' })
 assert(#requests == 3 and #responses == 0)
 writes.show, process.run = original_show, original_run
-print('integration tool_call_safety_test: ok')
+print('integration tool_call_risk_test: ok')
