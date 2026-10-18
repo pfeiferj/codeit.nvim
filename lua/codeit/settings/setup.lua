@@ -35,8 +35,8 @@ function M.attach(api, session, helpers)
     if type(session.config.tool_json_healing) ~= 'boolean' then
       error('codeit: tool_json_healing must be a boolean')
     end
-    if type(session.config.context_review) ~= 'boolean' then
-      error('codeit: context_review must be a boolean')
+    if type(session.config.context_review) ~= 'boolean' and session.config.context_review ~= 'decisions' then
+      error('codeit: context_review must be a boolean or decisions')
     end
     tools.configure(session.config.approval)
     local background_tasks = require('codeit.tools.execution.tasks')
@@ -68,11 +68,12 @@ function M.attach(api, session, helpers)
       error('codeit: provider must be openrouter, copilot, codex, or openai')
     end
     local valid, settings_err = settings.validate({ provider = session.config.provider, models = session.config.models,
-      feature_settings = session.config.feature_settings,
+      feature_settings = session.config.feature_settings, context_review = session.config.context_review,
       approval = { tool_call_risk = session.config.approval.tool_call_risk },
       model_presets = session.config.model_presets, request_options = session.config.request_options })
     if not valid then error('codeit: ' .. settings_err) end
     session.base_settings = { provider = session.config.provider, models = vim.deepcopy(session.config.models),
+      context_review = session.config.context_review,
       max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens,
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),

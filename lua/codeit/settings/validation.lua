@@ -37,6 +37,10 @@ function M.validate(settings)
     end
   end
 
+  if settings.context_review ~= nil and type(settings.context_review) ~= 'boolean' and settings.context_review ~= 'decisions' then
+    return false, 'context_review must be a boolean or decisions'
+  end
+
   local options = settings.request_options
   if type(options) ~= 'table' then return false, 'invalid request options' end
   for provider, values in pairs(options) do
@@ -93,14 +97,19 @@ function M.validate(settings)
     local ok, err = M.validate_model_presets(settings.model_presets)
     if not ok then return false, err end
   end
-  local assessment = (settings.feature_settings or {}).tool_assessment or {}
-  local provider = assessment.provider
-  if (settings.approval or {}).tool_call_risk == 'decisions' then
-    if provider ~= nil and not vim.tbl_contains({ '', 'typesafe', 'decisions', 'openrouter' }, provider) then
-      return false, 'decisions assessments require typesafe, decisions, or openrouter'
+  for _, name in ipairs({ 'tool_assessment', 'context_review' }) do
+    local feature = (settings.feature_settings or {})[name] or {}
+    local provider = feature.provider
+    local mode = settings.context_review
+    if name == 'tool_assessment' then mode = (settings.approval or {}).tool_call_risk end
+    if require('codeit.settings.resolution').uses_decisions(settings, name) then
+      if provider ~= nil and not vim.tbl_contains({ '', 'typesafe', 'decisions', 'openrouter' }, provider) then
+        return false, name .. ' decisions require typesafe, decisions, or openrouter'
+      end
+    elseif mode ~= nil and not (name == 'context_review' and mode == false)
+      and (provider == 'typesafe' or provider == 'decisions') then
+      return false, name .. ' typesafe and decisions providers require decisions mode'
     end
-  elseif (settings.approval or {}).tool_call_risk ~= nil and (provider == 'typesafe' or provider == 'decisions') then
-    return false, 'typesafe and decisions assessment providers require approval.tool_call_risk = decisions'
   end
   return true
 end
@@ -116,7 +125,9 @@ local function validate_overrides(entries, names, label, allow_preset)
         if value ~= '' and not vim.tbl_contains(definitions.presets, value) then return false, 'invalid feature preset' end
       elseif key == 'provider' then
         local allowed = { '', 'openrouter', 'copilot', 'codex', 'openai' }
-        if allow_preset and name == 'tool_assessment' then vim.list_extend(allowed, { 'typesafe', 'decisions' }) end
+        if allow_preset and (name == 'tool_assessment' or name == 'context_review') then
+          vim.list_extend(allowed, { 'typesafe', 'decisions' })
+        end
         if not vim.tbl_contains(allowed, value) then return false, 'invalid ' .. label .. ' provider' end
       elseif key == 'model' then
         if type(value) ~= 'string' or value:find('%c') or (value ~= '' and vim.trim(value) == '') then

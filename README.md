@@ -518,6 +518,39 @@ prefix-cache reuse. Review requests may incur provider charges, included in chat
 usage totals. Set `context_review = false` in `setup()` to disable this
 independently of automatic compaction.
 
+To use a decisions model instead of a chat model for this review, set
+`context_review = 'decisions'` (also available under **Context review** in
+`:CodeitSettings`). It asks a typed keep/remove question for each eligible tool
+exchange, weighing its byte length and estimated token cost against the likelihood
+its details will help a future follow-up. Long data is not automatically removed:
+unique implementation details, unresolved errors, and useful verification evidence
+should stay, especially when not captured in the assistant's final response.
+Uncertain decisions retain the data. Exchanges selected for removal disappear
+from future context **without a replacement note**; the original transcript stays
+visible and saved. The same minimum-token threshold and stale-review safeguards
+apply. This choice is independent of the tool-risk assessment mode.
+
+```lua
+require('codeit').setup({
+  context_review = 'decisions',
+  feature_settings = {
+    context_review = {
+      provider = 'typesafe', -- or 'openrouter' or 'decisions' (custom endpoint)
+      model = 'jev-latest',
+    },
+  },
+})
+```
+
+Decisions mode defaults to Typesafe's `jev-latest` and uses `TYPESAFE_API_KEY`.
+For OpenRouter, set `provider = 'openrouter'` and a decisions-capable model such as
+`typesafe/jev-1.13` (the default in this mode); it uses `OPENROUTER_API_KEY`.
+For a custom endpoint, set `provider = 'decisions'` and
+`options = { base_url = 'http://localhost:8080/v1', api_key_env = '' }`.
+Configure these through the **Background context review** feature override;
+chat presets are not inherited in decisions mode. Set `context_review = true`
+to retain the existing chat-model factual-note behavior.
+
 ### Conversation compaction
 
 Optionally add instructions to tell the compacting LLM what matters most:

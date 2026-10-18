@@ -18,6 +18,11 @@ local function tool_call_risk_label(value)
     or 'Disabled (separate automatic assessment)'
 end
 
+local function context_review_label(value)
+  if value == 'decisions' then return 'Decisions model (remove low-value tool exchanges)' end
+  return value == false and 'Disabled' or 'Chat model (replace with factual notes)'
+end
+
 local function boolean_label(value)
   if value == true then return 'Enabled' end
   if value == false then return 'Disabled' end
@@ -45,8 +50,7 @@ function M.show(current, apply, live)
       provider = draft.provider, options = draft.request_options[draft.provider],
     }
     local options = selected.options
-    if not preset and feature == 'tool_assessment' and selected.provider == 'openrouter'
-      and (draft.approval or {}).tool_call_risk == 'decisions' then
+    if not preset and settings.uses_decisions(draft, feature) and selected.provider == 'openrouter' then
       options = vim.tbl_extend('force', {}, options or {}, { output_modalities = 'decisions' })
     end
     vim.notify('codeit: loading ' .. selected.provider .. ' models…')
@@ -132,8 +136,7 @@ function M.show(current, apply, live)
       { id = 'model', label = 'Browse models: ' .. selected.model },
       { id = 'manual', label = 'Enter model ID manually' },
     }
-    local decisions_mode = not preset and name == 'tool_assessment'
-      and (draft.approval or {}).tool_call_risk == 'decisions'
+    local decisions_mode = not preset and settings.uses_decisions(draft, name)
     if not preset and not decisions_mode then
       local assigned = settings.feature_preset(draft, name)
       table.insert(items, 1, { id = 'preset', label = 'Preset: '
@@ -279,6 +282,8 @@ function M.show(current, apply, live)
     end
     items[#items + 1] = { id = 'tool_call_risk', section = 'Tool risk', label = 'Tool-call risk: '
       .. tool_call_risk_label((draft.approval or {}).tool_call_risk) }
+    items[#items + 1] = { id = 'context_review_mode', section = 'Context', label = 'Context review: '
+      .. context_review_label(draft.context_review) }
     local limit = draft.max_context_tokens
     items[#items + 1] = { id = 'max_context_tokens', section = 'Context', label = 'Max context length (tokens): '
       .. (limit == false and 'Disabled' or ((limit == nil or limit == 'auto') and 'Automatic (provider limit)' or tostring(limit))) }
@@ -290,8 +295,7 @@ function M.show(current, apply, live)
     for _, name in ipairs({ 'tool_assessment', 'tool_review', 'context_review', 'compaction', 'history_summary', 'cost_review', 'subagent' }) do
       local selected = settings.feature_config(draft, name)
       local assigned = settings.feature_preset(draft, name)
-      local source = name == 'tool_assessment' and (draft.approval or {}).tool_call_risk == 'decisions'
-        and 'decisions' or (settings.preset_labels[assigned] or 'main')
+      local source = settings.uses_decisions(draft, name) and 'decisions' or (settings.preset_labels[assigned] or 'main')
       items[#items + 1] = { id = name, section = 'Feature overrides', label = settings.feature_labels[name] .. ' ['
         .. source .. ']: ' .. selected.provider .. ' / ' .. selected.model }
     end
@@ -319,6 +323,13 @@ function M.show(current, apply, live)
             draft.approval = draft.approval or {}
             draft.approval.tool_call_risk = value
           end
+          menu()
+        end)
+      elseif id == 'context_review_mode' then
+        select({ false, true, 'decisions' }, { prompt = 'Background context review source',
+          format_item = context_review_label }, function(value)
+          if not valid() then return end
+          if value ~= nil then draft.context_review = value end
           menu()
         end)
       elseif id == 'max_context_tokens' then

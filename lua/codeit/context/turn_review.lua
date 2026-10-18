@@ -29,25 +29,31 @@ function M.attach(api, session, helpers)
     local replaceable = context_review.replaceable_tokens(turn)
     if replaceable == 0 or replaceable < session.config.context_review_min_tokens then return end
     local selected_config = helpers.request_config('context_review')
+    local review_mode = session.config.context_review
+    local decisions_mode = review_mode == 'decisions'
+    local decisions = require('codeit.context.decisions')
+    local state, questions
+    if decisions_mode then state, questions = decisions.prepare(turn) end
     local function active()
-      return id == session.generation and revision == session.review_revision and session.workspace == selected_workspace
+      return id == session.generation and revision == session.review_revision and session.config.context_review == review_mode
+        and session.workspace == selected_workspace
         and history.workspace() == selected_workspace and session.chat_id == selected_chat
         and first > (session.compacted_until or 1)
         and vim.deep_equal(original, vim.list_slice(session.messages, first, last))
     end
     vim.schedule(function()
       if not active() then return end
-      providers.chat(selected_config, {
-        { role = 'system', content = context_review.prompt },
-        { role = 'user', content = vim.json.encode(turn) },
-      }, {}, function(message, err, usage)
+      local function complete(message, err, usage)
         if id ~= session.generation or session.workspace ~= selected_workspace or history.workspace() ~= selected_workspace
           or session.chat_id ~= selected_chat then return end
         -- Background requests contribute to billing, never to main-chat context usage.
         if not err then helpers.record_usage(usage, 'context_review', selected_config.provider, billed_turn) end
         if not active() then return end
         local replacements
-        if not err then replacements, err = context_review.parse(message, turn) end
+        if not err then
+          if decisions_mode then replacements, err = decisions.parse(message, state)
+          else replacements, err = context_review.parse(message, turn) end
+        end
         if err then
           vim.notify('codeit: could not review context: ' .. tostring(err), vim.log.levels.WARN)
           return
@@ -58,7 +64,15 @@ function M.attach(api, session, helpers)
         helpers.estimate_context()
         helpers.save()
         helpers.render() -- Preserve the active turn's status and draft.
-      end)
+      end
+      if decisions_mode then
+        providers.decisions(selected_config, state, questions, complete, active)
+      else
+        providers.chat(selected_config, {
+          { role = 'system', content = context_review.prompt },
+          { role = 'user', content = vim.json.encode(turn) },
+        }, {}, complete)
+      end
     end)
   end
 end

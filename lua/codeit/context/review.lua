@@ -59,17 +59,22 @@ function M.validate(turn, replacements)
   local decisions, seen = {}, {}
   for _, replacement in ipairs(replacements) do
     if type(replacement) ~= 'table' or type(replacement.tool_call_id) ~= 'string'
-      or type(replacement.summary) ~= 'string' or vim.trim(replacement.summary) == '' then
-      return nil, 'each replacement requires a tool call ID and nonempty summary'
+      or (replacement.remove ~= true and (type(replacement.summary) ~= 'string' or vim.trim(replacement.summary) == ''))
+      or (replacement.remove ~= nil and replacement.remove ~= true)
+      or (replacement.remove == true and replacement.summary ~= nil) then
+      return nil, 'each replacement requires a tool call ID and either a nonempty summary or remove = true'
     end
-    local id, summary = replacement.tool_call_id, vim.trim(replacement.summary)
+    local id = replacement.tool_call_id
+    local summary = replacement.remove ~= true and vim.trim(replacement.summary) or nil
     local exchange = exchanges[id]
     if seen[id] or not exchange or not exchange.result or protected[exchange.call['function'].name] then
       return nil, 'unknown, duplicate, unfinished, or protected tool exchange: ' .. id
     end
     seen[id] = true
     -- A review must not grow context. Keep unhelpful replacement proposals verbatim.
-    if #vim.json.encode(note(summary)) < #vim.json.encode({ exchange.call, exchange.result }) then
+    if replacement.remove == true then
+      decisions[#decisions + 1] = { tool_call_id = id, remove = true }
+    elseif #vim.json.encode(note(summary)) < #vim.json.encode({ exchange.call, exchange.result }) then
       decisions[#decisions + 1] = { tool_call_id = id, summary = summary }
     end
   end
@@ -80,12 +85,39 @@ function M.validate(turn, replacements)
   return decisions
 end
 
+function M.candidates(turn)
+  local candidates, calls = {}, {}
+  for _, message in ipairs(turn) do
+    if message.role == 'assistant' then
+      calls = {}
+      for _, call in ipairs(message.tool_calls or {}) do
+        if not protected[call['function'].name] then calls[call.id] = call end
+      end
+    elseif message.role == 'tool' then
+      local call = calls[message.tool_call_id]
+      if call then
+        local bytes = #vim.json.encode({ call, message })
+        candidates[#candidates + 1] = { tool_call_id = message.tool_call_id, bytes = bytes,
+          estimated_tokens = math.ceil(bytes / 4) }
+      end
+    else
+      calls = {}
+    end
+  end
+  return candidates
+end
+
 function M.parse(message, turn)
   local content = vim.trim(text(message and message.content))
   -- Accept the common fenced-JSON variant without accepting surrounding prose.
   content = content:match('^```json%s*\n(.-)\n```$') or content:match('^```%s*\n(.-)\n```$') or content
   local ok, value = pcall(vim.json.decode, content)
   if not ok or type(value) ~= 'table' then return nil, 'review did not return a JSON object' end
+  for _, replacement in ipairs(type(value.replacements) == 'table' and value.replacements or {}) do
+    if type(replacement) == 'table' and replacement.remove ~= nil then
+      return nil, 'chat review replacements require summaries, not removal decisions'
+    end
+  end
   return M.validate(turn, value.replacements)
 end
 
@@ -123,7 +155,7 @@ function M.project(messages, reviews, first, last)
   for _, review in ipairs(reviews) do
     if review.first >= first and review.last <= last then
       local replacements = {}
-      for _, replacement in ipairs(review.replacements) do replacements[replacement.tool_call_id] = replacement.summary end
+      for _, replacement in ipairs(review.replacements) do replacements[replacement.tool_call_id] = replacement end
       for i = review.first, review.last do decisions[i] = replacements end
     end
   end
@@ -137,12 +169,13 @@ function M.project(messages, reviews, first, last)
     if message.role == 'assistant' and type(message.tool_calls) == 'table' and #message.tool_calls > 0 then
       local calls, summaries = {}, {}
       for _, call in ipairs(message.tool_calls) do
-        if replacements[call.id] then summaries[#summaries + 1] = replacements[call.id]
-        else calls[#calls + 1] = call end
+        local replacement = replacements[call.id]
+        if not replacement then calls[#calls + 1] = call
+        elseif replacement.summary then summaries[#summaries + 1] = replacement.summary end
       end
-      if #summaries == 0 then add(message, i)
+      if #calls == #message.tool_calls then add(message, i)
       else
-        add(note(table.concat(summaries, '\n')), i)
+        if #summaries > 0 then add(note(table.concat(summaries, '\n')), i) end
         if #calls > 0 or (message.content ~= nil and message.content ~= vim.NIL
           and message.content ~= '' and (type(message.content) ~= 'table' or #message.content > 0)) then
           local retained = vim.deepcopy(message)

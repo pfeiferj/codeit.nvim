@@ -37,7 +37,8 @@ function M.attach(api, session, helpers)
 
   function helpers.record_usage(usage, feature, provider, turn)
     provider = provider or session.config.provider
-    if provider ~= 'openrouter' and provider ~= 'copilot' and provider ~= 'codex' and provider ~= 'openai' then return end
+    if provider ~= 'openrouter' and provider ~= 'copilot' and provider ~= 'codex' and provider ~= 'openai'
+      and not (feature == 'context_review' and (provider == 'typesafe' or provider == 'decisions')) then return end
     local amount = helpers.usage_number(usage and usage.cost)
     if amount then session.cost = session.cost + amount else session.missing_cost = session.missing_cost + 1 end
     local input_count = helpers.usage_number(usage and usage.prompt_tokens)
