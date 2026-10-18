@@ -30,7 +30,7 @@ local function check(enabled)
   for _, definition in ipairs(requests[#requests]) do
     local params = definition['function'].parameters
     assert((params.properties.risk_score ~= nil) == (enabled == true), 'next request must use the selected mode')
-    if enabled == 'disabled' then
+    if enabled == 'disabled' or enabled == 'summary' then
       assert(params.properties.summary and vim.tbl_contains(params.required, 'summary'))
       assert(params.properties.is_write == nil)
     end
@@ -88,6 +88,14 @@ assert(plugin.configure(disabled, 'workspace'))
 check('disabled')
 setup(false)
 check('disabled')
+assert(plugin.configure(base))
+check(false)
+local summary = vim.deepcopy(base)
+summary.approval.tool_call_risk = 'summary'
+assert(plugin.configure(summary, 'workspace'))
+check('summary')
+setup(false)
+check('summary')
 assert(plugin.configure(base))
 check(false)
 print('codeit tool-call risk settings tests passed')

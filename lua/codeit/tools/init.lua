@@ -76,7 +76,7 @@ local function with_risk_fields(definition)
   local copy = vim.deepcopy(definition)
   local parameters = copy['function'].parameters
   parameters.required = parameters.required or {}
-  local summary_only = approval.uses_decisions() or approval.risk_review_disabled()
+  local summary_only = approval.uses_supplied_summary()
   for _, key in ipairs(summary_only and { 'summary' } or { 'summary', 'risk_score', 'is_write' }) do
     parameters.properties[key] = vim.deepcopy(risk_fields[key])
     parameters.required[#parameters.required + 1] = key

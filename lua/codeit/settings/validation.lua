@@ -31,8 +31,8 @@ function M.validate(settings)
     if type(settings.approval) ~= 'table' then return false, 'invalid approval settings' end
     for key, value in pairs(settings.approval) do
       if key ~= 'tool_call_risk' then return false, 'unknown approval setting: ' .. tostring(key) end
-      if type(value) ~= 'boolean' and value ~= 'decisions' and value ~= 'disabled' then
-        return false, 'approval.tool_call_risk must be a boolean, decisions, or disabled'
+      if type(value) ~= 'boolean' and value ~= 'summary' and value ~= 'decisions' and value ~= 'disabled' then
+        return false, 'approval.tool_call_risk must be a boolean, summary, decisions, or disabled'
       end
     end
   end

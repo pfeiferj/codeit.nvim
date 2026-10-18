@@ -985,6 +985,27 @@ subsequent saves. If both names are present, the new name takes precedence,
 including explicit `false` and zero values. Tool schemas and new model prompts
 use only the risk terminology.
 
+### Separate risk assessment with chat-supplied summaries
+
+Set `approval.tool_call_risk = 'summary'` to keep the default separate risk
+assessor while having the main chat agent supply each tool-call summary:
+
+```lua
+require('codeit').setup({
+  approval = { tool_call_risk = 'summary' },
+})
+```
+
+Select **Separate automatic assessment (chat model supplies summary)** in the
+**Tool-call risk** settings picker. Main-chat tool calls require only `summary`
+(1–160 characters); `risk_score` and `is_write` are not accepted from the chat
+agent. The separate `tool_assessment` model returns the 0–10 risk score and, for
+matching read-only command rules, checks read-only behavior and rule compliance.
+It is not asked to generate a summary. Approval gates and typed confirmations
+work as in the default mode, and unavailable assessments still fail closed.
+Subagents retain the default separate assessment, including its summary, since
+their tool schemas do not include main-chat summary metadata.
+
 ### Disabling risk review
 
 Set `approval.tool_call_risk = 'disabled'` to turn off automatic risk review:
