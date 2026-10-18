@@ -30,22 +30,24 @@ requests[1].reply({ role = 'assistant', tool_calls = { call('First'), call('Seco
 await(4)
 requests[2].stream('Work in progress')
 answer(3, 'First findings')
-assert(#requests == 5, 'completion immediately resumes the originating turn')
-assert(agents.list()[1].notification == 'sent')
-assert(not requests[2].active(), 'interrupted provider request must become inactive')
+assert(#requests == 4 and requests[2].active(), 'completion must not cancel an active response')
+assert(agents.list()[1].notification == 'pending')
+vim.wait(250, function() return false end)
+assert(#requests == 4, 'notification timer must not deliver during a round')
+answer(2, 'Finished current round')
+assert(#requests == 5 and agents.list()[1].notification == 'sent')
 local messages = requests[5].messages
 assert(messages[#messages].role == 'user' and messages[#messages].content:find('First findings', 1, true))
-assert(messages[#messages - 1].content == 'Work in progress', 'partial response must be preserved')
-answer(2, 'Stale response')
-assert(#requests == 5, 'stale callback must not finish the resumed turn')
+assert(messages[#messages - 1].content == 'Finished current round', 'retain the complete response, not its partial stream')
 answer(4, 'Second findings')
-assert(#requests == 6 and not requests[5].active(), 'another result can interrupt the same resumed turn')
-assert(agents.list()[2].notification == 'sent')
+assert(#requests == 5 and requests[5].active(), 'another result must wait for the next boundary')
+assert(agents.list()[2].notification == 'pending')
+answer(5, 'Finished another round')
+assert(#requests == 6 and agents.list()[2].notification == 'sent')
 assert(requests[6].messages[#requests[6].messages].content:find('Second findings', 1, true))
-answer(5, 'Another stale response')
 answer(6, 'Done')
 vim.wait(250, function() return false end)
-assert(#requests == 6, 'immediate results must only be delivered once')
+assert(#requests == 6, 'round-boundary results must only be delivered once')
 
 plugin.send('Delegate and finish before the result')
 requests[7].reply({ role = 'assistant', tool_calls = { call('Later') } })
@@ -76,5 +78,33 @@ assert(#requests == 15, 'completion must not send results to another idle chat')
 assert(agents.list()[4].notification == 'pending')
 answer(13, 'Stale old-chat response')
 assert(#requests == 15)
+plugin.new()
+local tools = require('codeit.tools')
+local execute, finish_tool = tools.execute
+local second_tool_ran = false
+tools.execute = function(name, args, source, done, ...)
+  if name == 'list_workspace_files' then finish_tool = done; return end
+  if name == 'list_buffers' then second_tool_ran = true; return done('Second tool result') end
+  return execute(name, args, source, done, ...)
+end
+plugin.send('Delegate while completing a tool batch')
+requests[16].reply({ role = 'assistant', tool_calls = {
+  call('Batch findings'),
+  { id = 'held-tool', type = 'function', ['function'] = { name = 'list_workspace_files', arguments = '{}' } },
+  { id = 'second-tool', type = 'function', ['function'] = { name = 'list_buffers', arguments = '{}' } },
+} })
+await(17)
+answer(17, 'Findings during tools')
+assert(#requests == 17 and agents.list()[5].notification == 'pending' and finish_tool)
+vim.wait(250, function() return false end)
+assert(#requests == 17 and not second_tool_ran, 'completion must not skip or cancel tools')
+finish_tool('First tool result')
+assert(#requests == 18 and second_tool_ran and agents.list()[5].notification == 'sent')
+messages = requests[18].messages
+assert(messages[#messages - 2].tool_call_id == 'held-tool' and messages[#messages - 2].content == 'First tool result')
+assert(messages[#messages - 1].tool_call_id == 'second-tool' and messages[#messages - 1].content == 'Second tool result')
+assert(messages[#messages].content:find('Findings during tools', 1, true))
+answer(18, 'Batch done')
+tools.execute = execute
 agents.shutdown()
 print('codeit subagent notification tests passed')

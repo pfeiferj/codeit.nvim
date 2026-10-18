@@ -1,7 +1,7 @@
 local M = {}
 local runner = require('codeit.process')
 local tasks, next_id = {}, 0
-local view, timer, ready, send, interrupt, asking
+local view, timer, ready, send, deliver, asking
 local refresh
 local max_bytes = 20000
 
@@ -34,8 +34,19 @@ local function tick()
   end
 end
 
-function M.configure(can_send, send_results, interrupt_turn)
-  ready, send, interrupt = can_send, send_results, interrupt_turn
+function M.configure(can_send, send_results, deliver_results)
+  ready, send, deliver = can_send, send_results, deliver_results
+end
+
+function M.deliver_pending()
+  local delivered = false
+  for _, task in ipairs(tasks) do
+    if task.notification == 'pending' and deliver and deliver(task, notification_text(task)) then
+      task.notification = 'sent'
+      delivered = true
+    end
+  end
+  return delivered
 end
 
 function M.output(task)
@@ -79,9 +90,6 @@ function M.start(args, workspace, origin)
       or (result.timed_out and 'timed out' or (result.code == 0 and 'completed' or 'failed'))
     if task.notify_on_completion then
       task.notification = 'pending'
-      -- Decide at completion, not on the timer: the originating turn may end
-      -- before the next tick, or a different turn may start in the meantime.
-      if interrupt and interrupt(task, notification_text(task)) then task.notification = 'sent' end
     end
     if refresh then refresh() end
     vim.notify('codeit: background task #' .. task.id .. ' ' .. task.status .. ' (:CodeitTasks)')

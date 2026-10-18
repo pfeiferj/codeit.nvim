@@ -7,10 +7,10 @@ M.specs = {
   spec('run_command', 'Run a command against workspace DISK files after approval (configured read-only argv rules can auto-approve after a risk assessment); unsaved edits are not included. No implicit shell. argv has 1-40 strings, each at most 4096 bytes; empty arguments allowed. Output limited to 20000 bytes, timeout 60 seconds. Cancellation terminates the process group on Unix.', {
     argv = { type = 'array', items = { type = 'string' }, description = 'Executable and arguments' },
   }, { 'argv' }),
-  spec('start_background_task', 'Start an asynchronous command against workspace DISK files after approval; returns a task ID immediately so chat can continue. No implicit shell; argv follows run_command limits. View live logs and cancel in :CodeitTasks. Logs retain at most 20000 bytes. No timeout by default. Set notify_on_completion=true to deliver results immediately by interrupting the originating turn if it is still running; otherwise wait for the originating chat to be idle and request separate user approval for a follow-up. Tasks last for this Neovim session.', {
+  spec('start_background_task', 'Start an asynchronous command against workspace DISK files after approval; returns a task ID immediately so chat can continue. No implicit shell; argv follows run_command limits. View live logs and cancel in :CodeitTasks. Logs retain at most 20000 bytes. No timeout by default. Set notify_on_completion=true to deliver results between rounds of the originating turn if it is still running; otherwise wait for the originating chat to be idle and request separate user approval for a follow-up. Tasks last for this Neovim session.', {
     argv = { type = 'array', minItems = 1, maxItems = 40, items = { type = 'string', maxLength = 4096 } },
     title = { type = 'string', minLength = 1, maxLength = 200 },
-    notify_on_completion = { type = 'boolean', description = 'Request results when finished: interrupt the originating turn if still running, otherwise request a user-approved follow-up (default false)' },
+    notify_on_completion = { type = 'boolean', description = 'Request results when finished: deliver between rounds of the originating turn if still running, otherwise request a user-approved follow-up (default false)' },
     timeout_ms = { type = 'integer', minimum = 1, maximum = 2147483647, description = 'Optional time limit in milliseconds; omitted means no timeout' },
   }, { 'argv', 'title' }),
 }

@@ -39,30 +39,25 @@ function M.attach(api, session, helpers)
       error('codeit: context_review must be a boolean or decisions')
     end
     tools.configure(session.config.approval)
+    local function receive_background(item, text)
+      if not session.busy or not item.origin or not item.origin.turn
+        or item.origin.turn ~= session.current_turn or item.origin.chat_id ~= session.chat_id
+        or item.origin.workspace ~= session.workspace or session.workspace ~= history.workspace() then
+        return false
+      end
+      table.insert(session.messages, { role = 'user', content = text })
+      return true
+    end
     local background_tasks = require('codeit.tools.execution.tasks')
     background_tasks.configure(function(task)
       return not session.busy and task.origin and task.origin.chat_id == session.chat_id
         and task.origin.workspace == session.workspace and session.workspace == history.workspace()
-    end, function(_, text) M.send(text) end, function(task, text)
-      if not session.busy or not task.origin or not task.origin.turn
-        or task.origin.turn ~= session.current_turn or task.origin.chat_id ~= session.chat_id
-        or task.origin.workspace ~= session.workspace or session.workspace ~= history.workspace() then
-        return false
-      end
-      return helpers.interrupt(text)
-    end)
+    end, function(_, text) M.send(text) end, receive_background)
     local subagents = require('codeit.tools.subagents')
     subagents.configure(function(run)
       return not session.busy and run.origin and run.origin.chat_id == session.chat_id
         and run.origin.workspace == session.workspace and session.workspace == history.workspace()
-    end, function(_, text) M.send(text) end, function(run, text)
-      if not session.busy or not run.origin or not run.origin.turn
-        or run.origin.turn ~= session.current_turn or run.origin.chat_id ~= session.chat_id
-        or run.origin.workspace ~= session.workspace or session.workspace ~= history.workspace() then
-        return false
-      end
-      return helpers.interrupt(text, 'Interrupted by subagent completion')
-    end)
+    end, function(_, text) M.send(text) end, receive_background)
     require('codeit.commands').tasks()
     if not vim.tbl_contains({ 'openrouter', 'copilot', 'codex', 'openai' }, session.config.provider) then
       error('codeit: provider must be openrouter, copilot, codex, or openai')

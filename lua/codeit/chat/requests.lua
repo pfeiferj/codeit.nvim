@@ -22,18 +22,16 @@ function M.attach(api, session, helpers)
       return true
     end
     if not active() then return end
-    local resume_round = round
-    helpers.interrupt = function(text, reason)
-      if not session.busy or not active() then return false end
-      local turn, reviews = session.current_turn, session.turn_reviews
-      helpers.stop(reason or 'Interrupted by background task completion')
-      session.current_turn, session.turn_reviews = turn, reviews
-      table.insert(session.messages, { role = 'user', content = text })
-      session.busy = true
+    local function deliver_background()
+      local tasks = require('codeit.tools.execution.tasks').deliver_pending()
+      local subagents = require('codeit.tools.subagents').deliver_pending()
+      if not tasks and not subagents then return false end
       helpers.save()
-      helpers.request(resume_round, session.generation, false, nil, nil, budget)
+      helpers.render()
       return true
     end
+    -- Only consume completions between rounds, after all tool results are retained.
+    deliver_background()
     helpers.validate_context_summary()
     if not skip_auto and not budget.long_context and session.config.max_context_tokens == nil and not limit_checked
       and type(providers.context_limit) == 'function' then
@@ -181,10 +179,10 @@ function M.attach(api, session, helpers)
         helpers.save()
         helpers.render()
         if type(calls) ~= 'table' or #calls == 0 then
+          if deliver_background() then return helpers.request(round, id, false, nil, nil, budget) end
           helpers.complete()
           return helpers.review_turn()
         end
-        resume_round = round + 1
         local user_request
         for i = batch_start - 1, 1, -1 do
           if session.messages[i].role == 'user' then user_request = session.messages[i].content; break end

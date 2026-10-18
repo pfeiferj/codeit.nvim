@@ -65,18 +65,19 @@ approve()
 local immediate = tasks.list()[2]
 local pending_request = #requests
 streams[pending_request]('Working on something else')
-assert(vim.wait(3000, function() return immediate.notification == 'sent' end))
+assert(vim.wait(3000, function() return immediate.status == 'completed' end))
+assert(immediate.notification == 'pending')
+vim.wait(300, function() return false end)
 assert(selections == 1, 'originating turn completion must not ask for approval')
-assert(#requests == pending_request + 1, 'completion interrupts and resumes the originating turn')
-assert(not active[pending_request](), 'interrupted provider request becomes inactive')
+assert(#requests == pending_request and active[pending_request](), 'completion must not cancel an active response')
+reply({ role = 'assistant', content = 'Finished working on something else' })
+assert(#requests == pending_request + 1 and immediate.notification == 'sent', 'deliver at the response boundary')
 local resumed = requests[#requests]
 assert(resumed[#resumed].role == 'user' and resumed[#resumed].content:find('immediate', 1, true))
-assert(resumed[#resumed - 1].content == 'Working on something else', 'preserve partial response')
-reply({ role = 'assistant', content = 'Stale reply' })
-assert(#requests == pending_request + 1, 'stale callback must not change the resumed turn')
+assert(resumed[#resumed - 1].content == 'Finished working on something else', 'preserve the full response')
 reply({ role = 'assistant', content = 'Results received' })
 vim.wait(300, function() return false end)
-assert(selections == 1, 'immediate completion is only delivered once')
+assert(selections == 1, 'round-boundary completion is only delivered once')
 plugin.new()
 
 plugin.send('Keep working while another task runs')
@@ -91,17 +92,23 @@ reply({ role = 'assistant', tool_calls = { {
 approve()
 local batch_task = tasks.list()[3]
 reply({ role = 'assistant', tool_calls = { {
-  id = 'unfinished-command', type = 'function', ['function'] = {
+  id = 'held-command', type = 'function', ['function'] = {
     name = 'run_command', arguments = vim.json.encode({ argv = { 'true' } }),
   },
 } } })
-assert(vim.wait(3000, function() return batch_task.notification == 'sent' end))
+local batch_request = #requests
+assert(vim.wait(3000, function() return batch_task.status == 'completed' end))
+assert(batch_task.notification == 'pending' and #requests == batch_request)
+assert(active[batch_request](), 'completion must not invalidate a running tool batch')
 assert(selections == 1, 'completion during a tool batch must not ask for approval')
+approve()
+assert(vim.wait(3000, function() return batch_task.notification == 'sent' end))
+assert(#requests == batch_request + 1)
 local balanced = requests[#requests]
 assert(balanced[#balanced - 1].role == 'tool'
-  and balanced[#balanced - 1].tool_call_id == 'unfinished-command'
-  and balanced[#balanced - 1].content:find('Interrupted by background task completion', 1, true),
-  'interrupted tool batches must retain matching results')
+  and balanced[#balanced - 1].tool_call_id == 'held-command'
+  and balanced[#balanced - 1].content:find('[exit code: 0]', 1, true),
+  'complete the tool normally before delivering background results')
 reply({ role = 'assistant', content = 'Batch results received' })
 plugin.new()
 
