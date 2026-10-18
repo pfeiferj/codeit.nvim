@@ -8,23 +8,24 @@ function M.attach(api, session, helpers)
   local format_tokens = usage_format.tokens
 
   function helpers.render()
-    local billing
+    local billing, compact
     if session.config.provider == 'openrouter' or session.config.provider == 'copilot' or session.config.provider == 'codex'
       or session.config.provider == 'openai'
       or session.cost > 0 or session.missing_cost > 0 then
       local subscription_count, dollars = cost_breakdown.subscription_requests(session.cost_by_function)
       local cost = 'Cost: ' .. usage_format.cost(session.cost, session.missing_cost > 0)
-      if session.config.provider == 'codex' or subscription_count > 0 then
-        cost = usage_format.with_subscription(usage_format.subscription(session.codex_subscription),
+      compact = session.config.provider == 'codex' or subscription_count > 0
+      if compact then
+        cost = usage_format.with_subscription(usage_format.subscription(session.codex_subscription, true),
           session.cost, session.missing_cost > 0, dollars)
       end
-      billing = string.format('%s | In: %s%s | Out: %s%s | Context: %s',
+      billing = string.format(compact and '%s | In:%s%s Out:%s%s Ctx:%s' or '%s | In: %s%s | Out: %s%s | Context: %s',
         cost, format_tokens(session.tokens_in, 1000000, 'm'), session.missing_in and '+' or '',
         format_tokens(session.tokens_out, 1000000, 'm'), session.missing_out and '+' or '',
         session.context_tokens and (session.context_estimated and '~' or '') .. format_tokens(session.context_tokens, 1000, 'k') or '—')
     end
     if billing and session.context_stats.cache_observed_tokens > 0 then
-      billing = billing .. string.format(' | Cache: %.0f%%',
+      billing = billing .. string.format(compact and ' Cache:%.0f%%' or ' | Cache: %.0f%%',
         session.context_stats.cached_tokens / session.context_stats.cache_observed_tokens * 100)
     end
     local displayed = session.messages

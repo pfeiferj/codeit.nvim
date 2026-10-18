@@ -10,6 +10,8 @@ local snapshot = quota.parse(headers)
 assert(snapshot.primary.used_percent == 12.5 and snapshot.primary.reset_at == future)
 assert(format.subscription(snapshot) == 'Codex: 5h 12.5% used · 7d 40% used')
 assert(format.subscription(nil) == 'Codex: usage unknown')
+assert(format.subscription(snapshot, true) == '5h:12% 7d:40%')
+assert(format.subscription(nil, true) == 'Quota ?')
 assert(quota.parse('') == nil)
 for _, invalid in ipairs({ '-1', '101', 'nan', 'inf', 'bad' }) do
   assert(quota.parse('x-codex-primary-used-percent: ' .. invalid) == nil)
@@ -25,6 +27,7 @@ assert(quota.parse('', event) == nil)
 assert(quota.parse('', { rate_limits = vim.NIL }) == nil)
 local expired = quota.parse('x-codex-primary-used-percent: 100\nx-codex-primary-reset-at: 1')
 assert(format.subscription(expired) == 'Codex: primary unknown', 'expired snapshots are not current usage')
+assert(format.subscription(expired, true) == 'p:?')
 
 local ui = require('codeit.ui')
 local original_render, billing = ui.render
@@ -33,15 +36,15 @@ local session = require('codeit.chat.state').new({ provider = 'codex', models = 
 local helpers = { model = function() return 'test' end, save = function() end }
 require('codeit.chat.usage').attach({}, session, helpers)
 helpers.render()
-assert(billing:find('Codex: usage unknown', 1, true) and not billing:find('$', 1, true))
+assert(billing:find('Quota ?', 1, true) and not billing:find('$', 1, true))
 local turn = { cost = 0, missing_cost = 0, cost_by_function = {} }
 helpers.record_usage({ prompt_tokens = 100, completion_tokens = 10, codex_subscription = snapshot }, 'main_chat', 'codex', turn)
 assert(session.cost == 0 and session.missing_cost == 0 and session.tokens_in == 100)
-assert(billing:find('Codex: 5h 12.5% used · 7d 40% used | In:', 1, true))
+assert(billing:find('5h:12% 7d:40% | In:', 1, true))
 assert(format.turn_cost(turn) == 'Subscription')
 helpers.record_usage({ cost = 0.125, prompt_tokens = 20, completion_tokens = 3 }, 'tool_review', 'openrouter', turn)
 assert(session.cost == 0.125 and session.missing_cost == 0)
-assert(billing:find('Codex: 5h 12.5% used · 7d 40% used ($0.125)', 1, true))
+assert(billing:find('5h:12% 7d:40% ($0.125)', 1, true))
 assert(format.turn_cost(turn) == 'Subscription ($0.125)')
 helpers.record_usage(nil, 'compaction', 'openai', turn)
 assert(session.missing_cost == 1 and turn.missing_cost == 1)
@@ -55,6 +58,20 @@ breakdown.merge(merged, session.cost_by_function)
 local count, dollars = breakdown.subscription_requests(merged)
 assert(count == 2 and dollars)
 assert(merged.main_chat.subscription_requests == 1)
+local header_session = vim.deepcopy(session)
+header_session.tokens_in, header_session.tokens_out = 1234567, 1234567
+header_session.missing_in, header_session.missing_out = true, true
+header_session.context_tokens, header_session.context_estimated = 123456, true
+header_session.context_stats.cached_tokens, header_session.context_stats.cache_observed_tokens = 100, 100
+header_session.codex_subscription = {
+  primary = { window_minutes = 300, used_percent = 100 },
+  secondary = { window_minutes = 10080, used_percent = 100 },
+}
+local header_helpers = { model = helpers.model }
+require('codeit.chat.usage').attach({}, header_session, header_helpers)
+header_helpers.render()
+assert(billing:find('Ctx:~123.456k Cache:100%', 1, true))
+assert(vim.fn.strdisplaywidth('> ' .. billing) <= 80, 'the full header must fit an 80-column pane')
 ui.render = original_render
 
 local temp, original_stdpath = vim.fn.tempname(), vim.fn.stdpath

@@ -9,22 +9,27 @@ function M.tokens(count, scale, suffix)
   return value .. (suffix or 'm')
 end
 
-function M.subscription(snapshot)
+function M.subscription(snapshot, compact)
   local windows = {}
   for _, name in ipairs({ 'primary', 'secondary' }) do
     local window = snapshot and snapshot[name]
     if window then
       local minutes = window.window_minutes
-      local label = name
+      local label = compact and name:sub(1, 1) or name
       if minutes then
         if minutes % 1440 == 0 then label = (minutes / 1440) .. 'd'
         elseif minutes % 60 == 0 then label = (minutes / 60) .. 'h'
         else label = minutes .. 'm' end
       end
       local expired = window.reset_at and window.reset_at <= os.time()
-      windows[#windows + 1] = label .. ' ' .. (expired and 'unknown' or string.format('%g%% used', window.used_percent))
+      if compact then
+        windows[#windows + 1] = label .. ':' .. (expired and '?' or string.format('%.0f%%', window.used_percent))
+      else
+        windows[#windows + 1] = label .. ' ' .. (expired and 'unknown' or string.format('%g%% used', window.used_percent))
+      end
     end
   end
+  if compact then return #windows > 0 and table.concat(windows, ' ') or 'Quota ?' end
   return 'Codex: ' .. (#windows > 0 and table.concat(windows, ' · ') or 'usage unknown')
 end
 
