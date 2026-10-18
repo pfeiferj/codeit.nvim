@@ -243,5 +243,37 @@ reply({ role = 'assistant', content = 'Unknown usage' })
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.012+ | In: 1.3m+ | Out: 0.52m+ | Context: —')
 plugin.new()
 contains(vim.fn.bufnr('codeit://chat'), 'Cost: $0.000 | In: 0m | Out: 0m | Context: —')
+assert(#responses == 0, 'the preceding tests should leave no provider callbacks pending')
+plugin.send('Keep completed tool results after cancellation')
+assert(#responses == 1, 'the new chat should have one pending provider response')
+local question_prompt = require('codeit.tools.question_prompt')
+local original_question_show = question_prompt.show
+question_prompt.show = function(_, _, callback) callback(nil) end
+reply({ role = 'assistant', tool_calls = {
+  { id = 'completed-read', type = 'function', ['function'] = { name = 'read_source_buffer', arguments = '{}' } },
+  { id = 'cancelled-question', type = 'function', ['function'] = { name = 'ask_user', arguments = '{"question":"Continue?"}' } },
+  { id = 'skipped-read', type = 'function', ['function'] = { name = 'read_source_buffer', arguments = '{}' } },
+} })
+question_prompt.show = original_question_show
+local history = require('codeit.chat.storage')
+local function has_cancel_result()
+  local chat = history.list(history.workspace())[1]
+  for _, message in ipairs(chat and chat.messages or {}) do
+    if message.role == 'tool' and message.tool_call_id == 'cancelled-question' then return true end
+  end
+  return false
+end
+assert(vim.wait(1000, has_cancel_result), 'cancelled batch should be persisted')
+local saved_batch = history.list(history.workspace())[1]
+local tool_results = {}
+for _, message in ipairs(saved_batch.messages) do
+  if message.role == 'tool' then tool_results[message.tool_call_id] = message.content end
+end
+assert(tool_results['completed-read'] and tool_results['completed-read']:find('"lines"', 1, true),
+  'completed call results must survive cancellation of a later call')
+assert(tool_results['cancelled-question'] and tool_results['cancelled-question']:find('Cancelled by user', 1, true),
+  'the cancelled call must have a tool result')
+assert(tool_results['skipped-read'] and tool_results['skipped-read']:find('Not executed', 1, true),
+  'calls after the cancellation must be balanced without execution')
 plugin.close()
 print('codeit headless tests passed')

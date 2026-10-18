@@ -52,7 +52,7 @@ for _, message in ipairs(last()) do
     end
   end
 end
-assert(question_batches == 2, 'only the earlier answered questions remain after cancellation')
+assert(question_batches == 3, 'the cancelled tool call must remain paired with its cancellation result')
 assert(last()[#last()].content == 'Continue after cancellation')
 finish()
 plugin.send('Ask then reset')

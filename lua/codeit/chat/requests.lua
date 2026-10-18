@@ -268,9 +268,11 @@ function M.attach(api, session, helpers)
             if signal == 'cancel' then
               session.generation = session.generation + 1
               session.busy = false
-              for i = #session.messages, batch_start, -1 do table.remove(session.messages, i) end
-              for _, command_result in ipairs(session.command_results) do
-                command_result.after_message = math.min(command_result.after_message, #session.messages)
+              for remaining = index, #calls do
+                table.insert(session.messages, { role = 'tool', tool_call_id = calls[remaining].id,
+                  content = remaining == index
+                    and 'Cancelled by user. This call did not complete; any side effects already performed are not undone.'
+                    or 'Not executed because an earlier tool call was cancelled.' })
               end
               helpers.save()
               return helpers.set_status('Task cancelled')
