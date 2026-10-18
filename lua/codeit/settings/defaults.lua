@@ -47,7 +47,7 @@ Communication
   approval = { validators = {}, read_commands = {}, tool_call_risk = false },
   max_tool_rounds = 12,
   max_subagent_tool_rounds = 40,
-  context_review = true, -- true: factual notes; 'decisions': remove low-value exchanges; false: disabled
+  context_review = true, -- true: factual notes; 'decisions': background removals; 'main': per-call retention; false: disabled
   context_review_min_tokens = 512,
   compaction = { summary_tokens = 2048, output_reserve = 4096, manual_keep_turns = 1 },
   -- max_context_tokens = nil, -- detect from the provider; number overrides, false disables

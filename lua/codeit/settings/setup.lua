@@ -35,8 +35,9 @@ function M.attach(api, session, helpers)
     if type(session.config.tool_json_healing) ~= 'boolean' then
       error('codeit: tool_json_healing must be a boolean')
     end
-    if type(session.config.context_review) ~= 'boolean' and session.config.context_review ~= 'decisions' then
-      error('codeit: context_review must be a boolean or decisions')
+    if type(session.config.context_review) ~= 'boolean' and session.config.context_review ~= 'decisions'
+      and session.config.context_review ~= 'main' then
+      error('codeit: context_review must be a boolean, decisions, or main')
     end
     tools.configure(session.config.approval)
     local function receive_background(item, text)

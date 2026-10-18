@@ -21,6 +21,7 @@ local function tool_call_risk_label(value)
 end
 
 local function context_review_label(value)
+  if value == 'main' then return 'Main model (choose retention when calling tools)' end
   if value == 'decisions' then return 'Decisions model (remove low-value tool exchanges)' end
   return value == false and 'Disabled' or 'Chat model (replace with factual notes)'
 end
@@ -328,7 +329,7 @@ function M.show(current, apply, live)
           menu()
         end)
       elseif id == 'context_review_mode' then
-        select({ false, true, 'decisions' }, { prompt = 'Background context review source',
+        select({ false, true, 'decisions', 'main' }, { prompt = 'Context review source',
           format_item = context_review_label }, function(value)
           if not valid() then return end
           if value ~= nil then draft.context_review = value end

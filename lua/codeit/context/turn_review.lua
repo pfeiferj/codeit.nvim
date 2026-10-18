@@ -26,6 +26,15 @@ function M.attach(api, session, helpers)
     for _, message in ipairs(turn) do
       message._copilot_reasoning, message._codex_reasoning = nil, nil
     end
+    if session.config.context_review == 'main' then
+      local replacements = require('codeit.context.main_review').replacements(turn)
+      if not replacements or #replacements == 0 then return end
+      session.context_reviews[#session.context_reviews + 1] = { first = first, last = last, replacements = replacements }
+      table.sort(session.context_reviews, function(a, b) return a.first < b.first end)
+      helpers.estimate_context()
+      helpers.save()
+      return helpers.render()
+    end
     local replaceable = context_review.replaceable_tokens(turn)
     if replaceable == 0 or replaceable < session.config.context_review_min_tokens then return end
     local selected_config = helpers.request_config('context_review')

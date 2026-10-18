@@ -37,8 +37,9 @@ function M.validate(settings)
     end
   end
 
-  if settings.context_review ~= nil and type(settings.context_review) ~= 'boolean' and settings.context_review ~= 'decisions' then
-    return false, 'context_review must be a boolean or decisions'
+  if settings.context_review ~= nil and type(settings.context_review) ~= 'boolean' and settings.context_review ~= 'decisions'
+    and settings.context_review ~= 'main' then
+    return false, 'context_review must be a boolean, decisions, or main'
   end
 
   local options = settings.request_options
@@ -106,7 +107,7 @@ function M.validate(settings)
       if provider ~= nil and not vim.tbl_contains({ '', 'typesafe', 'decisions', 'openrouter' }, provider) then
         return false, name .. ' decisions require typesafe, decisions, or openrouter'
       end
-    elseif mode ~= nil and not (name == 'context_review' and mode == false)
+    elseif mode ~= nil and not (name == 'context_review' and (mode == false or mode == 'main'))
       and (provider == 'typesafe' or provider == 'decisions') then
       return false, name .. ' typesafe and decisions providers require decisions mode'
     end

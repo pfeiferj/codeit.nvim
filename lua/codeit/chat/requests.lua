@@ -41,7 +41,9 @@ function M.attach(api, session, helpers)
         helpers.request(round, id, false, limit, true, budget)
       end)
     end
+    local main_review = session.config.context_review == 'main'
     local specs = budget.declined and {} or tools.request_specs(session.workspace, approval.workspace_trust(session.workspace), session.selected_skills)
+    if main_review then specs = require('codeit.context.main_review').specs(specs) end
     local limit = budget.long_context_limit or (session.config.max_context_tokens == nil and detected_limit or session.config.max_context_tokens)
     local selected_config = budget.long_context or helpers.request_config()
     if not skip_auto then
@@ -162,6 +164,10 @@ function M.attach(api, session, helpers)
         local fn = call['function']
         local raw = fn.arguments
         local arguments, _, canonical = tool_arguments.decode(raw, session.config.tool_json_healing)
+        if main_review and arguments and arguments.keep_in_context ~= nil then
+          arguments = vim.deepcopy(arguments)
+          arguments.keep_in_context = nil
+        end
         decoded_arguments[index] = arguments
         if canonical then fn.arguments = canonical end
         tool_log_entries[index] = tool_log.start(fn.name, arguments, raw)

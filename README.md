@@ -566,6 +566,17 @@ Configure these through the **Background context review** feature override;
 chat presets are not inherited in decisions mode. Set `context_review = true`
 to retain the existing chat-model factual-note behavior.
 
+To let the **main model** choose retention when it calls each tool, set
+`context_review = 'main'` in `setup()` or select **Main model** under **Context
+review** in `:CodeitSettings`. Eligible tools gain a required `keep_in_context`
+boolean. Calls marked `false` and their results remain available throughout the
+current user turn, including all tool rounds, then disappear together from future
+context once the assistant finishes. No replacement note or background model
+request is made, and `context_review_min_tokens` does not apply. Missing or invalid
+retention choices keep the exchange. Clarification and skill-loading exchanges
+remain protected. The original transcript and removal decisions are saved as in
+the other modes; the background context-review feature override is unused.
+
 ### Conversation compaction
 
 Optionally add instructions to tell the compacting LLM what matters most:
