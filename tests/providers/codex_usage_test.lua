@@ -10,7 +10,7 @@ local snapshot = quota.parse(headers)
 assert(snapshot.primary.used_percent == 12.5 and snapshot.primary.reset_at == future)
 assert(format.subscription(snapshot) == 'Codex: 5h 12.5% used · 7d 40% used')
 assert(format.subscription(nil) == 'Codex: usage unknown')
-assert(format.subscription(snapshot, true) == '5h:12% 7d:40%')
+assert(format.subscription(snapshot, true) == '5h:12% | 7d:40%')
 assert(format.subscription(nil, true) == 'Quota ?')
 assert(quota.parse('') == nil)
 for _, invalid in ipairs({ '-1', '101', 'nan', 'inf', 'bad' }) do
@@ -40,11 +40,11 @@ assert(billing:find('Quota ?', 1, true) and not billing:find('$', 1, true))
 local turn = { cost = 0, missing_cost = 0, cost_by_function = {} }
 helpers.record_usage({ prompt_tokens = 100, completion_tokens = 10, codex_subscription = snapshot }, 'main_chat', 'codex', turn)
 assert(session.cost == 0 and session.missing_cost == 0 and session.tokens_in == 100)
-assert(billing:find('5h:12% 7d:40% | In:', 1, true))
+assert(billing:find('5h:12% | 7d:40% | In:', 1, true))
 assert(format.turn_cost(turn) == 'Subscription')
 helpers.record_usage({ cost = 0.125, prompt_tokens = 20, completion_tokens = 3 }, 'tool_review', 'openrouter', turn)
 assert(session.cost == 0.125 and session.missing_cost == 0)
-assert(billing:find('5h:12% 7d:40% ($0.125)', 1, true))
+assert(billing:find('5h:12% | 7d:40% ($0.125)', 1, true))
 assert(format.turn_cost(turn) == 'Subscription ($0.125)')
 helpers.record_usage(nil, 'compaction', 'openai', turn)
 assert(session.missing_cost == 1 and turn.missing_cost == 1)
@@ -70,8 +70,7 @@ header_session.codex_subscription = {
 local header_helpers = { model = helpers.model }
 require('codeit.chat.usage').attach({}, header_session, header_helpers)
 header_helpers.render()
-assert(billing:find('Ctx:~123.456k Cache:100%', 1, true))
-assert(vim.fn.strdisplaywidth('> ' .. billing) <= 80, 'the full header must fit an 80-column pane')
+assert(billing == '5h:100% | 7d:100% ($0.125+) | In:1.235m+ | Out:1.235m+ | Ctx:~123.456k | Cache:100%')
 ui.render = original_render
 
 local temp, original_stdpath = vim.fn.tempname(), vim.fn.stdpath

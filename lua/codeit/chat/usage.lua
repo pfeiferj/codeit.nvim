@@ -19,13 +19,13 @@ function M.attach(api, session, helpers)
         cost = usage_format.with_subscription(usage_format.subscription(session.codex_subscription, true),
           session.cost, session.missing_cost > 0, dollars)
       end
-      billing = string.format(compact and '%s | In:%s%s Out:%s%s Ctx:%s' or '%s | In: %s%s | Out: %s%s | Context: %s',
+      billing = string.format(compact and '%s | In:%s%s | Out:%s%s | Ctx:%s' or '%s | In: %s%s | Out: %s%s | Context: %s',
         cost, format_tokens(session.tokens_in, 1000000, 'm'), session.missing_in and '+' or '',
         format_tokens(session.tokens_out, 1000000, 'm'), session.missing_out and '+' or '',
         session.context_tokens and (session.context_estimated and '~' or '') .. format_tokens(session.context_tokens, 1000, 'k') or '—')
     end
     if billing and session.context_stats.cache_observed_tokens > 0 then
-      billing = billing .. string.format(compact and ' Cache:%.0f%%' or ' | Cache: %.0f%%',
+      billing = billing .. string.format(compact and ' | Cache:%.0f%%' or ' | Cache: %.0f%%',
         session.context_stats.cached_tokens / session.context_stats.cache_observed_tokens * 100)
     end
     local displayed = session.messages

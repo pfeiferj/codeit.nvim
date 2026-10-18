@@ -29,7 +29,7 @@ function M.subscription(snapshot, compact)
       end
     end
   end
-  if compact then return #windows > 0 and table.concat(windows, ' ') or 'Quota ?' end
+  if compact then return #windows > 0 and table.concat(windows, ' | ') or 'Quota ?' end
   return 'Codex: ' .. (#windows > 0 and table.concat(windows, ' · ') or 'usage unknown')
 end
 
