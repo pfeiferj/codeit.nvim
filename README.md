@@ -5,6 +5,11 @@ and experimental GitHub Copilot and OpenAI Codex (ChatGPT subscription) support.
 Chat in a Codeit sidebar, let the assistant inspect and edit your workspace with
 approval, and resume conversations from local history.
 
+![Codeit chat sidebar beside an open README, with a completed reply and usage header](docs/screenshots/chat-sidebar.png)
+
+The sidebar keeps the conversation, draft, and usage visible alongside an ordinary
+file view.
+
 ## Contents
 
 - [Requirements](#requirements)
@@ -323,6 +328,10 @@ and `q` or `<Esc>` to close the view. Logs retain the first 20000 bytes, with an
 explicit truncation marker. Tasks and logs are session-only, survive closing or
 switching chats, and running commands are stopped when Neovim exits.
 
+![Background task log showing command output, completed status, and exit code zero](docs/screenshots/background-task-logs.png)
+
+Inspect a background task's output and exit status with `:CodeitTasks`.
+
 The assistant can set `notify_on_completion = true` to request results.
 If the task ends while the turn that started it is still running, the integration
 waits for the current round (the model response and its tool-call batch) to finish,
@@ -375,6 +384,11 @@ may contain multiple calls, including failed calls. Reaching the cap fails the
 run before executing another batch, without prompting for an extension.
 `max_subagent_tool_rounds = 0` disallows all tool batches but permits a text-only
 response. Provider failures remain terminal.
+
+![Subagent chat log showing a delegated task and its completed assistant reply](docs/screenshots/subagent-chat-log.png)
+
+Open a delegated run's conversation with `:CodeitSubagents`; this example is a
+text-only task.
 
 ### File views
 
@@ -620,6 +634,10 @@ Cached-input usage is normalized for both providers. The chat displays `Cache: N
 
 `:CodeitContext` shows the effective message context for the next request: system prompt, compacted summary (if present), and newer turns. Edit the summary and press `:w` or `<C-s>` to save it for future requests; press `q` to close. Other sections cannot be changed on save. Compact first if there is no summary. Edits persist when resuming the chat.
 
+![Context inspector showing the structured compacted summary alongside the chat](docs/screenshots/compacted-context.png)
+
+Inspect the generated summary after compaction with `:CodeitContext`.
+
 `:CodeitContextFull` opens the **entire effective request context** as editable JSON (including system prompt, summary, messages, and tool metadata). Edit the message array and press `:w` or `<C-s>` to save, or `q` to close. The first entry must be a nonempty system prompt; tool calls must have matching results. Saving replaces the transcript with this effective context, clears display-only command results, and clears the compaction checkpoint: earlier compacted turns are no longer in the chat, while the summary becomes an ordinary system message. Changes are saved to history and sent on the next request. Invalid JSON or changes to an out-of-date view are rejected.
 
 #### System prompt
@@ -748,6 +766,11 @@ Older function buckets retain their costs but show incomplete token totals (`+`)
 these tokens cannot be backfilled. Costs without function attribution appear as
 **Unattributed**, with `—` for unavailable request and per-function token counts.
 It uses a snapshot; close and reopen it to refresh.
+
+![Cost review function table showing request counts, tokens, and missing cost reports](docs/screenshots/function-usage-breakdown.png)
+
+Press `f` in `:CodeitCosts` to compare recorded usage by function. Subscription-covered
+Codex requests are excluded from USD totals; missing cost reports remain marked.
 
 **Daily groups attribute a chat's entire cumulative total to its last-updated local
 day.** History has no per-request timestamps, so these are not exact daily spending
@@ -935,6 +958,11 @@ removes its queued prompts without approving or executing them.
 Workspace trust alone never auto-approves edits, creation, explicit saves, commands, or URL fetches; unknown or removed tools return an error without executing. Standard Markdown approval prompts show the tool name in bold above formatted arguments: pretty-printed JSON for ordinary calls, or a shell-quoted `bash` fence for `run_command`'s argument vector (shown for readability; the command is still executed without an implicit shell). Eligible non-write calls make a separate tool-free reviewer request to summarize the call and assess its risk. Workspace reads (including searches, listings, diagnostics, and Git tools) skip this automatic assessment even when approval is required; external or unnamed buffer reads and broader buffer listings can receive one. When requested, the reviewer returns a summary and an integer risk score from **0 (safest) to 10 (most dangerous)**. Both appear in the Markdown approval window; scores **3–5** and their summaries are highlighted amber (`CodeitApprovalWarning`), while scores **above 5** are highlighted red (`CodeitApprovalRisk`). Approval must wait for the assessment to finish. Scores **above 5** require typing the exact phrase `approve <tool_name>` in a second input prompt (for example, `approve run_command`); Enter alone, a single number, a partial phrase, or cancellation rejects the call. These approvals are one-time and cannot be remembered, even if **Always approve exact call** is selected. Failed, missing, or invalid assessments display an unavailable score in red and require the same typed confirmation; they are never treated as safe. **Ask reviewer** remains available on workspace-read prompts.
 
 Write calls (the edit/save variants and `create_file`) instead open a dedicated popup without waiting for an automatic summary. It shows the entire proposed file with source syntax highlighting; removed lines appear in red next to added lines in green, without patch headers or `+`/`-` prefixes. Centered virtual text keeps the approval shortcuts pinned to the top while scrolling; the preview opens at the first changed region; `{` and `}` jump between changed regions, wrapping at the ends. Press `<CR>` in normal mode (or `1`) to approve the file edit once. Press `5` to ask the reviewer about the change (`4` on save previews, which omit **Always approve**); it receives the proposed patch, and returning from the reviewer brings back the full-file preview. Review is advisory and never auto-approves a call. Automatic assessments are prefetched before approval validators run, so eligible calls can incur assessment charges even if a validator later rejects or auto-approves them. Calls with remembered exact-call approvals skip automatic assessments unless a matching read-only command rule needs its risk check.
+
+![Edit approval preview highlighting a Lua status change from draft to ready](docs/screenshots/edit-diff-preview.png)
+
+Review highlighted changes before approving. This disposable-buffer example was
+rejected without saving a file.
 
 In the standard Markdown approval window, move to a choice and press `<CR>` in normal mode to select it, or use the number shortcuts: `1` **Approve once**, `2` **Always approve exact call**, `3` **Reject** (with an optional explanation sent back to the agent), and `4` **Cancel task**. On read-tool prompts, `5` **Trust workspace (Git-tracked reads)** or `6` **Trust workspace (all reads)** saves that choice for the current workspace and approves the pending read; it does not auto-approve edits or commands. **Ask reviewer** is `5` on other prompts and `7` on read prompts when available. Press `<Esc>`, or close the approval window, to reject the call.
 
