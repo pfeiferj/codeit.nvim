@@ -537,7 +537,7 @@ function M.request(name, args, prompt, active, done, action, context)
   end
 
   local function manual(assessed_summary, assessed_score)
-  if context.no_prompt then return done('Error: this call requires approval; subagents cannot prompt the user') end
+  if context.no_prompt then return done('Error: this call requires approval; prompting is disabled in this context') end
   if tool_call_risk == true or M.risk_review_disabled() then
     assessed_summary, assessed_score = supplied_assessment(args, context)
   end

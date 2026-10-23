@@ -15,7 +15,11 @@ plugin.setup({ context_review = false, max_context_tokens = false, max_tool_roun
   model_presets = { fast = { model = 'fast-model' } } })
 local tools, agents = require('codeit.tools'), require('codeit.tools.subagents')
 local approval = require('codeit.tools.approval')
-require('codeit.tools.approval.prompt').show = function() error('subagents must never prompt') end
+local approval_prompts = 0
+require('codeit.tools.approval.prompt').show = function(_, _, callback)
+  approval_prompts = approval_prompts + 1
+  callback(nil)
+end
 require('codeit.tools.limit_prompt').show = function() error('subagents must never extend their budget') end
 require('codeit.ui.input').show = function() error('subagents must never ask') end
 vim.ui.select = function() error('subagents must never select') end
@@ -39,24 +43,33 @@ assert(requests[2].config.max_tool_rounds == 40, 'subagents must not inherit the
 local advertised = {}
 for _, definition in ipairs(requests[2].specs) do
   local name = definition['function'].name
-  assert(agents.allowed[name])
+  assert(agents.allowed(name))
   advertised[name] = true
 end
 for name in pairs(require('codeit.tools.windows').names) do
   assert(advertised[name], 'subagents must have window tool ' .. name)
 end
-assert(requests[2].messages[#requests[2].messages - 1].content:find('window-management tools', 1, true))
+for _, name in ipairs({ 'edit_file', 'save_buffer', 'create_file', 'run_command', 'fetch_url', 'ask_user' }) do
+  assert(advertised[name], 'subagents must have main-chat tool ' .. name)
+end
+for _, name in ipairs({ 'start_subagent', 'get_subagent', 'get_subagent_status', 'cancel_subagent', 'start_background_task' }) do
+  assert(not advertised[name], 'subagents must not have tool ' .. name)
+end
+local prompt = requests[2].messages[#requests[2].messages - 1].content
+assert(prompt:find('window-management tools', 1, true))
+assert(prompt:find('minimize non-read-only calls', 1, true))
 assert(require('codeit.settings.defaults').system_prompt:find('delegating bounded window-management tasks', 1, true))
 reply({ role = 'assistant', tool_calls = {
   call('read_file', { path = 'private.txt' }),
-  call('run_command', { argv = { 'touch', 'bad' } }),
-  call('ask_user', { question = 'Question?' }),
+  call('start_background_task', { argv = { 'touch', 'bad' }, title = 'Forbidden' }),
+  call('get_subagent', { run_id = 1 }),
   call('start_subagent', { title = 'Nested', task = 'Nested', mode = 'background' }),
   call('write_subagent_artifact', { content = 'findings\nsecond line' }),
 } })
 await(3)
 local messages = requests[3].messages
-assert(messages[#messages - 4].content:find('requires approval', 1, true))
+assert(messages[#messages - 4].content:find('Rejected', 1, true))
+assert(approval_prompts == 1, 'untrusted reads must request approval')
 for i = #messages - 3, #messages - 1 do assert(messages[i].content:find('not available', 1, true)) end
 local artifact = vim.json.decode(messages[#messages].content)
 assert(vim.fn.readfile(artifact.path)[1] == 'findings')
@@ -125,7 +138,10 @@ assert(execute('read_file', { path = 'private.txt' }, { no_prompt = true }):find
 approval.setup({ trusted_workspaces = { [temp] = 'all' }, validators = { function() return 'ask' end } })
 assert(execute('read_file', { path = 'private.txt' }, { no_prompt = true }):find('requires approval', 1, true))
 approval.setup({ validators = { function() return 'approve' end } })
-assert(execute('create_file', { path = 'bad', content = 'bad' }, { no_prompt = true }):find('not available', 1, true))
+assert(execute('start_background_task', { argv = { 'touch', 'bad' }, title = 'Forbidden' },
+  { subagent_run = agents.list()[1] }):find('not available', 1, true))
+assert(execute('start_subagent', { title = 'Nested', task = 'Nested', mode = 'wait' },
+  { subagent_run = agents.list()[1] }):find('not available', 1, true))
 approval.setup({ validators = { function() return 'reject' end } })
 assert(execute('read_file', { path = 'private.txt' }, { no_prompt = true }):find('Rejected', 1, true))
 approval.setup({})

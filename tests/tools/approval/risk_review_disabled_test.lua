@@ -38,7 +38,7 @@ for _, definition in ipairs(tools.request_specs(dir)) do
   assert(params.properties.risk_score == nil and params.properties.is_write == nil)
 end
 for _, definition in ipairs(tools.specs) do
-  assert(definition['function'].parameters.properties.summary == nil, 'subagent schemas remain unchanged')
+  assert(definition['function'].parameters.properties.summary == nil, 'base tool schemas remain unchanged')
 end
 assert(not tools.validate('run_command', { argv = { 'inspect' } }, { no_prompt = true }))
 for _, args in ipairs({
@@ -94,9 +94,9 @@ assert(result == 'Rejected by user')
 assert(approval.set_workspace_trust('all', dir))
 execute({ argv = { 'inspect', 'private.txt' }, summary = 'Inspect a file.' })
 assert(result:find('inspected', 1, true) and #prompts == 0 and runs == 5)
--- Disabling risk review does not expand subagent capabilities.
+-- Disabling risk review cannot bypass approval in a no-prompt context.
 execute({ argv = { 'unmatched' } }, { no_prompt = true })
-assert(result:find('tool is not available to subagents', 1, true) and runs == 5)
+assert(result:find('requires approval', 1, true) and runs == 5)
 vim.cmd.cd(root)
 vim.fn.delete(dir, 'rf')
 print('risk_review_disabled_test: ok')

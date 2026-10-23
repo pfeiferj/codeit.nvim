@@ -155,7 +155,7 @@ function M.execute(name, args, source, done, active, context)
       args.summary, args.risk_score, args.is_write = nil, nil, nil
     end
     local subagents = require('codeit.tools.subagents')
-    if context and context.no_prompt and not subagents.allowed[name] then
+    if context and context.subagent_run and not subagents.allowed(name) then
       return done('Error: tool is not available to subagents')
     end
     if subagents.names[name] then

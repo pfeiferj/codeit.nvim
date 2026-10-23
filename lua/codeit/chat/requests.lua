@@ -117,21 +117,21 @@ function M.attach(api, session, helpers)
     subagent_config.tool_json_healing = session.config.tool_json_healing
     local subagent_turn_index
     for index, turn in ipairs(session.turn_costs) do if turn == billed_turn then subagent_turn_index = index end end
-    local function subagent_usage(usage)
+    local function subagent_feature_usage(usage, feature, provider)
       if session.workspace == subagent_workspace and session.chat_id == subagent_chat then
-        return helpers.record_usage(usage, 'subagent', subagent_config.provider, session.turn_costs[subagent_turn_index])
+        return helpers.record_usage(usage, feature, provider, session.turn_costs[subagent_turn_index])
       end
       -- Background billing belongs to the originating chat, never the active one.
       local chat = history.load(subagent_workspace, subagent_chat)
       if not chat then return end
-      local subscription = subagent_config.provider == 'codex'
+      local subscription = provider == 'codex'
       local amount = subscription and 0 or helpers.usage_number(usage and usage.cost)
       local input, output = helpers.usage_number(usage and usage.prompt_tokens), helpers.usage_number(usage and usage.completion_tokens)
       local function add(target)
         target.cost = (target.cost or 0) + (amount or 0)
         target.missing_cost = (target.missing_cost or 0) + (amount and 0 or 1)
         target.cost_by_function = target.cost_by_function or {}
-        cost_breakdown.add(target.cost_by_function, 'subagent', amount, input, output, subscription)
+        cost_breakdown.add(target.cost_by_function, feature, amount, input, output, subscription)
       end
       add(chat)
       local turn = chat.turn_costs and chat.turn_costs[subagent_turn_index]
@@ -140,6 +140,7 @@ function M.attach(api, session, helpers)
       chat.missing_in, chat.missing_out = chat.missing_in or not input, chat.missing_out or not output
       history.save(subagent_workspace, subagent_chat, chat)
     end
+    local function subagent_usage(usage) subagent_feature_usage(usage, 'subagent', subagent_config.provider) end
     providers.chat(selected_config, helpers.request_messages(), specs, function(message, err, usage)
       response_pending = false
       if not active() then return end
@@ -333,6 +334,11 @@ function M.attach(api, session, helpers)
             subagent_config = subagent_config,
             subagent_messages = helpers.request_messages(),
             subagent_usage = subagent_usage,
+            subagent_feature_usage = subagent_feature_usage,
+            subagent_review_configs = { tool_review = helpers.request_config('tool_review'),
+              tool_assessment = helpers.request_config('tool_assessment') },
+            subagent_context_paths = session.context_paths,
+            subagent_context_messages = vim.json.decode(advertised),
             tool_log_entry = tool_log_entries[index],
             review = review,
             decide = decide,
