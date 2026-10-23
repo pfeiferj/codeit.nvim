@@ -6,7 +6,7 @@ local session = require('codeit.chat.state').new(require('codeit.settings.defaul
 local helpers = {}
 for _, component in ipairs({
   'chat.session', 'chat.usage', 'context.messages',
-  'context.turn_review', 'context.editing', 'context.compactor', 'chat.requests',
+  'context.turn_review', 'chat.wiki', 'context.editing', 'context.compactor', 'chat.requests',
   'chat.input', 'settings.actions', 'chat.history', 'settings.setup',
 }) do
   require('codeit.' .. component).attach(M, session, helpers)

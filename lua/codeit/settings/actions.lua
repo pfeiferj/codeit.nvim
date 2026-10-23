@@ -9,6 +9,7 @@ function M.attach(api, session, helpers)
     helpers.sync_workspace()
     local values = { provider = session.config.provider, models = vim.deepcopy(session.config.models),
       context_review = session.config.context_review,
+      personal_wiki = vim.deepcopy(session.config.personal_wiki),
       max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens,
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),
@@ -23,6 +24,7 @@ function M.attach(api, session, helpers)
     if session.busy then return false, 'wait for the current response before changing settings' end
     values = require('codeit.risk').settings(values)
     if values.context_review == nil then values.context_review = session.config.context_review end
+    if values.personal_wiki == nil then values.personal_wiki = vim.deepcopy(session.config.personal_wiki) end
     local ok, err = settings.validate(values)
     if not ok then return false, err end
     values = vim.deepcopy(values)

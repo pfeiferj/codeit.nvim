@@ -189,6 +189,7 @@ function M.attach(api, session, helpers)
         if type(calls) ~= 'table' or #calls == 0 then
           if deliver_background() then return helpers.request(round, id, false, nil, nil, budget) end
           helpers.complete()
+          helpers.review_wiki_turn(billed_turn)
           return helpers.review_turn()
         end
         local user_request

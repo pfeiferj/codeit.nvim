@@ -21,6 +21,18 @@ function M.validate(settings)
     end
   end
 
+  if settings.personal_wiki ~= nil then
+    local wiki = settings.personal_wiki
+    if type(wiki) ~= 'table' or type(wiki.enabled) ~= 'boolean'
+      or type(wiki.root) ~= 'string' or wiki.root:find('%c')
+      or not (wiki.root:match('^/') or wiki.root:match('^%a:[/\\]')) then
+      return false, 'personal_wiki requires a boolean enabled and an absolute root directory'
+    end
+    for key in pairs(wiki) do
+      if key ~= 'enabled' and key ~= 'root' then return false, 'unknown personal_wiki setting: ' .. tostring(key) end
+    end
+  end
+
   local limit = settings.max_context_tokens
   if limit ~= nil and limit ~= 'auto' and limit ~= false
     and (type(limit) ~= 'number' or limit <= 0 or limit >= math.huge or limit ~= limit) then

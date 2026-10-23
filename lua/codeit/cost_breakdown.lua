@@ -1,7 +1,7 @@
 local M = {}
 
 local functions = { 'main_chat', 'context_review', 'tool_assessment', 'tool_review',
-  'compaction', 'cost_review', 'history_summary', 'subagent' }
+  'compaction', 'cost_review', 'history_summary', 'subagent', 'personal_wiki' }
 local token_fields = { { 'tokens_in', 'missing_in' }, { 'tokens_out', 'missing_out' } }
 
 local function number(value)

@@ -21,6 +21,12 @@ function M.attach(api, session, helpers)
     values = require('codeit.risk').settings(values)
     session.config.provider = values.provider
     if values.context_review ~= nil then session.config.context_review = values.context_review end
+    if values.personal_wiki ~= nil then
+      if not vim.deep_equal(values.personal_wiki, session.config.personal_wiki) then
+        session.wiki_revision = (session.wiki_revision or 0) + 1
+      end
+      session.config.personal_wiki = vim.deepcopy(values.personal_wiki)
+    end
     session.config.models = vim.tbl_extend('force', {}, defaults.models, values.models)
     session.config.model_presets = vim.deepcopy(values.model_presets or session.config.model_presets or {})
     session.config.feature_settings = vim.deepcopy(values.feature_settings or session.config.feature_settings or {})

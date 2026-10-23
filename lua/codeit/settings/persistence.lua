@@ -33,6 +33,7 @@ function M.resolve(base, workspace)
         local previous = result
         result = { provider = saved.provider, models = vim.tbl_extend('force', {}, previous.models, saved.models),
           max_context_tokens = saved.max_context_tokens, context_review = saved.context_review,
+          personal_wiki = vim.deepcopy(saved.personal_wiki or previous.personal_wiki),
           approval = vim.tbl_extend('force', {}, previous.approval or {}, saved.approval or {}),
           request_options = vim.deepcopy(saved.request_options),
           feature_settings = vim.deepcopy(saved.feature_settings), model_presets = vim.deepcopy(saved.model_presets) }

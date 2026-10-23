@@ -287,6 +287,10 @@ function M.show(current, apply, live)
       .. tool_call_risk_label((draft.approval or {}).tool_call_risk) }
     items[#items + 1] = { id = 'context_review_mode', section = 'Context', label = 'Context review: '
       .. context_review_label(draft.context_review) }
+    local wiki = draft.personal_wiki or require('codeit.settings.defaults').personal_wiki
+    items[#items + 1] = { id = 'wiki_enabled', section = 'Personal wiki', label = 'Automatic wiki updates: '
+      .. (wiki.enabled and 'Enabled' or 'Disabled') }
+    items[#items + 1] = { id = 'wiki_root', section = 'Personal wiki', label = 'Wiki root directory: ' .. wiki.root }
     local limit = draft.max_context_tokens
     items[#items + 1] = { id = 'max_context_tokens', section = 'Context', label = 'Max context length (tokens): '
       .. (limit == false and 'Disabled' or ((limit == nil or limit == 'auto') and 'Automatic (provider limit)' or tostring(limit))) }
@@ -295,7 +299,7 @@ function M.show(current, apply, live)
       items[#items + 1] = { id = 'preset_' .. name, section = 'Shared model presets',
         label = 'Preset ' .. settings.preset_labels[name] .. ': ' .. selected.provider .. ' / ' .. selected.model }
     end
-    for _, name in ipairs({ 'tool_assessment', 'tool_review', 'context_review', 'compaction', 'history_summary', 'cost_review', 'subagent' }) do
+    for _, name in ipairs({ 'tool_assessment', 'tool_review', 'context_review', 'compaction', 'history_summary', 'cost_review', 'subagent', 'personal_wiki' }) do
       local selected = settings.feature_config(draft, name)
       local assigned = settings.feature_preset(draft, name)
       local source = settings.uses_decisions(draft, name) and 'decisions' or (settings.preset_labels[assigned] or 'main')
@@ -333,6 +337,24 @@ function M.show(current, apply, live)
           format_item = context_review_label }, function(value)
           if not valid() then return end
           if value ~= nil then draft.context_review = value end
+          menu()
+        end)
+      elseif id == 'wiki_enabled' then
+        select({ false, true }, { prompt = 'Allow automatic writes inside the wiki root (turn details sent to wiki model)',
+          format_item = function(value) return value and 'Enabled' or 'Disabled' end }, function(value)
+          if not valid() then return end
+          if value ~= nil then draft.personal_wiki = vim.tbl_extend('force', {}, wiki, { enabled = value }) end
+          menu()
+        end)
+      elseif id == 'wiki_root' then
+        require('codeit.ui.input').show({ prompt = 'Absolute wiki root directory: ', default = wiki.root }, function(value)
+          if not valid() then return end
+          if value ~= nil then
+            local candidate = vim.tbl_extend('force', {}, wiki, { root = vim.trim(value) })
+            local ok, err = settings.validate(vim.tbl_extend('force', {}, draft, { personal_wiki = candidate }))
+            if ok then draft.personal_wiki = candidate
+            else vim.notify('codeit: ' .. err, vim.log.levels.WARN) end
+          end
           menu()
         end)
       elseif id == 'max_context_tokens' then

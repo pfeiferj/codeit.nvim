@@ -127,6 +127,7 @@ require('codeit').setup({
   -- max_subagent_tool_rounds = 40, -- separate hard cap per subagent; never prompts
   -- tool_json_healing = false, -- disable local tool argument repair for all providers (default: true)
   -- context_review = false, -- disable background pruning after each completed turn (default: true)
+  -- personal_wiki = { enabled = true, root = vim.fn.stdpath('data') .. '/codeit/wiki' },
   -- max_context_tokens = 128000, -- optional manual override; false disables auto-compaction
   -- approval = {
   --   trusted_workspaces = {
@@ -147,6 +148,43 @@ require('codeit').setup({
 ```
 
 </details>
+
+## Personal wiki
+
+The optional personal wiki agent reviews each completed turn in the background,
+extracts durable facts, preferences, decisions, and reusable knowledge, and maintains
+categorized Markdown pages such as `projects/codeit.md` or `preferences/editor.md`.
+It is **disabled by default**. In `:CodeitSettings`, enable **Automatic wiki updates**
+and optionally change **Wiki root directory** (an absolute path), then apply/save.
+The default root is `vim.fn.stdpath('data') .. '/codeit/wiki'`, shared across workspaces.
+You can also set `personal_wiki = { enabled = true, root = '/absolute/path/to/wiki' }`
+in `setup()`. Configure the agent model under **Personal wiki agent** in feature
+overrides, or `feature_settings.personal_wiki`; it uses the long context preset by default.
+
+Enabling this feature authorizes automatic creation and updates **inside that root**,
+without per-page approval. Turn details and relevant wiki content are sent to the
+configured model. The agent is instructed not to retain secrets or speculation,
+but this is not a guarantee of sensitive-data filtering: enable it only for turns
+you are comfortable retaining and sending to that provider. Inspect/edit the Markdown
+files directly; wiki notes are **not automatically injected into main-chat context**.
+
+The agent checks a page catalog for similar topics, reads selected pages, then
+merges notes rather than deliberately creating duplicates. Project facts retain
+workspace scope. Reviews are serialized within this Neovim session, do not block
+new turns, and are discarded if the originating chat/workspace changes or wiki
+settings change. Disabling prevents pending updates but does not delete existing
+notes. Only completed turns are reviewed; failed/interrupted turns are not replayed.
+
+Paths are restricted to `category/page.md` with lowercase kebab-case names;
+symlink categories/pages are not followed. Conflicting disk changes or unsaved page
+edits abort an update. Writes are atomic per page, not across an entire batch.
+To bound model input, reviews support up to 500 catalog pages (64 KiB of catalog
+previews), 8 selected/updated pages per turn, 32 KiB per page, and 128 KiB per turn.
+Over-limit or failed reviews warn and leave the remaining wiki unchanged; they are
+not retried automatically. Keep the wiki root in a trusted, user-owned directory;
+path checks are not a sandbox against another process maliciously changing the
+directory tree during an update. Concurrent Neovim instances should not maintain
+the same wiki simultaneously.
 
 ## Provider setup
 

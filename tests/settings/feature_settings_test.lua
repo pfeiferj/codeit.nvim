@@ -31,6 +31,7 @@ local features = {
   compaction = { provider = 'copilot', model = 'compact-model' },
   cost_review = { model = 'cost-model' },
   subagent = { model = 'subagent-model' },
+  personal_wiki = { model = 'wiki-model' },
 }
 plugin.setup({ max_context_tokens = false, feature_settings = features,
   request_options = { openrouter = { effort = 'low', service_tier = 'flex' } } })
