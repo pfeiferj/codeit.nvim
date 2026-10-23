@@ -175,11 +175,22 @@ new turns, and are discarded if the originating chat/workspace changes or wiki
 settings change. Disabling prevents pending updates but does not delete existing
 notes. Only completed turns are reviewed; failed/interrupted turns are not replayed.
 
-Paths are restricted to `category/page.md` with lowercase kebab-case names;
+Expand **Activity** at the end of a turn to inspect its **Wiki review** summary:
+status, the agent's retention notes, selected and updated page paths, and any
+skip/error reason. Summaries update in the background and are saved with chat
+history, without page contents or diffs. Older turns have no retrospective summary.
+Unfinished saved reviews appear as cancelled when history is reloaded; reviews
+are not resumed. These notes describe the agent's decision, not private reasoning.
+
+Paths are restricted to `category/page.md` with lowercase kebab-case names of up to
+200 characters each (excluding `.md`);
 symlink categories/pages are not followed. Conflicting disk changes or unsaved page
 edits abort an update. Writes are atomic per page, not across an entire batch.
-To bound model input, reviews support up to 500 catalog pages (64 KiB of catalog
-previews), 8 selected/updated pages per turn, 32 KiB per page, and 128 KiB per turn.
+To bound model input, reviews support up to 5,000 catalog pages (10 MiB total for
+paths and previews, with up to 5,000 bytes previewed per page), 80 selected/updated
+pages per turn, 320 KiB per page, and 1.25 MiB per turn. The review queue holds up
+to 16 pending reviews per session. Large reviews can increase model costs and may
+exceed the provider's context limits.
 Over-limit or failed reviews warn and leave the remaining wiki unchanged; they are
 not retried automatically. Keep the wiki root in a trusted, user-owned directory;
 path checks are not a sandbox against another process maliciously changing the

@@ -13,12 +13,18 @@ function M.attach(_, session, helpers)
     if running or #queue == 0 then return end
     running = true
     local job = table.remove(queue, 1)
-    local function finish(err)
+    local function finish(err, status, reason)
+      job.review.status = not job.active() and 'cancelled' or (err and 'failed' or status or 'skipped')
+      job.review.reason = err and tostring(err):sub(1, 16384) or reason
+      if job.review.status == 'cancelled' then job.review.reason = 'Chat, workspace, or wiki settings changed.' end
+      job.publish()
       if err then warn(err) end
       running = false
       vim.schedule(run_next)
     end
     if not job.active() then return finish() end
+    job.review.status = 'reviewing'
+    job.publish()
     local ok, store, err = pcall(wiki.open, job.root)
     if not ok then return finish(store) end
     if not store then return finish(err) end
@@ -48,12 +54,17 @@ function M.attach(_, session, helpers)
       if type(plan.notes) ~= 'string' or #plan.notes > 16384 then return finish('invalid wiki notes') end
       local pages, select_err = wiki.select(store, plan.paths)
       if not pages then return finish(select_err) end
-      if vim.trim(plan.notes) == '' then return finish() end
+      job.review.notes, job.review.selected = plan.notes, vim.deepcopy(plan.paths)
+      job.publish()
+      if vim.trim(plan.notes) == '' then return finish(nil, 'skipped', 'Nothing worth retaining.') end
       request(wiki.update_prompt, { notes = plan.notes, workspace = job.workspace, catalog = catalog, pages = pages }, function(result)
         local applied, apply_err
         ok, applied, apply_err = pcall(wiki.apply, store, result.pages)
         if not ok then return finish(applied) end
-        finish(not applied and apply_err or nil)
+        if not applied then return finish((apply_err or 'wiki update failed') .. ' (A failed batch may have partially written pages.)') end
+        job.review.updated = {}
+        for _, page in ipairs(result.pages) do table.insert(job.review.updated, page.path) end
+        finish(nil, #result.pages > 0 and 'updated' or 'skipped', #result.pages == 0 and 'No page changes needed.' or nil)
       end)
     end)
   end
@@ -68,14 +79,27 @@ function M.attach(_, session, helpers)
     for _, message in ipairs(turn) do
       message._copilot_reasoning, message._codex_reasoning, message.reasoning_details = nil, nil, nil
     end
-    if #vim.json.encode(turn) > 131072 then return warn('turn exceeds wiki review limits') end
-    if #queue >= 16 then return warn('wiki review queue is full') end
-    local generation, revision = session.generation, session.wiki_revision
+    local review = { status = 'queued', selected = {}, updated = {} }
+    billed_turn.wiki_review = review
     local workspace, chat = session.workspace, session.chat_id
+    local function publish()
+      if session.workspace ~= workspace or session.chat_id ~= chat or history.workspace() ~= workspace then return end
+      helpers.save()
+      helpers.render()
+    end
+    local function skip(reason)
+      review.status, review.reason = 'skipped', reason
+      publish()
+      warn(reason)
+    end
+    if #vim.json.encode(turn) > 1310720 then return skip('turn exceeds wiki review limits') end
+    if #queue >= 16 then return skip('wiki review queue is full') end
+    local generation, revision = session.generation, session.wiki_revision
     local selected = helpers.request_config('personal_wiki')
     local root = options.root
     queue[#queue + 1] = {
       root = root, turn = turn, workspace = workspace, config = selected,
+      review = review, publish = publish,
       active = function()
         return session.generation == generation and session.wiki_revision == revision
           and session.workspace == workspace and history.workspace() == workspace and session.chat_id == chat
@@ -88,6 +112,7 @@ function M.attach(_, session, helpers)
         end
       end,
     }
+    publish()
     vim.schedule(run_next)
   end
 end

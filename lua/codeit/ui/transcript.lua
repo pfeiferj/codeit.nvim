@@ -175,7 +175,25 @@ function M.attach(api, state, options, helpers)
     end
     render_results(0)
     local tool_names = {}
+    local function render_wiki(first)
+      local turn = costs_by_message[first]
+      local review = turn and turn.wiki_review
+      if not review then return end
+      start_item(review, '**Wiki review · ' .. review.status .. '**')
+      local details = {}
+      if review.notes and review.notes ~= '' then table.insert(details, 'Notes: ' .. review.notes) end
+      if review.reason then table.insert(details, 'Reason: ' .. review.reason) end
+      table.insert(details, 'Selected pages: ' .. (#review.selected > 0 and table.concat(review.selected, ', ') or 'none'))
+      table.insert(details, 'Updated pages: ' .. (#review.updated > 0 and table.concat(review.updated, ', ') or 'none'))
+      vim.list_extend(lines, markdown.fence(table.concat(details, '\n'), 'text'))
+      finish_item()
+    end
+    local turn_first
     for index, message in ipairs(messages) do
+      if message.role == 'user' then
+        render_wiki(turn_first)
+        turn_first = index
+      end
       if message.role ~= 'system' then
         local content = message.content
         if type(content) == 'table' then
@@ -251,6 +269,7 @@ function M.attach(api, state, options, helpers)
       end
       render_results(index)
     end
+    render_wiki(turn_first)
     finish_section()
     state.chat_lines = vim.deepcopy(lines)
     if not state.transcript or not vim.api.nvim_buf_is_valid(state.transcript) then return end

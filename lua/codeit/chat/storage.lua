@@ -123,6 +123,26 @@ function M.load(workspace, id)
           and type(missing) == 'number' and missing >= 0 and missing < math.huge and missing == math.floor(missing) then
           turn_costs[#turn_costs + 1] = { first = first, cost = amount, missing_cost = missing,
             cost_by_function = cost_breakdown.restore(turn.cost_by_function) }
+          local review = turn.wiki_review
+          local statuses = { queued = true, reviewing = true, skipped = true, updated = true, failed = true, cancelled = true }
+          if type(review) == 'table' and statuses[review.status] then
+            local restored = { status = review.status, selected = {}, updated = {} }
+            for _, field in ipairs({ 'notes', 'reason' }) do
+              if type(review[field]) == 'string' then restored[field] = review[field]:sub(1, 16384) end
+            end
+            for _, field in ipairs({ 'selected', 'updated' }) do
+              if type(review[field]) == 'table' and vim.islist(review[field]) then
+                for i, value in ipairs(review[field]) do
+                  if i > 80 then break end
+                  if require('codeit.wiki').valid_path(value) then table.insert(restored[field], value) end
+                end
+              end
+            end
+            if restored.status == 'queued' or restored.status == 'reviewing' then
+              restored.status, restored.reason = 'cancelled', 'Review did not complete before the chat was reloaded.'
+            end
+            turn_costs[#turn_costs].wiki_review = restored
+          end
           previous = first
         end
       end
