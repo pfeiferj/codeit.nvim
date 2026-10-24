@@ -254,7 +254,13 @@ Those phrases are searched locally against wiki paths and full page contents usi
 case-insensitive literal substring matching (any phrase may match). Only matching
 paths and previews are sent back, not the full page catalog. The agent then selects
 matching pages to read in full before merging notes; with no matches it may create
-a new topic. Each `category/page.md` has a hidden `category/.page.md` preview file
+a new topic. If the agent selects a valid wiki path that does not exist, it is
+forwarded to the writing step as a proposed new filename rather than failing the
+review. No empty file is created, and the writer may decline the suggestion.
+Existing pages absent from the search results remain blocked, as do unsafe paths.
+Omitted selections, empty arrays, and blank strings all mean no existing pages
+selected; blank entries within a selection array are ignored.
+Each `category/page.md` has a hidden `category/.page.md` preview file
 containing a model-generated summary of the complete page and a source-content
 fingerprint. Search-result previews contain that summary, never a byte excerpt.
 Page updates generate and commit the summary alongside the main file. At the

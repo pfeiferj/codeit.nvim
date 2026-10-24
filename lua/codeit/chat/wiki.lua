@@ -59,19 +59,15 @@ function M.attach(_, session, helpers)
       if not matches then return finish(search_err) end
       request(wiki.plan_prompt, { notes = search.notes, workspace = job.workspace, matches = matches }, function(plan)
         if type(plan.notes) ~= 'string' or #plan.notes > 16384 then return finish('invalid wiki notes') end
-        local allowed = {}
-        for _, match in ipairs(matches) do allowed[match.path] = true end
-        if type(plan.paths) == 'table' then
-          for _, path in ipairs(plan.paths) do
-            if not allowed[path] then return finish('wiki page was not in search results') end
-          end
-        end
-        local pages, select_err = wiki.select(store, plan.paths)
-        if not pages then return finish(select_err) end
-        job.review.notes, job.review.selected = plan.notes, vim.deepcopy(plan.paths)
+        local selection, select_err = wiki.select_for_review(store, plan.paths, matches)
+        if not selection then return finish(select_err) end
+        job.review.notes, job.review.selected = plan.notes, vim.deepcopy(selection.paths)
         job.publish()
         if vim.trim(plan.notes) == '' then return finish(nil, 'skipped', 'Nothing worth retaining.') end
-        request(wiki.update_prompt, { notes = plan.notes, workspace = job.workspace, matches = matches, pages = pages }, function(result)
+        request(wiki.update_prompt, {
+          notes = plan.notes, workspace = job.workspace, matches = matches,
+          pages = selection.pages, proposed_new_paths = selection.proposed_new_paths,
+        }, function(result)
           local applied, apply_err
           ok, applied, apply_err = pcall(wiki.apply, store, result.pages)
           if not ok then return finish(applied) end

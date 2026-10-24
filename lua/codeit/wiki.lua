@@ -244,6 +244,34 @@ function M.select(store, paths)
   return pages
 end
 
+function M.select_for_review(store, paths, matches)
+  if paths == nil or (type(paths) == 'string' and vim.trim(paths) == '') then paths = {} end
+  if type(paths) ~= 'table' or not vim.islist(paths) or #paths > 80 then return nil, 'invalid wiki page selection' end
+  local allowed, seen, selected, proposed = {}, {}, {}, {}
+  for _, match in ipairs(matches) do allowed[match.path] = true end
+  local nonblank = {}
+  for _, path in ipairs(paths) do
+    if type(path) ~= 'string' or vim.trim(path) ~= '' then nonblank[#nonblank + 1] = path end
+  end
+  for _, path in ipairs(nonblank) do
+    if not M.valid_path(path) or seen[path] then return nil, 'invalid or duplicate wiki page selection' end
+    seen[path] = true
+    if allowed[path] then
+      selected[#selected + 1] = path
+    else
+      if store.pages[path] then return nil, 'wiki page was not in search results' end
+      if not safe(store, path) then return nil, 'unsafe proposed wiki page' end
+      local stat, err, code = uv.fs_lstat(store.root .. '/' .. path)
+      if stat then return nil, 'wiki page was not in search results' end
+      if code ~= 'ENOENT' then return nil, err end
+      proposed[#proposed + 1] = path
+    end
+  end
+  local pages, err = M.select(store, selected)
+  if not pages then return nil, err end
+  return { pages = pages, paths = selected, proposed_new_paths = proposed }
+end
+
 function M.summary_batch(store)
   local paths, pages, size = {}, {}, 0
   for path in pairs(store.pages) do
@@ -584,7 +612,9 @@ private reasoning, transient logs, or speculation. Preserve project/workspace sc
 Review the search results for existing or similar topics, including differently worded titles. Return JSON only:
 {"notes":"concise factual notes with workspace scope", "paths":["category/page.md"]}.
 Select up to 80 pages from the search results whose full content is needed to merge related notes and avoid duplication. Use empty notes and paths if
-nothing is worth storing. Do not invent paths in this selection. Prefer existing topics to new pages, but select related pages needed to
+nothing is worth storing. The paths field is only for reading existing search results, not for naming pages to write.
+New pages are created in the next step; leave paths empty if no search result is relevant, while keeping any durable notes.
+Do not invent paths in this selection. Prefer existing topics to new pages, but select related pages needed to
 split large topics, rename outdated or ID-only filenames/titles to describe their subjects, or replace repeated information with references.
 No search matches does not prevent creating a new topic.]]
 
@@ -613,6 +643,8 @@ subtopics into separate categorized pages, preserving all existing knowledge and
 Keep each fact or detailed explanation in one canonical page; elsewhere, use a brief contextual reference and a relative Markdown link
 instead of repeating the information. Link only to known existing pages or pages created in the same update; keep links valid when splitting.
 Create a categorized page only when no search result covers it, when splitting a large page, or as a rename destination.
+The optional proposed_new_paths field contains suggested filenames for nonexistent pages, not pages already read or created.
+Use those suggestions only when the notes justify a new page under the rules above; you may choose better names or no new page.
 Do not overwrite unselected pages.
 When a page's name no longer fits its contents, update its title and/or rename its file to a clearer name; preserve useful old titles as aliases.
 An existing ID-only filename or title is also a reason to rename it when the supplied content supports a meaningful descriptive name.

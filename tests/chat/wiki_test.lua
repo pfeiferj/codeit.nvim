@@ -36,6 +36,33 @@ assert(not wiki.apply(store, { page('preferences/editor.md', '# Changed\n') }), 
 assert(wiki.select(store, { 'preferences/editor.md' }))
 assert(not wiki.select(store, { 'missing/page.md' }))
 assert(not wiki.select(store, { 'preferences/editor.md', 'preferences/editor.md' }))
+local selection = assert(wiki.select_for_review(store, { 'preferences/editor.md', 'notes/new.md' }, {
+  { path = 'preferences/editor.md' },
+}))
+assert(vim.deep_equal(selection.paths, { 'preferences/editor.md' }))
+assert(vim.deep_equal(selection.pages, { { path = 'preferences/editor.md', content = store.pages['preferences/editor.md'] } }))
+assert(vim.deep_equal(selection.proposed_new_paths, { 'notes/new.md' }))
+assert(vim.fn.filereadable(root .. '/notes/new.md') == 0, 'proposals must not create files')
+assert(not wiki.select_for_review(store, { 'preferences/editor.md' }, {}), 'unmatched existing pages must stay blocked')
+local empty_selection = assert(wiki.select_for_review(store, nil, {}))
+for _, paths in ipairs({ {}, '', ' \t\n', { '', '  ' } }) do
+  assert(vim.deep_equal(assert(wiki.select_for_review(store, paths, {})), empty_selection), 'blank paths must mean no selection')
+end
+selection = assert(wiki.select_for_review(store, { '', 'notes/new.md', '  ' }, {}))
+assert(vim.deep_equal(selection.proposed_new_paths, { 'notes/new.md' }))
+for _, paths in ipairs({
+  { '../outside.md' }, { '/tmp/outside.md' }, { 'a/b/c.md' }, { 'notes/new.md', 'notes/new.md' },
+  { 42 }, 'notes/new.md', false, { unexpected = 'notes/new.md' }, vim.split(string.rep('notes/new.md,', 81), ',', { trimempty = true }),
+}) do
+  assert(not wiki.select_for_review(store, paths, {}), 'invalid selections must not become proposals')
+end
+vim.fn.writefile({ '# Concurrent' }, root .. '/preferences/concurrent.md')
+assert(not wiki.select_for_review(store, { 'preferences/concurrent.md' }, {}), 'new disk files must not become proposals')
+vim.fn.mkdir(root .. '/preferences/directory.md')
+assert(not wiki.select_for_review(store, { 'preferences/directory.md' }, {}), 'directories must not become proposals')
+vim.fn.delete(root .. '/preferences/concurrent.md')
+vim.fn.delete(root .. '/preferences/directory.md', 'd')
+assert(wiki.select(store, { 'preferences/editor.md' }))
 assert(not wiki.apply(store, { page('preferences/editor.md'), page('../escape.md') }))
 assert(not wiki.apply(store, { page('notes/bad.md', 'not Markdown') }))
 assert(not wiki.apply(store, { page('notes/big.md', '# Big\n' .. string.rep('x', 327680)) }))
@@ -53,10 +80,12 @@ local outside = temp .. '/outside'
 vim.fn.mkdir(outside, 'p')
 if vim.uv.fs_symlink(outside, root .. '/linked', { dir = true }) then
   assert(not wiki.apply(snapshot(), { page('linked/escape.md') }))
+  assert(not wiki.select_for_review(store, { 'linked/escape.md' }, {}), 'symlinked categories must not become proposals')
 end
 vim.fn.writefile({ '# Outside' }, outside .. '/page.md')
 if vim.uv.fs_symlink(outside .. '/page.md', root .. '/preferences/linked.md') then
   assert(not wiki.apply(snapshot(), { page('preferences/linked.md') }))
+  assert(not wiki.select_for_review(store, { 'preferences/linked.md' }, {}), 'symlinked pages must not become proposals')
 end
 assert(not wiki.decode({ content = 'invalid' }))
 assert(wiki.decode({ content = '```json\n{"pages":[]}\n```' }))
@@ -333,7 +362,7 @@ response(13, { notes = 'Durable note.', queries = { 'no matching topic' } })
 wait_for(14)
 input = vim.json.decode(requests[14].messages[2].content)
 assert(input.catalog == nil and #input.matches == 0, 'no matches must not expose unrelated pages')
-response(14, { notes = 'Durable note.', paths = {} })
+response(14, { notes = 'Durable note.' })
 wait_for(15)
 values = plugin.get_settings()
 values.personal_wiki.root = temp .. '/other-wiki'
@@ -354,8 +383,12 @@ response(19, { notes = 'A new topic.', queries = { 'new topic' } })
 wait_for(20)
 input = vim.json.decode(requests[20].messages[2].content)
 assert(#input.matches == 0 and input.catalog == nil)
-response(20, { notes = 'A new topic.', paths = {} })
+response(20, { notes = 'A new topic.', paths = { 'notes/new-topic.md' } })
 wait_for(21)
+input = vim.json.decode(requests[21].messages[2].content)
+assert(#input.pages == 0, 'proposed pages must not be passed as existing pages')
+assert(vim.deep_equal(input.proposed_new_paths, { 'notes/new-topic.md' }))
+assert(vim.fn.filereadable(temp .. '/other-wiki/notes/new-topic.md') == 0, 'selection must not create an empty page')
 response(21, { pages = { page('notes/new-topic.md', '# New topic\nA new topic.\n') } })
 assert(vim.fn.filereadable(temp .. '/other-wiki/notes/new-topic.md') == 1, 'no matches must still allow new pages')
 plugin.send('Reject selecting an unmatched page.')
@@ -391,7 +424,7 @@ response(27, { notes = 'New facts.', queries = { 'externally' } })
 wait_for(28)
 input = vim.json.decode(requests[28].messages[2].content)
 assert(#input.matches == 1 and input.matches[1].preview == 'Externally changed facts.')
-response(28, { notes = '', paths = {} })
+response(28, { notes = '', paths = '  ' })
 assert(table.concat(vim.fn.readfile(new_file), '\n') == '---\ntitle: "Changed externally"\ntags: []\naliases: []\n---\n\nNew facts.',
   'review must migrate the title while preserving external body content')
 vim.fn.delete(temp, 'rf')
