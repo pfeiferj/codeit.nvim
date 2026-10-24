@@ -54,6 +54,8 @@ assert(calls == 1)
 require('codeit.ui.input').show({ prompt = 'Answer?', default = 'draft' }, function() end)
 local field = api.nvim_get_current_win()
 vim.cmd('stopinsert')
+-- Leaving Insert mode in a -l test can leave the cursor past the last character.
+api.nvim_win_set_cursor(field, { 1, 2 })
 return_to_popup(field)
 assert(api.nvim_get_current_line() == 'draft')
 press(field, '<Esc>')

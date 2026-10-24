@@ -161,7 +161,7 @@ You can also set `personal_wiki = { enabled = true, root = '/absolute/path/to/wi
 in `setup()`. Configure the agent model under **Personal wiki agent** in feature
 overrides, or `feature_settings.personal_wiki`; it uses the long context preset by default.
 
-Enabling this feature authorizes automatic creation and updates **inside that root**,
+Enabling this feature authorizes automatic creation, updates, and renames **inside that root**,
 without per-page approval. Turn details and relevant wiki content are sent to the
 configured model. Generating missing or stale page summaries also sends those
 pages' full contents to that model, even if they do not match the turn's search. The agent is instructed not to retain secrets or speculation,
@@ -203,10 +203,30 @@ You can open the wiki root as an Obsidian vault. Codeit only recognizes its
 `category/page.md` layout, not arbitrary vault names or nested folders. Obsidian's
 `.obsidian` directory and other unrecognized files are left alone. Hidden
 `category/.page.md` files are internal summary caches, not notes. The agent prefers
-relative Markdown links and is instructed to preserve existing wikilinks, but
-Codeit does not resolve Obsidian links, embeds, or backlinks. Obsidian's standard
+relative Markdown links and is instructed to preserve existing wikilinks. During
+renames, Codeit retargets recognized relative Markdown links (including reference
+links) and path-based or unambiguous filename-based Obsidian wikilinks/embeds.
+This is not a full Markdown/Obsidian resolver: alias-based, ambiguous, encoded, or
+nonstandard links may need manual adjustment. Obsidian's standard
 note name remains the filename; `title` is a property, while `aliases` supplies
 alternative link names.
+
+The agent is encouraged to keep pages focused, splitting large or multi-topic pages
+into smaller pages with a linked overview in the original. It is also instructed to
+keep facts and detailed explanations in one canonical page and link to them from
+other pages instead of repeating information. These are model guidelines, not
+hard size limits or a guarantee of deduplication.
+
+The agent may also change outdated titles or rename selected files when their names
+no longer fit the contents, preserving useful old titles as aliases. File renames
+require an unused destination and remove the old page and its hidden preview.
+Recognized incoming links are updated locally across wiki pages, and outgoing
+relative links in moved pages are rebased; frontmatter and code examples are left
+alone. Link-only updates reuse existing summaries with refreshed fingerprints.
+All affected pages/previews, including backlink pages not selected by the model,
+undergo the normal disk-conflict, staged-change, and unsaved-buffer checks. A rename
+batch affecting more than 80 destination/backlink pages is rejected. Rename and
+link changes are included in the same local Git commit.
 
 Git must be installed. The wiki initializes its own Git repository at the root if
 one does not exist, using Git's configured default branch. Existing recognized wiki

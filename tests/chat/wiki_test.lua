@@ -3,6 +3,10 @@ local temp = vim.fn.tempname()
 vim.fn.mkdir(temp, 'p')
 vim.fn.chdir(temp)
 local wiki = require('codeit.wiki')
+assert(wiki.plan_prompt:find('split large topics', 1, true), 'planning must account for page splitting')
+assert(wiki.update_prompt:find('when splitting a large page', 1, true), 'new pages must be allowed for splits')
+assert(wiki.update_prompt:find('one canonical page', 1, true), 'shared information must use canonical references')
+assert(wiki.update_prompt:find('keep links valid when splitting', 1, true), 'splits must preserve navigation')
 local root = temp .. '/wiki'
 local function page(path, content)
   return { path = path, content = content or '# Editor\n\nUses Neovim.\n', summary = 'Summary of ' .. path }
