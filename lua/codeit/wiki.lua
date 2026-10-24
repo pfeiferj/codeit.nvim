@@ -36,13 +36,75 @@ local function safe(store, path)
   return stat.type == 'directory' and uv.fs_realpath(directory) == directory
 end
 
+local function git(root, args, input)
+  local argv = { 'git', '--literal-pathspecs', '-c', 'core.fsmonitor=false',
+    '-c', 'core.hooksPath=' .. (vim.fn.has('win32') == 1 and 'NUL' or '/dev/null'),
+    '-c', 'commit.gpgSign=false', '-c', 'user.name=Codeit', '-c', 'user.email=codeit@localhost',
+    '-C', root }
+  vim.list_extend(argv, args)
+  local env = vim.fn.environ()
+  for _, name in ipairs({ 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
+    'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE',
+    'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL' }) do
+    env[name] = nil
+  end
+  local ok, result = pcall(function()
+    return vim.system(argv, { text = true, env = env, clear_env = true, stdin = input }):wait(10000)
+  end)
+  if not ok then return nil, 'wiki Git command failed: ' .. tostring(result) end
+  if result.code ~= 0 then
+    return nil, 'wiki Git command failed: ' .. vim.trim(result.stderr or ''), result.code
+  end
+  return vim.trim(result.stdout or '')
+end
+
+local function commit(root, paths, message)
+  if #paths == 0 then return true end
+  local input = table.concat(paths, '\0') .. '\0'
+  local staged, err = git(root, { 'add', '--pathspec-from-file=-', '--pathspec-file-nul' }, input)
+  if staged then
+    local changed
+    changed, err = git(root, { 'diff', '--cached', '--name-only', '--no-renames', '-z' })
+    if changed then
+      local targets, needed = {}, false
+      for _, path in ipairs(paths) do targets[path] = true end
+      for path in changed:gmatch('[^%z]+') do
+        if targets[path] then needed = true; break end
+      end
+      if not needed then return true end
+      local committed
+      committed, err = git(root, { 'commit', '--only', '-m', message,
+        '--pathspec-from-file=-', '--pathspec-file-nul' }, input)
+      if committed then return true end
+    end
+  end
+  -- Target pages had no staged changes before this operation; preserve other index entries.
+  local restored, reset_err = git(root, { 'reset', '--quiet', '--pathspec-from-file=-', '--pathspec-file-nul' }, input)
+  if not restored then err = tostring(err) .. '; could not unstage wiki changes: ' .. tostring(reset_err) end
+  return false, err
+end
+
+local function repository(root)
+  local created = not uv.fs_lstat(root .. '/.git')
+  if created then
+    local initialized, err = git(root, { 'init', '--', root })
+    if not initialized then return nil, err end
+  end
+  local top, err = git(root, { 'rev-parse', '--show-toplevel' })
+  if not top then return nil, err end
+  if uv.fs_realpath(top) ~= root then return nil, 'wiki root must be the Git repository root' end
+  return true, nil, created
+end
+
 function M.open(root)
   local ok, err = pcall(vim.fn.mkdir, root, 'p', 448)
   if not ok then return nil, err end
   local resolved = uv.fs_realpath(root)
   local stat = resolved and uv.fs_stat(resolved)
   if not stat or stat.type ~= 'directory' then return nil, 'cannot open wiki root directory' end
-  return { root = resolved, configured = root, pages = {} }
+  local ready, git_err, created = repository(resolved)
+  if not ready then return nil, git_err end
+  return { root = resolved, configured = root, pages = {}, initial_commit = created }
 end
 
 function M.catalog(store)
@@ -72,6 +134,13 @@ function M.catalog(store)
     end
   end
   table.sort(entries, function(a, b) return a.path < b.path end)
+  if store.initial_commit then
+    local paths = {}
+    for _, entry in ipairs(entries) do paths[#paths + 1] = entry.path end
+    local committed, commit_err = commit(store.root, paths, 'Initialize personal wiki')
+    if not committed then return nil, commit_err end
+    store.initial_commit = false
+  end
   return entries
 end
 
@@ -112,6 +181,20 @@ function M.apply(store, pages)
       end
     end
   end
+  if #pages == 0 then return true end
+  local ready, err = repository(store.root)
+  if not ready then return false, err end
+  local branch
+  branch, err = git(store.root, { 'symbolic-ref', '--quiet', 'HEAD' })
+  if not branch then return false, 'wiki updates require a checked-out branch: ' .. err end
+  local paths = {}
+  for _, page in ipairs(pages) do paths[#paths + 1] = page.path end
+  local clean, code
+  clean, err, code = git(store.root, vim.list_extend({ 'diff', '--cached', '--quiet', '--' }, paths))
+  if not clean then
+    if code == 1 then return false, 'wiki update would overwrite staged page changes' end
+    return false, err
+  end
   for _, page in ipairs(pages) do
     local filename = store.root .. '/' .. page.path
     local ok, err = pcall(vim.fn.mkdir, vim.fn.fnamemodify(filename, ':h'), 'p', 448)
@@ -129,7 +212,7 @@ function M.apply(store, pages)
     ok, err = uv.fs_rename(temporary, filename)
     if not ok then uv.fs_unlink(temporary); return false, err end
   end
-  return true
+  return commit(store.root, paths, 'Update personal wiki')
 end
 
 function M.decode(message)

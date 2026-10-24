@@ -168,6 +168,18 @@ but this is not a guarantee of sensitive-data filtering: enable it only for turn
 you are comfortable retaining and sending to that provider. Inspect/edit the Markdown
 files directly; wiki notes are **not automatically injected into main-chat context**.
 
+Git must be installed. The wiki initializes its own Git repository at the root if
+one does not exist, using Git's configured default branch. Existing recognized wiki
+pages are captured in an initial commit when the new repository is first cataloged.
+Each changed update batch creates one local commit on the currently checked-out
+branch; unchanged batches create no commit. No branches are switched, no remotes
+are configured, and nothing is pushed or fetched. Detached-HEAD updates are rejected.
+Automated commits use `Codeit <codeit@localhost>` and disable hooks and signing for
+those commands only, without changing your Git configuration. Only the affected
+wiki pages are committed; unrelated staged or unstaged changes are left alone.
+Staged changes to an affected page abort the update before writing. Inspect history
+with `git -C /absolute/path/to/wiki log -p` or your preferred Git viewer.
+
 The agent checks a page catalog for similar topics, reads selected pages, then
 merges notes rather than deliberately creating duplicates. Project facts retain
 workspace scope. Reviews are serialized within this Neovim session, do not block
@@ -192,7 +204,10 @@ pages per turn, 320 KiB per page, and 1.25 MiB per turn. The review queue holds 
 to 16 pending reviews per session. Large reviews can increase model costs and may
 exceed the provider's context limits.
 Over-limit or failed reviews warn and leave the remaining wiki unchanged; they are
-not retried automatically. Keep the wiki root in a trusted, user-owned directory;
+not retried automatically. A Git failure after page writes leaves those edits on
+disk and reports the review as failed; newly staged wiki changes are unstaged when
+possible, without disturbing previously staged work. Git commits do not make a
+multi-page write transactional. Keep the wiki root in a trusted, user-owned directory;
 path checks are not a sandbox against another process maliciously changing the
 directory tree during an update. Concurrent Neovim instances should not maintain
 the same wiki simultaneously.
