@@ -52,6 +52,72 @@ end
 assert(not wiki.decode({ content = 'invalid' }))
 assert(wiki.decode({ content = '```json\n{"pages":[]}\n```' }))
 
+local metadata_root = temp .. '/metadata-wiki'
+local metadata = assert(wiki.open(metadata_root))
+local content = '---\ntitle: Editor preferences\ntags:\n  - tools/editor\naliases: [Editing setup]\ncustom: keep-me\n---\n\nUses Neovim.\n'
+assert(wiki.apply(metadata, { page('preferences/editor.md', content) }))
+assert(not wiki.apply(metadata, { page('notes/bad.md', '---\ntitle: Editor\nBody without closing delimiter\n') }))
+assert(not wiki.apply(metadata, { page('notes/bad.md', '---\ntags: []\n---\n\nNo title.\n') }))
+assert(not wiki.apply(metadata, { page('notes/bad.md', '---\ntitle: ""\n---\n\nEmpty title.\n') }))
+for _, title in ipairs({ '# comment', 'null', 'true', '42', 'a: b', "''", 'First\ntitle: Second' }) do
+  assert(not wiki.apply(metadata, { page('notes/bad.md', '---\ntitle: ' .. title .. '\n---\nBody.\n') }), title)
+end
+assert(wiki.apply(metadata, { page('notes/crlf.md', '---\r\ntitle: CRLF\r\n---\r\n\r\nBody.\r\n') }))
+metadata = assert(wiki.open(metadata_root))
+assert(wiki.catalog(metadata))
+for _, query in ipairs({ 'TOOLS/EDITOR', 'Editing setup', 'Editor preferences' }) do
+  local found = assert(wiki.search(metadata, { query }))
+  assert(#found == 1 and found[1].path == 'preferences/editor.md', 'frontmatter must be searchable')
+end
+local legacy = '# A "quoted": title\r\n\r\nKeep this body.\r\n## Section\r\n[[Other note]]\r\n'
+assert(wiki.apply(metadata, { page('notes/legacy.md', legacy) }))
+metadata = assert(wiki.open(metadata_root))
+assert(wiki.catalog(metadata))
+local legacy_file = metadata_root .. '/notes/legacy.md'
+local legacy_buffer = vim.fn.bufadd(legacy_file)
+vim.fn.bufload(legacy_buffer)
+vim.api.nvim_buf_set_lines(legacy_buffer, 0, -1, false, { '# Unsaved' })
+assert(not wiki.migrate(metadata), 'migration must preserve unsaved edits')
+vim.api.nvim_buf_delete(legacy_buffer, { force = true })
+-- Stage different bytes without changing the cataloged working tree.
+vim.fn.writefile({ '# Staged version' }, legacy_file)
+vim.fn.system({ 'git', '-C', metadata_root, 'add', '--', 'notes/legacy.md' })
+local legacy_fd = assert(vim.uv.fs_open(legacy_file, 'w', 384))
+assert(vim.uv.fs_write(legacy_fd, legacy, 0))
+vim.uv.fs_close(legacy_fd)
+assert(not wiki.migrate(metadata), 'migration must preserve staged page edits')
+vim.fn.system({ 'git', '-C', metadata_root, 'reset', '--quiet', '--', 'notes/legacy.md' })
+assert(wiki.migrate(metadata))
+local migrated = metadata.pages['notes/legacy.md']
+assert(migrated == '---\ntitle: "A \\"quoted\\": title"\ntags: []\naliases: []\n---\n\r\nKeep this body.\r\n## Section\r\n[[Other note]]\r\n')
+assert(metadata.pages['preferences/editor.md'] == content, 'migration must preserve existing properties')
+local migrated_catalog = assert(wiki.catalog(metadata))
+assert(#wiki.summary_batch(metadata) == 0, 'migration must refresh summary fingerprints')
+local head = vim.fn.system({ 'git', '-C', metadata_root, 'rev-parse', 'HEAD' })
+assert(wiki.migrate(metadata))
+assert(vim.fn.system({ 'git', '-C', metadata_root, 'rev-parse', 'HEAD' }) == head, 'migration must be idempotent')
+assert(#migrated_catalog == 3)
+vim.fn.writefile({ '# Title only' }, metadata_root .. '/notes/title-only.md', 'b')
+assert(wiki.catalog(metadata))
+local title_batch = wiki.summary_batch(metadata)
+assert(wiki.apply_summaries(metadata, { { path = 'notes/title-only.md', summary = 'Title only.' } }, title_batch))
+assert(wiki.migrate(metadata))
+assert(metadata.pages['notes/title-only.md']:find('title: "Title only"', 1, true))
+
+local migration_root = temp .. '/migration-batches'
+local migration_store = assert(wiki.open(migration_root))
+local migration_pages = {}
+for i = 1, 80 do migration_pages[i] = page('notes/page-' .. i .. '.md') end
+assert(wiki.apply(migration_store, migration_pages))
+assert(wiki.apply(migration_store, { page('notes/page-81.md') }))
+migration_store = assert(wiki.open(migration_root))
+assert(wiki.catalog(migration_store))
+assert(wiki.migrate(migration_store))
+for _, text in pairs(migration_store.pages) do assert(text:match('^%-%-%-\ntitle:')) end
+assert(#wiki.summary_batch(migration_store) == 0)
+assert(vim.trim(vim.fn.system({ 'git', '-C', migration_root, 'rev-list', '--count', 'HEAD' })) == '4',
+  '81 legacy pages must migrate in two safe batches')
+
 local limits_root = temp .. '/limits-wiki'
 local limits_store = assert(wiki.open(limits_root))
 local updates, paths = {}, {}
@@ -317,6 +383,7 @@ wait_for(28)
 input = vim.json.decode(requests[28].messages[2].content)
 assert(#input.matches == 1 and input.matches[1].preview == 'Externally changed facts.')
 response(28, { notes = '', paths = {} })
-assert(table.concat(vim.fn.readfile(new_file), '\n') == '# Changed externally\nNew facts.', 'summary refresh must preserve external content')
+assert(table.concat(vim.fn.readfile(new_file), '\n') == '---\ntitle: "Changed externally"\ntags: []\naliases: []\n---\n\nNew facts.',
+  'review must migrate the title while preserving external body content')
 vim.fn.delete(temp, 'rf')
 print('personal wiki tests passed')

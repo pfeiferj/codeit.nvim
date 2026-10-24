@@ -86,6 +86,10 @@ function M.attach(_, session, helpers)
       if not job.active() then return finish() end
       local batch = wiki.summary_batch(store)
       if #batch == 0 then
+        local migrated, migration_err
+        ok, migrated, migration_err = pcall(wiki.migrate, store)
+        if not ok then return finish(migrated) end
+        if not migrated then return finish(migration_err) end
         return request(wiki.search_prompt, { turn = job.turn, workspace = job.workspace }, review)
       end
       request(wiki.summary_prompt, { pages = batch }, function(result)

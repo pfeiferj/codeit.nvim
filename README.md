@@ -169,6 +169,45 @@ but this is not a guarantee of sensitive-data filtering: enable it only for turn
 you are comfortable retaining and sending to that provider. Inspect/edit the Markdown
 files directly; wiki notes are **not automatically injected into main-chat context**.
 
+Pages use Obsidian-compatible YAML properties, with the title in frontmatter rather
+than a duplicate opening heading:
+
+```markdown
+---
+title: Editor preferences
+tags:
+  - tools/editor
+aliases:
+  - Editing setup
+---
+
+Uses Neovim.
+```
+
+The agent is instructed to preserve custom properties and existing tags/aliases.
+Search includes frontmatter, so title, tag names (without `#`), and alias text can
+find pages using the same literal matching as body text. There is no separate
+YAML index or tag-query syntax; frontmatter validation checks structure and the
+presence of a title, not the full YAML specification.
+
+On the next automatic review, legacy pages starting with `# Title` are migrated
+locally: the heading becomes a quoted `title` property, empty `tags` and `aliases`
+lists are added, and the remaining body is preserved. No model call is needed for
+the conversion itself; missing/stale summaries are refreshed first as usual.
+Migration uses the normal conflict/unsaved-buffer checks and local Git commits
+(in batches of up to 80 pages), and updates summary fingerprints. Pages already
+using frontmatter are not migrated; imported pages without an opening title
+heading are left alone. No pages are migrated while automatic reviews are disabled.
+
+You can open the wiki root as an Obsidian vault. Codeit only recognizes its
+`category/page.md` layout, not arbitrary vault names or nested folders. Obsidian's
+`.obsidian` directory and other unrecognized files are left alone. Hidden
+`category/.page.md` files are internal summary caches, not notes. The agent prefers
+relative Markdown links and is instructed to preserve existing wikilinks, but
+Codeit does not resolve Obsidian links, embeds, or backlinks. Obsidian's standard
+note name remains the filename; `title` is a property, while `aliases` supplies
+alternative link names.
+
 Git must be installed. The wiki initializes its own Git repository at the root if
 one does not exist, using Git's configured default branch. Existing recognized wiki
 pages are captured in an initial commit when the new repository is first cataloged.
