@@ -7,6 +7,11 @@ assert(wiki.plan_prompt:find('split large topics', 1, true), 'planning must acco
 assert(wiki.update_prompt:find('when splitting a large page', 1, true), 'new pages must be allowed for splits')
 assert(wiki.update_prompt:find('one canonical page', 1, true), 'shared information must use canonical references')
 assert(wiki.update_prompt:find('keep links valid when splitting', 1, true), 'splits must preserve navigation')
+assert(wiki.plan_prompt:find('ID-only filenames/titles', 1, true), 'planning must consider ID-only names for renaming')
+assert(wiki.update_prompt:find('meaningful, descriptive filenames and titles', 1, true), 'names must describe the subject')
+assert(wiki.update_prompt:find('Jira ticket keys', 1, true), 'bare ticket IDs must be discouraged as names')
+assert(wiki.update_prompt:find('identifiers in the body or aliases', 1, true), 'identifiers must remain discoverable')
+assert(wiki.update_prompt:find('do not invent a subject when only an ID is known', 1, true), 'names must use supported facts')
 local root = temp .. '/wiki'
 local function page(path, content)
   return { path = path, content = content or '# Editor\n\nUses Neovim.\n', summary = 'Summary of ' .. path }

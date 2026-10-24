@@ -217,6 +217,14 @@ keep facts and detailed explanations in one canonical page and link to them from
 other pages instead of repeating information. These are model guidelines, not
 hard size limits or a guarantee of deduplication.
 
+Filenames and titles should describe the subject rather than consist only of IDs.
+For example, the agent is encouraged to use `projects/checkout-timeout-retries.md`
+and "Checkout timeout retries" instead of `projects/pay-1234.md` and "PAY-1234".
+Jira ticket keys and other identifiers belong in the body or aliases for lookup,
+or alongside a descriptive name when needed for disambiguation. Existing ID-only
+names are candidates for renaming when the content supports a descriptive name;
+the agent is instructed not to invent a subject when only an ID is known.
+
 The agent may also change outdated titles or rename selected files when their names
 no longer fit the contents, preserving useful old titles as aliases. File renames
 require an unused destination and remove the old page and its hidden preview.
