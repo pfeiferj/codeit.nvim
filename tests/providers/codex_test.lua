@@ -219,7 +219,7 @@ assert(saved.tokens_in == 20 and saved.tokens_out == 5 and saved.missing_cost ==
 assert(saved.cost == 0 and saved.cost_by_function.main_chat.subscription_requests == 1)
 assert(saved.turn_costs[1].cost_by_function.main_chat.subscription_requests == 1)
 local display = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')
-assert(display:find('5h:25% 7d:62%', 1, true))
+assert(display:find('5h:25% | 7d:62%', 1, true))
 assert(not display:find('$0.000+', 1, true))
 assert(saved.messages[#saved.messages]._codex_reasoning[1].encrypted_content == 'saved-reasoning')
 assert(table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr('codeit://chat'), 0, -1, false), '\n')

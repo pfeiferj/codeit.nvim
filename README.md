@@ -163,7 +163,8 @@ overrides, or `feature_settings.personal_wiki`; it uses the long context preset 
 
 Enabling this feature authorizes automatic creation and updates **inside that root**,
 without per-page approval. Turn details and relevant wiki content are sent to the
-configured model. The agent is instructed not to retain secrets or speculation,
+configured model. Generating missing or stale page summaries also sends those
+pages' full contents to that model, even if they do not match the turn's search. The agent is instructed not to retain secrets or speculation,
 but this is not a guarantee of sensitive-data filtering: enable it only for turns
 you are comfortable retaining and sending to that provider. Inspect/edit the Markdown
 files directly; wiki notes are **not automatically injected into main-chat context**.
@@ -176,12 +177,26 @@ branch; unchanged batches create no commit. No branches are switched, no remotes
 are configured, and nothing is pushed or fetched. Detached-HEAD updates are rejected.
 Automated commits use `Codeit <codeit@localhost>` and disable hooks and signing for
 those commands only, without changing your Git configuration. Only the affected
-wiki pages are committed; unrelated staged or unstaged changes are left alone.
-Staged changes to an affected page abort the update before writing. Inspect history
+wiki pages and their hidden preview files are committed; unrelated staged or
+unstaged changes are left alone. Staged changes to an affected page or preview
+abort the update before writing. Inspect history
 with `git -C /absolute/path/to/wiki log -p` or your preferred Git viewer.
 
-The agent checks a page catalog for similar topics, reads selected pages, then
-merges notes rather than deliberately creating duplicates. Project facts retain
+The agent extracts retention notes and search phrases from the completed turn.
+Those phrases are searched locally against wiki paths and full page contents using
+case-insensitive literal substring matching (any phrase may match). Only matching
+paths and previews are sent back, not the full page catalog. The agent then selects
+matching pages to read in full before merging notes; with no matches it may create
+a new topic. Each `category/page.md` has a hidden `category/.page.md` preview file
+containing a model-generated summary of the complete page and a source-content
+fingerprint. Search-result previews contain that summary, never a byte excerpt.
+Page updates generate and commit the summary alongside the main file. At the
+start of each review, missing summaries and summaries invalidated by manual or
+external edits are regenerated in batches before any search previews are returned.
+External edits are detected at the next review, not by a background watcher.
+Summary-only refreshes do not rewrite or commit the manually edited main pages.
+Reviews with retained notes use three model requests: search planning, page
+selection, and updating, plus any requests needed to refresh summaries. Project facts retain
 workspace scope. Reviews are serialized within this Neovim session, do not block
 new turns, and are discarded if the originating chat/workspace changes or wiki
 settings change. Disabling prevents pending updates but does not delete existing
@@ -196,11 +211,15 @@ are not resumed. These notes describe the agent's decision, not private reasonin
 
 Paths are restricted to `category/page.md` with lowercase kebab-case names of up to
 200 characters each (excluding `.md`);
-symlink categories/pages are not followed. Conflicting disk changes or unsaved page
-edits abort an update. Writes are atomic per page, not across an entire batch.
-To bound model input, reviews support up to 5,000 catalog pages (10 MiB total for
-paths and previews, with up to 5,000 bytes previewed per page), 80 selected/updated
-pages per turn, 320 KiB per page, and 1.25 MiB per turn. The review queue holds up
+symlink categories/pages/previews are not followed. Conflicting disk changes or
+unsaved edits to a page or its preview abort an update. Writes are atomic per file,
+not across a page/preview pair or an entire batch.
+The local index supports up to 5,000 catalog pages (10 MiB total for paths and
+summaries). Each review searches up to 20 phrases of at most 200 bytes each
+and returns up to 80 matches in path order, with summaries of up to 5,000 bytes.
+Summary generation uses batches of at most 80 pages, targeting 1.25 MiB of encoded
+page data per request (an individually larger encoded page is sent alone). Reviews
+support 80 selected/updated pages per turn, 320 KiB per page, and 1.25 MiB per turn. The review queue holds up
 to 16 pending reviews per session. Large reviews can increase model costs and may
 exceed the provider's context limits.
 Over-limit or failed reviews warn and leave the remaining wiki unchanged; they are
