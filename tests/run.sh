@@ -24,7 +24,7 @@ while IFS= read -r suite; do
     esac
 
     case "$suite" in
-      tests/ui/layout_and_interaction_test.lua|tests/ui/chat_cursor_insert_test.lua|tests/ui/chat_folds_insert_test.lua|tests/ui/notifications_insert_test.lua)
+      tests/ui/layout_and_interaction_test.lua|tests/ui/chat_cursor_insert_test.lua|tests/ui/chat_folds_insert_test.lua|tests/ui/notifications_insert_test.lua|tests/ui/input_insert_test.lua)
         # Layout resizing and actual Insert mode require editor mode, not -l.
         CODEIT_TEST_FILE="$suite" nvim --headless -u NONE \
           -c "lua local ok, err = pcall(dofile, vim.env.CODEIT_TEST_FILE); if not ok then io.stderr:write(tostring(err) .. '\\n'); vim.cmd('cquit 1') end" \

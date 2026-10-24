@@ -123,7 +123,7 @@ function M.show(options, callback)
     vim.keymap.set('n', '<Esc>', function() finish(nil) end,
       { buffer = buffer, silent = true, nowait = true, desc = 'Cancel input' })
   end
-  vim.cmd.startinsert()
+  vim.cmd.startinsert({ bang = true })
 end
 
 return M
