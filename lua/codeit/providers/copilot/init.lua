@@ -69,12 +69,12 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
       if active and not active() then return end
       local body, invalid
       if endpoint == '/responses' then
-        body, invalid = responses.body(config.model, messages, tools)
+        body, invalid = responses.body(config.model, messages, tools, 'Copilot', config.tool_choice)
         if invalid then return callback(nil, invalid) end
         if config.max_output_tokens then body.max_output_tokens = config.max_output_tokens end
         if on_text then body.stream = true end
       else
-        body = chat.body(config.model, messages, tools, on_text)
+        body = chat.body(config.model, messages, tools, on_text, config.tool_choice)
         if config.max_output_tokens then body.max_completion_tokens = config.max_output_tokens end
       end
       local options = config.options or {}

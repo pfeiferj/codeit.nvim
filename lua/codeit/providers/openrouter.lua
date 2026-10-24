@@ -20,10 +20,11 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   if not key or key == '' then return callback(nil, 'Set OPENROUTER_API_KEY to use OpenRouter') end
   if active and not active() then return end
   local options = config.options or {}
-  -- Response Healing requires JSON output and does not support streaming.
-  if options.response_healing == true then on_text = nil end
-  local body = chat.body(config.model, messages, tools, on_text)
-  if options.response_healing == true then
+  -- Response Healing repairs message text, not required tool-call arguments.
+  local healing = options.response_healing == true and config.tool_choice ~= 'required'
+  if healing then on_text = nil end
+  local body = chat.body(config.model, messages, tools, on_text, config.tool_choice)
+  if healing then
     body.response_format = { type = 'json_object' }
     body.plugins = { { id = 'response-healing' } }
   end

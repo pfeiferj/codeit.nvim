@@ -10,9 +10,9 @@ http.post = function(_, _, payload, callback, stream)
 end
 local tools = { { type = 'function', ['function'] = { name = 'test' } } }
 local messages = { { role = 'user', content = 'Return JSON' } }
-local function request(value, on_text)
+local function request(value, on_text, tool_choice)
   local answer
-  provider.chat({ model = 'test', max_output_tokens = 256, options = {
+  provider.chat({ model = 'test', tool_choice = tool_choice, max_output_tokens = 256, options = {
     response_healing = value, routing_mode = 'price', allow_fallbacks = false,
   } }, messages, tools, function(message, err)
     assert(not err, tostring(err))
@@ -38,5 +38,8 @@ for _, on_text in ipairs({ false, function() error('must not stream healed respo
 end
 request(nil, function() end)
 assert(body.plugins == nil and body.response_format == nil and streaming ~= nil)
+request(true, nil, 'required')
+assert(body.tool_choice == 'required' and body.plugins == nil and body.response_format == nil,
+  'required tool responses must not use JSON text healing')
 http.post, vim.env.OPENROUTER_API_KEY = original_post, original_key
 print('OpenRouter response healing requests: passed')

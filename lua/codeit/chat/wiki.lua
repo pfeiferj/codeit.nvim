@@ -32,20 +32,21 @@ function M.attach(_, session, helpers)
     ok, indexed, err = pcall(wiki.catalog, store)
     if not ok then return finish(indexed) end
     if not indexed then return finish(err) end
-    local function request(prompt, input, callback)
+    local function request(stage, input, callback)
       if not job.active() then return finish() end
       local called = false
-      local success, failure = pcall(providers.chat, job.config, {
-        { role = 'system', content = prompt },
+      local config = vim.tbl_extend('force', {}, job.config, { tool_choice = 'required' })
+      local success, failure = pcall(providers.chat, config, {
+        { role = 'system', content = wiki[stage .. '_prompt'] },
         { role = 'user', content = vim.json.encode(input) },
-      }, {}, function(message, request_err, usage)
+      }, { wiki.response_tool(stage) }, function(message, request_err, usage)
         if called then return end
         called = true
         job.bill(usage, request_err)
         if not job.active() then return finish() end
         if request_err then return finish(request_err) end
         local result, parse_err = wiki.decode(message)
-        if not result then return finish(parse_err) end
+        if not result then return finish(stage .. ': ' .. parse_err) end
         callback(result)
       end)
       if not success and not called then finish(failure) end
@@ -57,14 +58,14 @@ function M.attach(_, session, helpers)
       if vim.trim(search.notes) == '' then return finish(nil, 'skipped', 'Nothing worth retaining.') end
       local matches, search_err = wiki.search(store, search.queries)
       if not matches then return finish(search_err) end
-      request(wiki.plan_prompt, { notes = search.notes, workspace = job.workspace, matches = matches }, function(plan)
+      request('plan', { notes = search.notes, workspace = job.workspace, matches = matches }, function(plan)
         if type(plan.notes) ~= 'string' or #plan.notes > 16384 then return finish('invalid wiki notes') end
         local selection, select_err = wiki.select_for_review(store, plan.paths, matches)
         if not selection then return finish(select_err) end
         job.review.notes, job.review.selected = plan.notes, vim.deepcopy(selection.paths)
         job.publish()
         if vim.trim(plan.notes) == '' then return finish(nil, 'skipped', 'Nothing worth retaining.') end
-        request(wiki.update_prompt, {
+        request('update', {
           notes = plan.notes, workspace = job.workspace, matches = matches,
           pages = selection.pages, proposed_new_paths = selection.proposed_new_paths,
         }, function(result)
@@ -86,9 +87,9 @@ function M.attach(_, session, helpers)
         ok, migrated, migration_err = pcall(wiki.migrate, store)
         if not ok then return finish(migrated) end
         if not migrated then return finish(migration_err) end
-        return request(wiki.search_prompt, { turn = job.turn, workspace = job.workspace }, review)
+        return request('search', { turn = job.turn, workspace = job.workspace }, review)
       end
-      request(wiki.summary_prompt, { pages = batch }, function(result)
+      request('summary', { pages = batch }, function(result)
         local applied, apply_err
         ok, applied, apply_err = pcall(wiki.apply_summaries, store, result.pages, batch)
         if not ok then return finish(applied) end

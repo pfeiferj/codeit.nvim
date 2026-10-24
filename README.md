@@ -268,6 +268,11 @@ start of each review, missing summaries and summaries invalidated by manual or
 external edits are regenerated in batches before any search previews are returned.
 External edits are detected at the next review, not by a background watcher.
 Summary-only refreshes do not rewrite or commit the manually edited main pages.
+Each wiki request requires a `submit_wiki_response` tool call with stage-specific
+arguments; the runner reads those arguments rather than parsing JSON from message
+text. Choose a wiki model/provider that supports tools and required tool choice.
+Missing, unexpected, or malformed response calls fail the review without a text
+fallback; existing path, content, and concurrency checks still apply.
 Reviews with retained notes use three model requests: search planning, page
 selection, and updating, plus any requests needed to refresh summaries. Project facts retain
 workspace scope. Reviews are serialized within this Neovim session, do not block

@@ -37,6 +37,10 @@ assert(vim.tbl_contains(calls[#calls].args, 'Authorization: Bearer test-openai-k
 local body = vim.json.decode(calls[#calls].options.stdin)
 assert(body.tools[1]['function'].name == 'read_file' and body.tool_choice == 'auto')
 assert(body.usage == nil and body.provider == nil, 'omit OpenRouter-specific fields')
+config.tool_choice = 'required'
+assert(request())
+assert(vim.json.decode(calls[#calls].options.stdin).tool_choice == 'required')
+config.tool_choice = nil
 config.options = { base_url = 'http://localhost:1234/v1///', api_key_env = 'CODEIT_TEST_API_KEY' }
 config.max_output_tokens = 64
 assert(request())

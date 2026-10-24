@@ -21,7 +21,7 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   local credentials, err = auth.credentials()
   if not credentials then return callback(nil, err) end
   if active and not active() then return end
-  local body, invalid = responses.body(config.model, messages, tools, 'Codex')
+  local body, invalid = responses.body(config.model, messages, tools, 'Codex', config.tool_choice)
   if invalid then return callback(nil, invalid) end
   local input, instructions = {}, {}
   for _, item in ipairs(body.input) do

@@ -19,7 +19,7 @@ local function content(value, role, provider)
 end
 
 --- Convert the shared chat-completions transcript to a stateless Responses request.
-function M.body(model, messages, tools, provider)
+function M.body(model, messages, tools, provider, tool_choice)
   provider = provider or 'Copilot'
   local reasoning_key = provider == 'Codex' and '_codex_reasoning' or '_copilot_reasoning'
   local input = {}
@@ -58,7 +58,7 @@ function M.body(model, messages, tools, provider)
         strict = false,
       }
     end
-    body.tool_choice = 'auto'
+    body.tool_choice = tool_choice or 'auto'
   end
   return body
 end

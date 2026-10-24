@@ -87,8 +87,33 @@ if vim.uv.fs_symlink(outside .. '/page.md', root .. '/preferences/linked.md') th
   assert(not wiki.apply(snapshot(), { page('preferences/linked.md') }))
   assert(not wiki.select_for_review(store, { 'preferences/linked.md' }, {}), 'symlinked pages must not become proposals')
 end
+local function tool_message(arguments)
+  return { role = 'assistant', content = 'Result submitted through the tool, not JSON text.', tool_calls = {
+    { id = 'wiki-response', type = 'function', ['function'] = { name = 'submit_wiki_response', arguments = arguments } },
+  } }
+end
 assert(not wiki.decode({ content = 'invalid' }))
-assert(wiki.decode({ content = '```json\n{"pages":[]}\n```' }))
+assert(not wiki.decode({ content = '{"pages":[]}' }), 'plain text must not substitute for the required call')
+assert(vim.deep_equal(assert(wiki.decode(tool_message('{"pages":[]}'))), { pages = {} }))
+for _, arguments in ipairs({ 'invalid', '{"pages":', '[]', 'null', 'true', '"text"', 42 }) do
+  assert(not wiki.decode(tool_message(arguments)), 'invalid tool arguments must fail')
+end
+for _, call in ipairs({ false, 'invalid', {}, { type = 'function', ['function'] = { name = 'other', arguments = '{}' } } }) do
+  assert(not wiki.decode({ tool_calls = { call } }), 'malformed or unexpected tools must fail')
+end
+local duplicate = tool_message('{}')
+duplicate.tool_calls[2] = vim.deepcopy(duplicate.tool_calls[1])
+assert(not wiki.decode(duplicate), 'multiple calls must not be ambiguous')
+for _, stage in ipairs({ 'search', 'plan', 'summary', 'update' }) do
+  local spec = wiki.response_tool(stage)
+  assert(spec.type == 'function' and spec['function'].name == 'submit_wiki_response')
+  assert(spec['function'].parameters.type == 'object' and not spec['function'].parameters.additionalProperties)
+  assert(wiki[stage .. '_prompt']:find('Call submit_wiki_response exactly once', 1, true))
+end
+assert(wiki.response_tool('search')['function'].parameters.properties.queries.maxItems == 20)
+assert(wiki.response_tool('plan')['function'].parameters.properties.paths.maxItems == 80)
+assert(wiki.response_tool('summary')['function'].parameters.properties.pages.items.properties.content == nil)
+assert(wiki.response_tool('update')['function'].parameters.properties.pages.items.properties.previous_path.type == 'string')
 
 local metadata_root = temp .. '/metadata-wiki'
 local metadata = assert(wiki.open(metadata_root))
@@ -266,8 +291,13 @@ vim.fn.delete(vim.fn.stdpath('data') .. '/codeit/settings.json')
 plugin.setup({ context_review = false, max_context_tokens = false, personal_wiki = { root = root },
   feature_settings = { personal_wiki = { model = 'wiki-model' } } })
 local function response(index, value)
-  callbacks[index]({ role = 'assistant', content = type(value) == 'string' and value or vim.json.encode(value) }, nil,
-    { cost = 0.1, prompt_tokens = 20, completion_tokens = 10 })
+  local message = { role = 'assistant', content = value }
+  if type(value) == 'table' then
+    assert(requests[index].config.tool_choice == 'required')
+    assert(#requests[index].specs == 1 and requests[index].specs[1]['function'].name == 'submit_wiki_response')
+    message = tool_message(vim.json.encode(value))
+  end
+  callbacks[index](message, nil, { cost = 0.1, prompt_tokens = 20, completion_tokens = 10 })
 end
 local function wait_for(count)
   assert(vim.wait(1000, function() return #requests >= count end, 5), 'missing background wiki request')
@@ -295,7 +325,11 @@ plugin.setup({ context_review = false, max_context_tokens = false,
 plugin.send('I use Neovim for editing.')
 response(2, 'Noted.')
 wait_for(3)
-assert(requests[3].config.model == 'wiki-model' and #requests[3].specs == 0)
+assert(requests[3].config.model == 'wiki-model' and #requests[3].specs == 1)
+assert(requests[3].config.tool_choice == 'required')
+assert(requests[3].specs[1]['function'].parameters.properties.queries.type == 'array')
+assert(requests[4] == nil)
+assert(requests[2].config.tool_choice == nil, 'wiki tool choice must not leak into main requests')
 local input = vim.json.decode(requests[3].messages[2].content)
 assert(input.turn[1].content == 'I use Neovim for editing.' and input.catalog == nil and input.matches == nil)
 plugin.send('My second turn while the review runs.')
@@ -354,7 +388,7 @@ wait_for(11)
 response(11, 'not JSON')
 saved = history.load(history.workspace(), history.list(history.workspace())[1].id)
 assert(saved.turn_costs[4].wiki_review.status == 'failed')
-assert(saved.turn_costs[4].wiki_review.reason == 'invalid wiki JSON response')
+assert(saved.turn_costs[4].wiki_review.reason == 'search: expected exactly one submit_wiki_response tool call')
 plugin.send('Try another review.')
 response(12, 'Done.')
 wait_for(13)

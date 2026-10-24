@@ -1,6 +1,6 @@
 local M = {}
 
-function M.body(model, messages, tools, on_text)
+function M.body(model, messages, tools, on_text, tool_choice)
   local body = { model = model, messages = {} }
   for _, message in ipairs(messages) do
     local copy = vim.tbl_extend('force', {}, message)
@@ -11,7 +11,7 @@ function M.body(model, messages, tools, on_text)
   end
   if tools and #tools > 0 then
     body.tools = tools
-    body.tool_choice = 'auto'
+    body.tool_choice = tool_choice or 'auto'
   end
   if on_text then
     body.stream = true

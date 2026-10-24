@@ -35,9 +35,9 @@ vim.system = function(args, options, callback)
   vim.schedule(function() callback({ code = 0, stdout = vim.json.encode(data) .. '\n' .. http_status }) end)
 end
 local providers = require('codeit.providers')
-local function chat(model, messages, tools, options)
+local function chat(model, messages, tools, options, tool_choice)
   local done, message, failure, usage
-  providers.chat({ provider = 'copilot', model = model, options = options },
+  providers.chat({ provider = 'copilot', model = model, options = options, tool_choice = tool_choice },
     messages or { { role = 'user', content = 'hello' } }, tools or {}, function(value, err, billing)
       done, message, failure, usage = true, value, err, billing
     end)
@@ -63,6 +63,14 @@ assert(payload.reasoning == nil and payload.reasoning_effort == nil)
 assert(payload.tools[1].name == require('codeit.tools').specs[1]['function'].name)
 assert(payload.tools[1]['function'] == nil and payload.tools[1].strict == false)
 assert(calls[3].options.stdin:find('"properties":{}', 1, true), 'empty schemas must remain JSON objects')
+assert(payload.tool_choice == 'auto')
+for _, model in ipairs({ 'gpt-6-luna', 'both' }) do
+  assert(chat(model, nil, { require('codeit.wiki').response_tool('search') }, nil, 'required'))
+  local required = vim.json.decode(calls[#calls].options.stdin)
+  assert(required.tool_choice == 'required')
+  local fn = model == 'gpt-6-luna' and required.tools[1] or required.tools[1]['function']
+  assert(fn.name == 'submit_wiki_response' and fn.parameters.properties.queries.type == 'array')
+end
 for _, model in ipairs({ 'gpt-6-luna', 'both' }) do
   for _, effort in ipairs(require('codeit.settings').efforts) do
     local answer, failure = chat(model, nil, nil, { effort = effort })
