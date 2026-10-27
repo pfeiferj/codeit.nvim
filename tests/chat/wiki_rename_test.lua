@@ -48,11 +48,11 @@ local function unsaved(path)
   vim.api.nvim_buf_delete(buffer, { force = true })
 end
 unsaved(old)
-unsaved('notes/.old.md')
+unsaved('.previews/notes/old.md')
 unsaved(destination)
 unsaved('notes/index.md')
-unsaved('notes/.index.md')
-for _, path in ipairs({ old, 'notes/.old.md', 'notes/index.md', 'notes/.index.md' }) do
+unsaved('.previews/notes/index.md')
+for _, path in ipairs({ old, '.previews/notes/old.md', 'notes/index.md', '.previews/notes/index.md' }) do
   local before = text(path)
   vim.fn.writefile({ '# Concurrent edit' }, root .. '/' .. path)
   assert(not wiki.apply(store, { rename }), 'must preserve concurrent edits: ' .. path)
@@ -60,7 +60,7 @@ for _, path in ipairs({ old, 'notes/.old.md', 'notes/index.md', 'notes/.index.md
   assert(vim.uv.fs_write(fd, before, 0))
   vim.uv.fs_close(fd)
 end
-for _, path in ipairs({ old, 'notes/.old.md', 'notes/index.md', 'notes/.index.md' }) do
+for _, path in ipairs({ old, '.previews/notes/old.md', 'notes/index.md', '.previews/notes/index.md' }) do
   local before = text(path)
   vim.fn.writefile({ '# Staged edit' }, root .. '/' .. path)
   git('add', '--', path)
@@ -73,14 +73,15 @@ end
 vim.fn.writefile({ '# Occupied' }, root .. '/' .. destination:gsub('projects/', 'notes/'))
 assert(not wiki.apply(store, { page('notes/new.md', original, old) }), 'must preserve newly created destinations')
 vim.fn.delete(root .. '/notes/new.md')
-vim.fn.writefile({ 'Occupied preview' }, root .. '/notes/.new.md')
+vim.fn.writefile({ 'Occupied preview' }, root .. '/.previews/notes/new.md')
 assert(not wiki.apply(store, { page('notes/new.md', original, old) }), 'must preserve orphan destination previews')
-vim.fn.delete(root .. '/notes/.new.md')
+vim.fn.delete(root .. '/.previews/notes/new.md')
 
 local before = tonumber(git('rev-list', '--count', 'HEAD'))
 assert(wiki.apply(store, { rename }))
 assert(vim.fn.filereadable(root .. '/' .. old) == 0)
-assert(vim.fn.filereadable(root .. '/notes/.old.md') == 0)
+assert(vim.fn.filereadable(root .. '/.previews/notes/old.md') == 0)
+assert(vim.fn.filereadable(root .. '/.previews/' .. destination) == 1)
 local renamed = text(destination)
 assert(renamed:find('title: New', 1, true) and renamed:find('custom: keep', 1, true))
 assert(renamed:find('[Peer](../notes/peer.md)', 1, true), 'outgoing links must be rebased')

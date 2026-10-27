@@ -210,18 +210,18 @@ assert(not wiki.apply(summary_store, { without_summary }), 'summaries must be bo
 without_summary.summary = ' \n'
 assert(not wiki.apply(summary_store, { without_summary }), 'summaries must not be blank')
 assert(wiki.apply(summary_store, { page('notes/page.md') }))
-assert(vim.fn.filereadable(summary_root .. '/notes/.page.md') == 1)
+assert(vim.fn.filereadable(summary_root .. '/.previews/notes/page.md') == 1)
 summary_store = assert(wiki.open(summary_root))
 assert(wiki.catalog(summary_store))
 assert(#wiki.summary_batch(summary_store) == 0)
-vim.fn.delete(summary_root .. '/notes/.page.md')
+vim.fn.delete(summary_root .. '/.previews/notes/page.md')
 assert(wiki.catalog(summary_store))
 local summary_batch = wiki.summary_batch(summary_store)
 assert(#summary_batch == 1, 'recataloging must discard cached previews')
 vim.fn.writefile({ '# Changed while summarizing' }, summary_root .. '/notes/page.md')
 assert(not wiki.apply_summaries(summary_store, { { path = 'notes/page.md', summary = 'Old summary.' } }, summary_batch),
   'summary refresh must preserve concurrent source edits')
-assert(vim.fn.filereadable(summary_root .. '/notes/.page.md') == 0)
+assert(vim.fn.filereadable(summary_root .. '/.previews/notes/page.md') == 0)
 assert(wiki.catalog(summary_store))
 summary_batch = wiki.summary_batch(summary_store)
 assert(wiki.apply_summaries(summary_store, { { path = 'notes/page.md', summary = string.rep('s', 5000) } }, summary_batch))
@@ -234,8 +234,8 @@ local fake_store = { pages = {}, previews = {} }
 for i = 1, 6 do fake_store.pages['notes/page-' .. i .. '.md'] = '# Big\n' .. string.rep('x', 327000) end
 summary_batch = wiki.summary_batch(fake_store)
 assert(#summary_batch == 4, 'summary requests must be bounded by encoded page data')
-vim.fn.delete(summary_root .. '/notes/.plain.md')
-if vim.uv.fs_symlink(summary_root .. '/notes/page.md', summary_root .. '/notes/.plain.md') then
+vim.fn.delete(summary_root .. '/.previews/notes/plain.md')
+if vim.uv.fs_symlink(summary_root .. '/notes/page.md', summary_root .. '/.previews/notes/plain.md') then
   assert(not wiki.catalog(summary_store), 'symlink preview files must not be followed')
 end
 
@@ -437,7 +437,7 @@ saved = history.load(history.workspace(), history.list(history.workspace())[1].i
 assert(saved.turn_costs[2].wiki_review.status == 'failed')
 assert(saved.turn_costs[2].wiki_review.reason == 'wiki page was not in search results')
 local new_file = temp .. '/other-wiki/notes/new-topic.md'
-local new_preview = temp .. '/other-wiki/notes/.new-topic.md'
+local new_preview = temp .. '/other-wiki/.previews/notes/new-topic.md'
 assert(table.concat(vim.fn.readfile(new_preview), '\n'):find('Summary of notes/new-topic.md', 1, true))
 vim.fn.writefile({ '# Changed externally', 'New facts.' }, new_file)
 vim.fn.mkdir(temp .. '/other-wiki/imported', 'p')
@@ -453,7 +453,7 @@ response(26, { pages = {
   { path = 'notes/new-topic.md', summary = 'Externally changed facts.' },
 } })
 wait_for(27)
-assert(vim.fn.filereadable(temp .. '/other-wiki/imported/.page.md') == 1)
+assert(vim.fn.filereadable(temp .. '/other-wiki/.previews/imported/page.md') == 1)
 response(27, { notes = 'New facts.', queries = { 'externally' } })
 wait_for(28)
 input = vim.json.decode(requests[28].messages[2].content)

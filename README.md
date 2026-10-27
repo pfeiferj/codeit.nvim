@@ -201,8 +201,8 @@ heading are left alone. No pages are migrated while automatic reviews are disabl
 
 You can open the wiki root as an Obsidian vault. Codeit only recognizes its
 `category/page.md` layout, not arbitrary vault names or nested folders. Obsidian's
-`.obsidian` directory and other unrecognized files are left alone. Hidden
-`category/.page.md` files are internal summary caches, not notes. The agent prefers
+`.obsidian` directory and other unrecognized files are left alone. Files under the
+hidden `.previews` directory are internal summary caches, not notes. The agent prefers
 relative Markdown links and is instructed to preserve existing wikilinks. During
 renames, Codeit retargets recognized relative Markdown links (including reference
 links) and path-based or unambiguous filename-based Obsidian wikilinks/embeds.
@@ -260,9 +260,18 @@ review. No empty file is created, and the writer may decline the suggestion.
 Existing pages absent from the search results remain blocked, as do unsafe paths.
 Omitted selections, empty arrays, and blank strings all mean no existing pages
 selected; blank entries within a selection array are ignored.
-Each `category/page.md` has a hidden `category/.page.md` preview file
-containing a model-generated summary of the complete page and a source-content
-fingerprint. Search-result previews contain that summary, never a byte excerpt.
+Each `category/page.md` has a `.previews/category/page.md` preview file under
+the wiki root. The hidden `.previews` directory mirrors the main wiki folder
+structure; preview filenames are not dot-prefixed. Each preview contains a
+model-generated summary of the complete page and a source-content fingerprint.
+On the next automatic review, older `category/.page.md` sidecars for recognized
+pages are automatically moved to `.previews/category/page.md` when the destination
+is absent. Their contents and source fingerprints are preserved, so current
+summaries need no model call. Migration creates a local Git commit for the preview
+moves only and protects staged changes and unsaved preview buffers. If both
+locations exist, the new location takes precedence and the old file is left alone.
+Stale or missing summaries are refreshed normally. Search-result previews contain
+the summary, never a byte excerpt.
 Page updates generate and commit the summary alongside the main file. At the
 start of each review, missing summaries and summaries invalidated by manual or
 external edits are regenerated in batches before any search previews are returned.

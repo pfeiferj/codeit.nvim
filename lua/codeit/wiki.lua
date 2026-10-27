@@ -1,9 +1,10 @@
 local M = {}
 local uv = vim.uv
 local page_limit, catalog_limit, summary_limit = 327680, 10485760, 5000
+local migrate_previews
 
 local function preview_path(path)
-  return (path:gsub('/([^/]+)$', '/.%1'))
+  return '.previews/' .. path
 end
 
 local function summary_text(content, summary)
@@ -85,10 +86,16 @@ end
 local function safe(store, path)
   if uv.fs_realpath(store.configured) ~= store.root or not M.valid_path(path) then return false end
   local category = path:match('^([^/]+)/')
-  local directory = store.root .. '/' .. category
-  local stat, _, code = uv.fs_lstat(directory)
-  if not stat then return code == 'ENOENT' end
-  return stat.type == 'directory' and uv.fs_realpath(directory) == directory
+  for _, relative in ipairs({ category, '.previews', '.previews/' .. category }) do
+    local directory = store.root .. '/' .. relative
+    local stat, _, code = uv.fs_lstat(directory)
+    if not stat then
+      if code ~= 'ENOENT' then return false end
+    elseif stat.type ~= 'directory' or uv.fs_realpath(directory) ~= directory then
+      return false
+    end
+  end
+  return true
 end
 
 local function git(root, args, input)
@@ -164,7 +171,7 @@ end
 
 function M.catalog(store)
   store.pages, store.summaries, store.previews = {}, {}, {}
-  local entries, size = {}, 0
+  local entries, size, migrations = {}, 0, {}
   local dirs, err = uv.fs_scandir(store.root)
   if not dirs then return nil, err end
   while true do
@@ -183,6 +190,14 @@ function M.catalog(store)
           if not text then return nil, read_err end
           local sidecar, summary_err = read(store.root .. '/' .. preview_path(path))
           if sidecar == nil then return nil, summary_err end
+          if sidecar == false then
+            local legacy = (path:gsub('/([^/]+)$', '/.%1'))
+            sidecar, summary_err = read(store.root .. '/' .. legacy)
+            if sidecar == nil then return nil, summary_err end
+            if sidecar then
+              migrations[#migrations + 1] = { path = path, legacy = legacy, content = sidecar }
+            end
+          end
           store.pages[path], store.summaries[path] = text, sidecar
           local hash, summary
           if sidecar then hash, summary = sidecar:match('^<!%-%- codeit%-source%-sha256: (%x+) %-%->\n(.*)$') end
@@ -195,6 +210,8 @@ function M.catalog(store)
     end
   end
   table.sort(entries, function(a, b) return a.path < b.path end)
+  local migrated, migration_err = migrate_previews(store, migrations)
+  if not migrated then return nil, migration_err end
   if store.initial_commit then
     local paths = {}
     for _, entry in ipairs(entries) do
@@ -295,6 +312,58 @@ local function unmodified(filename)
     end
   end
   return true
+end
+
+migrate_previews = function(store, migrations)
+  if #migrations == 0 then return true end
+  local branch, err = git(store.root, { 'symbolic-ref', '--quiet', 'HEAD' })
+  if not branch then return false, 'wiki preview migration requires a checked-out branch: ' .. err end
+  local targets, paths = {}, {}
+  for _, migration in ipairs(migrations) do
+    targets[migration.legacy], targets[preview_path(migration.path)] = true, true
+  end
+  local staged
+  staged, err = git(store.root, { 'diff', '--cached', '--name-only', '--no-renames', '-z' })
+  if not staged then return false, err end
+  for path in staged:gmatch('[^%z]+') do
+    if targets[path] then return false, 'wiki preview migration would overwrite staged changes: ' .. path end
+  end
+  local tracked
+  tracked, err = git(store.root, { 'ls-files', '-z' })
+  if not tracked then return false, err end
+  local tracked_paths = {}
+  for path in tracked:gmatch('[^%z]+') do tracked_paths[path] = true end
+  -- Validate the complete migration before moving any files.
+  for _, migration in ipairs(migrations) do
+    local source = store.root .. '/' .. migration.legacy
+    local destination = store.root .. '/' .. preview_path(migration.path)
+    if not safe(store, migration.path) then return false, 'wiki root or category changed' end
+    if not unmodified(source) or not unmodified(destination) then
+      return false, 'wiki preview migration has unsaved edits: ' .. migration.path
+    end
+    if read(source) ~= migration.content or read(destination) ~= false then
+      return false, 'wiki preview changed during migration: ' .. migration.path
+    end
+    paths[#paths + 1] = preview_path(migration.path)
+    if tracked_paths[migration.legacy] then paths[#paths + 1] = migration.legacy end
+  end
+  for _, migration in ipairs(migrations) do
+    local directory = vim.fs.dirname(store.root .. '/' .. preview_path(migration.path))
+    local ok, mkdir_err = pcall(vim.fn.mkdir, directory, 'p', 448)
+    if not ok then return false, mkdir_err end
+    if not safe(store, migration.path) then return false, 'wiki root or category changed' end
+  end
+  for _, migration in ipairs(migrations) do
+    local source = store.root .. '/' .. migration.legacy
+    local destination = store.root .. '/' .. preview_path(migration.path)
+    if not safe(store, migration.path) or read(source) ~= migration.content or read(destination) ~= false
+      or not unmodified(source) or not unmodified(destination) then
+      return false, 'wiki preview changed during migration: ' .. migration.path
+    end
+    local moved, move_err = uv.fs_rename(source, destination)
+    if not moved then return false, move_err end
+  end
+  return commit(store.root, paths, 'Migrate personal wiki previews')
 end
 
 local function write(store, path, content, source)
@@ -501,10 +570,16 @@ local function apply(store, pages, summaries_only)
     return false, err
   end
   for _, page in ipairs(pages) do
-    local filename = store.root .. '/' .. page.path
-    local ok, err = pcall(vim.fn.mkdir, vim.fn.fnamemodify(filename, ':h'), 'p', 448)
-    if not ok then return false, err end
     if not safe(store, page.path) then return false, 'wiki root or category changed' end
+    for _, path in ipairs({ page.path, preview_path(page.path) }) do
+      local directory = vim.fs.dirname(store.root .. '/' .. path)
+      local ok, mkdir_err = pcall(vim.fn.mkdir, directory, 'p', 448)
+      if not ok then return false, mkdir_err end
+    end
+    if not safe(store, page.path) then return false, 'wiki root or category changed' end
+  end
+  for _, page in ipairs(pages) do
+    local ok
     if not summaries_only then
       ok, err = write(store, page.path, page.content, page.path)
       if not ok then return false, err end
