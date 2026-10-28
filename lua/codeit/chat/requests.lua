@@ -60,6 +60,7 @@ function M.attach(api, session, helpers)
       for _, message in ipairs(helpers.request_messages()) do total = total + helpers.message_tokens(message) end
       if total >= compaction.input_budget(session.config.compaction, limit) then
         local fallback = settings.preset_config(session.config, 'long_context', helpers.model())
+        fallback.cache_key = selected_config.cache_key
         if not budget.long_context and not budget.fallback_checked and not vim.deep_equal(selected_config, fallback)
           and type(providers.context_limit) == 'function' then
           budget.fallback_checked = true

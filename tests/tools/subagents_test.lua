@@ -39,6 +39,8 @@ reply({ role = 'assistant', tool_calls = { call('start_subagent', { title = 'Res
 assert(#requests == 1, 'wait must not return early: ' .. vim.inspect(requests[#requests].messages))
 await(2)
 assert(requests[2].config.model == 'fast-model')
+assert(type(requests[1].config.cache_key) == 'string')
+assert(requests[2].config.cache_key ~= requests[1].config.cache_key, 'subagents need separate affinity')
 assert(requests[2].config.max_tool_rounds == 40, 'subagents must not inherit the main chat limit')
 local advertised = {}
 for _, definition in ipairs(requests[2].specs) do
@@ -67,6 +69,7 @@ reply({ role = 'assistant', tool_calls = {
   call('write_subagent_artifact', { content = 'findings\nsecond line' }),
 } })
 await(3)
+assert(requests[3].config.cache_key == requests[2].config.cache_key, 'subagent rounds must reuse affinity')
 local messages = requests[3].messages
 assert(messages[#messages - 4].content:find('Rejected', 1, true))
 assert(approval_prompts == 1, 'untrusted reads must request approval')
@@ -80,6 +83,7 @@ reply({ role = 'assistant', content = 'Found useful information',
 }, { cost = 0.25, prompt_tokens = 10, completion_tokens = 5 })
 assert(agents.list()[1].status == 'completed')
 assert(#requests == 4, 'wait result resumes main agent')
+assert(requests[4].config.cache_key == requests[1].config.cache_key, 'main affinity must survive delegation')
 local wait_result = vim.json.decode(requests[4].messages[#requests[4].messages].content)
 assert(wait_result.result == 'Found useful information' and not wait_result.messages)
 assert(not vim.json.encode(wait_result):find('private', 1, true))

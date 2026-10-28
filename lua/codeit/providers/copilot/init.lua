@@ -75,8 +75,10 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
         if on_text then body.stream = true end
       else
         body = chat.body(config.model, messages, tools, on_text, config.tool_choice)
+        require('codeit.providers.cache').breakpoints(body, true)
         if config.max_output_tokens then body.max_completion_tokens = config.max_output_tokens end
       end
+      body.prompt_cache_key = config.cache_key
       local options = config.options or {}
       if options.effort and options.effort ~= '' then
         if endpoint == '/responses' then body.reasoning = { effort = options.effort }

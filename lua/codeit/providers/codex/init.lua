@@ -23,6 +23,7 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   if active and not active() then return end
   local body, invalid = responses.body(config.model, messages, tools, 'Codex', config.tool_choice)
   if invalid then return callback(nil, invalid) end
+  body.prompt_cache_key = config.cache_key
   local input, instructions = {}, {}
   for _, item in ipairs(body.input) do
     if item.role == 'system' then

@@ -12,9 +12,13 @@ function M.attach(api, session, helpers)
   end
 
   function helpers.request_config(feature)
-    if feature then return settings.feature_config(session.config, feature, helpers.model()) end
-    return { provider = session.config.provider, model = helpers.model(),
-      options = vim.deepcopy(session.config.request_options[session.config.provider] or {}) }
+    local config = feature and settings.feature_config(session.config, feature, helpers.model())
+      or { provider = session.config.provider, model = helpers.model(),
+        options = vim.deepcopy(session.config.request_options[session.config.provider] or {}) }
+    if session.chat_id then
+      config.cache_key = vim.fn.sha256(table.concat({ 'codeit', session.workspace or '', session.chat_id, feature or 'main' }, '\0'))
+    end
+    return config
   end
 
   function helpers.apply_settings(values)

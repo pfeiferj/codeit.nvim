@@ -44,6 +44,7 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   local url, headers, err = destination(config.options)
   if err then return callback(nil, err) end
   local body = chat.body(config.model, messages, tools, on_text, config.tool_choice)
+  if url == 'https://api.openai.com/v1' then body.prompt_cache_key = config.cache_key end
   if config.max_output_tokens then body.max_tokens = config.max_output_tokens end
   http.post(url .. '/chat/completions', headers, body, function(response, failure, detail)
     if failure then return callback(nil, failure, nil, detail) end

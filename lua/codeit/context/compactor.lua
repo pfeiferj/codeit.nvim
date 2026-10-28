@@ -69,6 +69,7 @@ function M.attach(api, session, helpers)
         if position == first then
           local err = 'a completed turn exceeds the compaction model input budget'
           local fallback = settings.preset_config(session.config, 'long_context', helpers.model())
+          fallback.cache_key = selected_config.cache_key
           if fallback_checked or (selected_config.provider == fallback.provider and selected_config.model == fallback.model
             and vim.deep_equal(selected_config.options, fallback.options))
             or type(providers.context_limit) ~= 'function' then return finish(err) end

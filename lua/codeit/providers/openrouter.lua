@@ -24,6 +24,8 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
   local healing = options.response_healing == true and config.tool_choice ~= 'required'
   if healing then on_text = nil end
   local body = chat.body(config.model, messages, tools, on_text, config.tool_choice)
+  body.session_id = config.cache_key
+  require('codeit.providers.cache').breakpoints(body)
   if healing then
     body.response_format = { type = 'json_object' }
     body.plugins = { { id = 'response-healing' } }

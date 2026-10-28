@@ -320,6 +320,26 @@ the same wiki simultaneously.
 
 ## Provider setup
 
+Codeit automatically derives opaque cache-affinity keys from the workspace and
+saved chat ID. Keys remain stable when resuming a chat; auxiliary features and
+individual subagent runs use separate keys. OpenAI's official endpoint and Codex
+receive `prompt_cache_key`; OpenRouter receives `session_id` for sticky routing.
+Manual OpenRouter provider ordering still takes precedence over sticky routing.
+Custom OpenAI-compatible URLs do not receive these provider-specific fields.
+
+OpenRouter Claude models and supported Alibaba explicit-cache models receive up
+to three `cache_control` breakpoints: the last instruction message and the two
+most recent nonempty text messages. These use the default ephemeral TTL, not a
+paid extended TTL. Other models retain their automatic caching behavior. Cache
+writes can cost more than ordinary input, and hits depend on model minimums,
+provider availability, TTL, and an unchanged prompt prefix. Context review,
+compaction, and instruction/skill changes can still invalidate cached prefixes.
+
+Copilot experimentally receives `prompt_cache_key` on both supported endpoints,
+and Claude Chat Completions requests also receive explicit breakpoints. Copilot
+may ignore or reject these undocumented fields; live cache effectiveness is not
+guaranteed.
+
 ### OpenRouter
 
 For OpenRouter, set `OPENROUTER_API_KEY` in the environment before starting Neovim. Requests are sent to `https://openrouter.ai/api/v1/chat/completions` using OpenAI-compatible chat completions. Choose a model with tool-calling support to use editor tools.
