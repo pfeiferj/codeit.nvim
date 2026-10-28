@@ -34,10 +34,16 @@ local function await(count)
 end
 assert(tools.validate('start_subagent', { title = 'x', task = 'x', mode = 'invalid' }))
 assert(require('codeit.settings').feature_presets.subagent == 'fast')
+local sha256 = vim.fn.sha256
+vim.fn.sha256 = function(value)
+  assert(type(value) == 'string' and not value:find('\0', 1, true), 'cache hashes must not become Blobs')
+  return sha256(value)
+end
 plugin.send('Delegate a task')
 reply({ role = 'assistant', tool_calls = { call('start_subagent', { title = 'Research', task = 'Inspect safely', mode = 'wait' }) } })
 assert(#requests == 1, 'wait must not return early: ' .. vim.inspect(requests[#requests].messages))
 await(2)
+vim.fn.sha256 = sha256
 assert(requests[2].config.model == 'fast-model')
 assert(type(requests[1].config.cache_key) == 'string')
 assert(requests[2].config.cache_key ~= requests[1].config.cache_key, 'subagents need separate affinity')

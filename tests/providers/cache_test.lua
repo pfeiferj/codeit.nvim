@@ -93,6 +93,12 @@ assert(body.prompt_cache_key == key and #markers(body) == 3)
 body = request('copilot', 'gpt-test', nil, key)
 assert(body.prompt_cache_key == key and body.input and not body.messages)
 
+-- Older Neovim versions convert NUL-containing Lua strings to Vimscript Blobs.
+local sha256 = vim.fn.sha256
+vim.fn.sha256 = function(value)
+  assert(type(value) == 'string' and not value:find('\0', 1, true), 'sha256 requires a NUL-free string')
+  return sha256(value)
+end
 -- Cache identity is independent of mutable messages, model, and feature settings.
 local defaults = require('codeit.settings.defaults')
 local session = { config = vim.deepcopy(defaults), chat_id = 'chat-a', workspace = '/workspace/a' }
@@ -113,4 +119,5 @@ session.workspace = '/workspace/b'
 assert(main ~= helpers.request_config().cache_key)
 session.chat_id = nil
 assert(helpers.request_config().cache_key == nil)
+vim.fn.sha256 = sha256
 print('codeit provider cache tests passed')

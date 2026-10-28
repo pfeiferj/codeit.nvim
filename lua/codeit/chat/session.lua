@@ -16,7 +16,7 @@ function M.attach(api, session, helpers)
       or { provider = session.config.provider, model = helpers.model(),
         options = vim.deepcopy(session.config.request_options[session.config.provider] or {}) }
     if session.chat_id then
-      config.cache_key = vim.fn.sha256(table.concat({ 'codeit', session.workspace or '', session.chat_id, feature or 'main' }, '\0'))
+      config.cache_key = vim.fn.sha256(vim.json.encode({ 'codeit', session.workspace or '', session.chat_id, feature or 'main' }))
     end
     return config
   end

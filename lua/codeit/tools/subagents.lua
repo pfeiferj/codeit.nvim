@@ -148,7 +148,7 @@ function M.start(args, source, context, done, parent_active)
   end
   local config = vim.deepcopy(context.subagent_config)
   if config.cache_key then
-    config.cache_key = vim.fn.sha256(config.cache_key .. '\0' .. run.id .. '\0' .. vim.uv.hrtime())
+    config.cache_key = vim.fn.sha256(vim.json.encode({ config.cache_key, run.id, tostring(vim.uv.hrtime()) }))
   end
   local limit = config.max_tool_rounds or require('codeit.settings.defaults').max_subagent_tool_rounds
   local review, decide
