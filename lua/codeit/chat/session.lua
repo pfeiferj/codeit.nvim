@@ -155,6 +155,10 @@ function M.attach(api, session, helpers)
     ui.close()
   end
 
+  function M.render_chat()
+    return ui.render_chat()
+  end
+
   function M.toggle()
     if ui.is_open() and vim.api.nvim_get_current_tabpage() == require('codeit.ui.managed_tab').tab() then
       M.close()

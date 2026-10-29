@@ -481,6 +481,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | Command | Purpose |
 | --- | --- |
 | `:Codeit` | Toggle chat in the managed Codeit tab |
+| `:CodeitRender` | View unfolded chat as a scrollable GitHub-flavored Markdown image |
 | `:CodeitSend [message]` | Send a message, or the current draft when omitted |
 | `:CodeitSkill <name> [arguments]` | Invoke a skill with literal task arguments |
 | `:CodeitStop` | Interrupt the current assistant turn without clearing the chat |
@@ -639,6 +640,7 @@ hint or an unavailable indicator; your draft is preserved.
 | `{`, `}` (normal) | Jump to the previous/next user turn; counts are supported |
 | `za` (normal) | Expand or collapse an activity fold |
 | `gT` (normal, on a table) | Open an aligned table preview |
+| `gR` (normal) | View unfolded chat as a scrollable Markdown image |
 
 The interactive popup shares the sidebar's draft and live transcript, so messages
 and slash commands work in either view. It uses 85% of the editor width and 80%
@@ -659,6 +661,61 @@ position, even when the sidebar is closed.
 `:CodeitSend your question` sends a message directly. `:CodeitSend` sends the draft currently at the bottom of the chat.
 
 Use `:CodeitStop` from any buffer, or `/stop` in the chat draft, to interrupt the active turn and send a new message. Streamed text and completed tool results are kept; pending approvals and remaining calls cannot continue the stopped turn. Foreground commands are cancelled, but completed edits are not undone. Separately started background tasks keep running; cancel them with `:CodeitTasks`. An interrupted provider request may still be billed without returning usage data.
+
+#### Rendered Markdown preview (Ghostty / Kitty)
+
+Use `:CodeitRender` with the chat open, or press `gR` in the chat, to view a
+local PNG rendering of the **entire unfolded transcript**, including unfolded
+content outside the current screenful. Closed folds are omitted completely,
+and the unsent draft is excluded. The current sidebar/popup's fold state is
+used without changing it. This is a snapshot: close and reopen it to pick up new
+messages or changed folds.
+
+The preview supports GitHub-flavored Markdown (tables, task lists, strikethrough,
+autolinks, headings, and fenced code) with GitHub's Markdown stylesheet and a
+light/dark background following `background`. Long code lines and table cells
+wrap to the preview width. It does not provide syntax coloring inside code
+blocks. Raw HTML is shown literally, and Markdown images are replaced by their
+alt text; rendering cannot execute chat HTML/scripts or fetch remote resources.
+No chat content is sent to an external rendering service.
+
+The image is laid out at the preview's width. **Tall content is clipped, not
+scaled down to the terminal height.** Scroll with `j`/`k` or arrows (one terminal
+row, with counts), or the mouse wheel (three rows); `Ctrl-D`/`Ctrl-U`, PageDown/PageUp, or Space
+move half a page; `gg`/`G` jump to the top/bottom. Press `q`, Escape, or `Ctrl-G`
+to return to the original chat. Leaving the preview or resizing the terminal
+closes it; reopen after resizing to lay it out at the new width. Rendering has
+a 60-second timeout and a size limit; fold more content if a chat exceeds it.
+
+This optional feature requires:
+
+- A Kitty graphics protocol terminal, specifically targeting **Ghostty** (also
+  usable with Kitty). GUI clients and terminals without image support cannot
+  display this view. In tmux, follow image.nvim's passthrough setup.
+- [`3rd/image.nvim`](https://github.com/3rd/image.nvim), initialized with the
+  `kitty` backend, plus ImageMagick. For example, with lazy.nvim:
+
+  ```lua
+  {
+    '3rd/image.nvim',
+    build = false,
+    opts = { backend = 'kitty', processor = 'magick_cli' },
+  }
+  ```
+
+- Node.js 20+ and local npm dependencies: Playwright, Marked 15+, and
+  github-markdown-css, plus Playwright's Chromium. Install them yourself (Codeit
+  never installs packages automatically). With the default Neovim data location:
+
+  ```sh
+  npm install --prefix "$HOME/.local/share/nvim/codeit/render" playwright 'marked@^15' github-markdown-css
+  "$HOME/.local/share/nvim/codeit/render/node_modules/.bin/playwright" install chromium
+  ```
+
+  If your `stdpath('data')` differs, use that directory plus `/codeit/render` as
+  the install prefix instead. Alternatively set `vim.g.codeit_render_node_modules`
+  to the absolute path of an existing `node_modules` directory containing these
+  packages before opening the preview. No provider credentials are needed.
 
 #### Appearance
 

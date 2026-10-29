@@ -170,6 +170,8 @@ function M.attach(api, state, options, helpers)
       if options.floating then on_close()
       elseif state.sidebar_win then helpers.restore_sidebar() end
     end, { buffer = state.transcript, silent = true, desc = 'Return from chat popup' })
+    vim.keymap.set('n', 'gR', function() M.render_chat() end,
+      { buffer = state.transcript, desc = 'View rendered chat image' })
     vim.keymap.set('n', 'q', on_close, { buffer = state.transcript, desc = 'Close codeit chat' })
     M.decorate_chat(state.transcript_win)
     helpers.update_header()
@@ -179,6 +181,7 @@ function M.attach(api, state, options, helpers)
   end
 
   function M.close()
+    if M.close_rendered_chat then M.close_rendered_chat() end
     helpers.stop_status_animation()
     helpers.close_palette()
     state.slash_hint, state.slash_error, state.dismissed = nil, nil, nil

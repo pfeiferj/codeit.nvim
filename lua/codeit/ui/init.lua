@@ -16,7 +16,7 @@ local function new(options)
   -- Components share this instance's data and helpers, never another chat's state.
   local helpers = {}
   require('codeit.ui.highlight').setup_roles()
-  for _, component in ipairs({ 'completion', 'draft', 'folds', 'windows', 'transcript' }) do
+  for _, component in ipairs({ 'completion', 'draft', 'folds', 'windows', 'transcript', 'chat_render' }) do
     require('codeit.ui.' .. component).attach(M, state, options, helpers)
   end
   M.show_context = editors.show_context
