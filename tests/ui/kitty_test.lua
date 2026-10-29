@@ -70,6 +70,8 @@ assert(not ok and tostring(err):find('requires Neovim in a terminal', 1, true))
 -- within the write operation, without losing bytes or duplicating envelopes.
 local chan_info = vim.api.nvim_get_chan_info
 local fs_open, fs_write, fs_close = vim.uv.fs_open, vim.uv.fs_write, vim.uv.fs_close
+local ui_send, guess_handle = vim.api.nvim_ui_send, vim.uv.guess_handle
+vim.api.nvim_ui_send = nil -- Exercise the legacy descriptor transport explicitly.
 local program, tmux = vim.env.TERM_PROGRAM, vim.env.TMUX
 vim.env.TERM_PROGRAM, vim.env.TMUX = 'ghostty', 'test-tmux'
 vim.api.nvim_list_uis = function() return { { chan = 123 } } end
@@ -104,6 +106,45 @@ pending:measure(function() called = true end)
 pending:close()
 vim.api.nvim_exec_autocmds('TermResponse', { data = { sequence = esc .. '[6;20;10t' } })
 assert(not called and not pending.timer and not pending.response)
+-- Modern split-TUI Neovim needs no controlling terminal or inherited TTY.
+local sent = {}
+vim.api.nvim_ui_send = function(data) sent[#sent + 1] = data end
+vim.uv.fs_open = function() error('ui_send must not open /dev/tty') end
+vim.uv.fs_write = function() error('ui_send must not write an editor descriptor') end
+vim.uv.fs_close = function() error('ui_send must not close editor descriptors') end
+vim.uv.guess_handle = function() return 'pipe' end
+local routed = kitty.open()
+routed:write(apc)
+assert(sent[1] == kitty.wrap(apc, true))
+local dimensions
+routed:measure(function(size) dimensions = size end)
+vim.api.nvim_exec_autocmds('TermResponse', { data = { sequence = esc .. '[6;24;12t' } })
+assert(dimensions.cell_width == 12 and dimensions.cell_height == 24)
+routed:close()
+assert(not pcall(function() routed:write(apc) end))
+
+-- Older Neovim may still inherit a TTY even when /dev/tty returns ENXIO.
+-- Borrow only a verified TTY, and never close the inherited descriptor.
+vim.api.nvim_ui_send = nil
+vim.uv.fs_open = function() return nil, 'ENXIO: no such device or address: /dev/tty' end
+vim.uv.guess_handle = function(fd) return fd == 2 and 'tty' or 'pipe' end
+local borrowed_output = ''
+vim.uv.fs_write = function(fd, data)
+  assert(fd == 2)
+  borrowed_output = borrowed_output .. data
+  return #data
+end
+local borrowed = kitty.open()
+borrowed:write(apc)
+assert(borrowed_output == kitty.wrap(apc, true))
+borrowed:close() -- fs_close above still raises if called.
+
+-- With only RPC pipes, fail with the real open error instead of corrupting RPC.
+vim.uv.guess_handle = function() return 'pipe' end
+local accessible, message = pcall(kitty.open)
+assert(not accessible and tostring(message):find('ENXIO', 1, true))
+assert(tostring(message):find('nvim_ui_send', 1, true))
+vim.api.nvim_ui_send, vim.uv.guess_handle = ui_send, guess_handle
 vim.api.nvim_list_uis, vim.api.nvim_get_chan_info = list_uis, chan_info
 vim.uv.fs_open, vim.uv.fs_write, vim.uv.fs_close = fs_open, fs_write, fs_close
 vim.env.TERM_PROGRAM, vim.env.TMUX = program, tmux

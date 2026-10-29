@@ -41,12 +41,35 @@ function M.open()
     and not term:find('ghostty', 1, true) and not vim.env.KITTY_WINDOW_ID then
     error('Rendered chat requires a Kitty-protocol terminal such as Ghostty or Kitty.')
   end
-  local fd = assert(vim.uv.fs_open('/dev/tty', 'r+', 0), 'Cannot open controlling terminal')
-  local session = { fd = fd, tmux = vim.env.TMUX ~= nil }
+  -- Newer Neovim separates the editor process from its TUI. The editor may
+  -- have no controlling terminal, and stdout may carry RPC rather than text.
+  -- Route through the TUI when supported; never write escapes to an RPC pipe.
+  local send = vim.api.nvim_ui_send
+  local fd, owned, open_error
+  if not send then
+    fd, open_error = vim.uv.fs_open('/dev/tty', 'r+', 0)
+    owned = fd ~= nil
+  end
+  local size_fd = fd
+  if not size_fd then
+    for _, candidate in ipairs({ 1, 2, 0 }) do
+      if vim.uv.guess_handle(candidate) == 'tty' then
+        size_fd = candidate
+        if not send and candidate ~= 0 then fd = candidate end
+        break
+      end
+    end
+  end
+  if not send and not fd then
+    error('Cannot access terminal output: ' .. tostring(open_error)
+      .. '. No inherited TTY is available; use Neovim with nvim_ui_send support.')
+  end
+  local session = { fd = fd, owned = owned, size_fd = size_fd, tmux = vim.env.TMUX ~= nil }
 
   function session:write(sequence, raw)
-    assert(self.fd, 'Terminal transport is closed')
+    assert(not self.closed, 'Terminal transport is closed')
     local data = raw and sequence or M.wrap(sequence, self.tmux)
+    if send then send(data); return end
     local offset = 1
     while offset <= #data do
       local count, err = vim.uv.fs_write(self.fd, data:sub(offset), -1)
@@ -58,7 +81,8 @@ function M.open()
   -- SSH/tmux can omit pixel dimensions from TIOCGWINSZ. Ask the terminal for
   -- cell dimensions rather than guessing and inadvertently scaling/clipping.
   function session:measure(callback)
-    local ok, size = pcall(ioctl_size, self.fd)
+    local ok, size = false, nil
+    if self.size_fd then ok, size = pcall(ioctl_size, self.size_fd) end
     if ok and size then callback(size); return end
     self.response = vim.api.nvim_create_autocmd('TermResponse', { callback = function(event)
       local response = event.data and event.data.sequence or vim.v.termresponse
@@ -84,7 +108,8 @@ function M.open()
 
   function session:close()
     self:stop_measure()
-    if self.fd then vim.uv.fs_close(self.fd); self.fd = nil end
+    if self.fd and self.owned then vim.uv.fs_close(self.fd) end
+    self.fd, self.size_fd, self.closed = nil, nil, true
   end
   return session
 end
