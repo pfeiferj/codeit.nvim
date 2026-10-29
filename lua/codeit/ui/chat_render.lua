@@ -2,12 +2,12 @@ local M = {}
 local kitty = require('codeit.ui.kitty')
 local worker = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':p'):gsub('%.lua$', '.js')
 
---- Snapshot all unfolded transcript rows, not just the current screenful.
---- Read folds in the source window: sidebar and popup can have different folds.
+--- Snapshot all unfolded buffer rows, not just the current screenful.
+--- Read folds in the source window: two views of a buffer can have different folds.
 function M.snapshot(win, last)
   return vim.api.nvim_win_call(win, function()
     local buf = vim.api.nvim_win_get_buf(win)
-    local source = vim.api.nvim_buf_get_lines(buf, 0, last, false)
+    local source = vim.api.nvim_buf_get_lines(buf, 0, last or -1, false)
     local lines, row = {}, 1
     while row <= #source do
       local finish = vim.fn.foldclosedend(row)
@@ -25,6 +25,28 @@ end
 
 function M.scroll_offset(offset, delta, rows, height)
   return math.max(0, math.min(math.max(0, rows - height), offset + delta))
+end
+
+--- Resolve the focused page independently of the main chat instance. Buffer
+--- metadata lets secondary chats retain their own draft boundary too.
+function M.source(win, state)
+  state = state or {}
+  local buf = vim.api.nvim_win_get_buf(win)
+  local name, ft = vim.api.nvim_buf_get_name(buf), vim.bo[buf].filetype
+  local chat = (win == state.transcript_win or win == state.sidebar_win)
+    and (not state.transcript or buf == state.transcript)
+  local codeit = ft:match('^codeit') or name:match('^codeit://')
+  local extension = name:lower():match('%.([^./]+)$')
+  local markdown = ft == 'markdown' or ft:match('^markdown%.')
+    or ({ md = true, markdown = true, mdown = true, mkd = true })[extension]
+  if not chat and not codeit and not markdown then
+    return nil, 'Focus a Codeit page or Markdown buffer before running :CodeitRender.'
+  end
+  local last = vim.b[buf].codeit_render_last_line
+  if chat and state.chat_lines then last = #state.chat_lines end
+  if type(last) ~= 'number' then last = nil end
+  return { win = win, buf = buf, last = last,
+    label = chat and 'Rendered chat' or 'Rendered Markdown' }
 end
 
 function M.attach(api, state, options, helpers)
@@ -57,11 +79,10 @@ function M.attach(api, state, options, helpers)
   end
 
   function api.render_chat()
-    local current = vim.api.nvim_get_current_win()
-    local source = current == state.sidebar_win and current or state.transcript_win
-    if not valid(source) then return warn('Open the chat before rendering it.') end
-    if vim.fn.executable('node') ~= 1 then return warn('Rendered chat requires Node.js; see README.') end
-    local markdown = M.snapshot(source, #state.chat_lines)
+    local source, source_error = M.source(vim.api.nvim_get_current_win(), state)
+    if not source then return warn(source_error) end
+    if vim.fn.executable('node') ~= 1 then return warn('Rendered Markdown requires Node.js; see README.') end
+    local markdown = M.snapshot(source.win, source.last)
     api.close_rendered_chat()
     local opened, terminal = pcall(kitty.open)
     if not opened then return warn(terminal) end
@@ -71,13 +92,13 @@ function M.attach(api, state, options, helpers)
     p.buf = vim.api.nvim_create_buf(false, true)
     vim.bo[p.buf].bufhidden = 'wipe'
     vim.bo[p.buf].swapfile = false
-    vim.api.nvim_buf_set_lines(p.buf, 0, -1, false, { 'Rendering chat locally…' })
+    vim.api.nvim_buf_set_lines(p.buf, 0, -1, false, { 'Rendering Markdown locally…' })
     vim.bo[p.buf].modifiable = false
     local width, height = math.max(1, vim.o.columns - 4), math.max(1, vim.o.lines - 6)
     p.win = vim.api.nvim_open_win(p.buf, true, {
       relative = 'editor', row = 1, col = 1, width = width, height = height,
       style = 'minimal', border = 'rounded',
-      title = ' Rendered chat · j/k, Ctrl-D/U, gg/G · q: close ', title_pos = 'center',
+      title = ' ' .. source.label .. ' · j/k, Ctrl-D/U, gg/G · q: close ', title_pos = 'center',
     })
     vim.wo[p.win].wrap = false
     vim.wo[p.win].winblend = 0

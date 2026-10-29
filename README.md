@@ -664,12 +664,24 @@ Use `:CodeitStop` from any buffer, or `/stop` in the chat draft, to interrupt th
 
 #### Rendered Markdown preview (Ghostty / Kitty)
 
-Use `:CodeitRender` with the chat open, or press `gR` in the chat, to view a
-local PNG rendering of the **entire unfolded transcript**, including unfolded
-content outside the current screenful. Closed folds are omitted completely,
-and the unsent draft is excluded. The current sidebar/popup's fold state is
-used without changing it. This is a snapshot: close and reopen it to pick up new
-messages or changed folds.
+Run `:CodeitRender` while focused on **any Codeit page or Markdown buffer** to
+view its contents as a local PNG. This works without an open chat and includes
+unsaved edits; it never writes or changes the source buffer. Codeit pages are
+recognized by their `codeit` filetype family or `codeit://` name. Markdown buffers
+are recognized by their `markdown` filetype (including compound filetypes), or a
+`.md`, `.markdown`, `.mdown`, or `.mkd` filename. Other focused buffers produce a
+helpful warning instead of silently rendering a different chat.
+
+The preview includes the **entire unfolded buffer**, not just the current
+screenful. Closed folds are omitted using the focused window's fold state,
+without changing it. Chat transcripts (including secondary chats and review
+chats) still exclude the unsent draft; ordinary Markdown headings named
+`Message` do not truncate a document. Other Codeit pages are rendered in full,
+with their buffer text interpreted as Markdown. Press `gR` in chats and Codeit's
+Markdown-style pages as a shortcut. No mappings are added to your own Markdown
+files; use `:CodeitRender` there or assign your own mapping.
+
+This is a snapshot: close and reopen it to pick up new edits, messages, or folds.
 
 The preview supports GitHub-flavored Markdown (tables, task lists, strikethrough,
 autolinks, headings, and fenced code) with GitHub's Markdown stylesheet and a
@@ -683,10 +695,10 @@ The image is laid out at the preview's width. **Tall content is clipped, not
 scaled down to the terminal height.** Scroll with `j`/`k` or arrows (one terminal
 row, with counts), or the mouse wheel (three rows); `Ctrl-D`/`Ctrl-U`, PageDown/PageUp, or Space
 move half a page; `gg`/`G` jump to the top/bottom. Press `q`, Escape, or `Ctrl-G`
-to return to the original chat. Leaving the preview, losing terminal focus,
+to return to the source page or file. Leaving the preview, losing terminal focus,
 suspending Neovim, or resizing the terminal closes it; reopen after resizing to
 lay it out at the new width. Rendering has
-a 60-second timeout and a size limit; fold more content if a chat exceeds it.
+a 60-second timeout and a size limit; fold more content if a document exceeds it.
 
 Codeit sends the PNG directly using the **Kitty graphics protocol**. Neither
 image.nvim nor ImageMagick is needed. The image is uploaded once per preview;

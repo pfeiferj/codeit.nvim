@@ -19,7 +19,7 @@ function M.register(api)
     { desc = 'Manage main/feature models, presets, request options, and saved settings', force = true })
   vim.api.nvim_create_user_command('Codeit', M.toggle, { desc = 'Toggle codeit chat', force = true })
   vim.api.nvim_create_user_command('CodeitRender', M.render_chat,
-    { desc = 'View unfolded chat as a scrollable Markdown image', force = true })
+    { desc = 'Render the focused Codeit page or Markdown buffer as a scrollable image', force = true })
   vim.api.nvim_create_user_command('CodeitSkill', function(args)
     local name, arguments = require('codeit.skills.invocation').parse(args.args)
     if not name then return vim.notify('codeit: ' .. arguments, vim.log.levels.WARN) end

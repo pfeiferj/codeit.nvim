@@ -27,6 +27,7 @@ function M.attach(api, state, options, helpers)
     vim.list_extend(lines, { '## ' .. (options.draft_label or 'Message'), '', '' })
     state.draft_start = #lines - 1
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.b[buf].codeit_render_last_line = #state.chat_lines
     return buf
   end
 

@@ -284,6 +284,7 @@ function M.attach(api, state, options, helpers)
       helpers.restore_folds(win, win == state.transcript_win and active_expanded or sidebar_expanded)
     end
     fill_lines(lines, hunks)
+    vim.b[state.transcript].codeit_render_last_line = #state.chat_lines
     for win in pairs(views) do
       helpers.sync_fold_boundaries(win, win == state.transcript_win and active_expanded or sidebar_expanded)
     end

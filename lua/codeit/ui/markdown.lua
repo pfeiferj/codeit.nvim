@@ -2,6 +2,8 @@ local M = {}
 
 --- Enable Codeit's UI syntax without changing unrelated buffers.
 function M.enable(buf)
+  vim.keymap.set('n', 'gR', '<Cmd>CodeitRender<CR>',
+    { buffer = buf, silent = true, desc = 'View rendered Markdown image' })
   vim.keymap.set('n', 'gT', function() require('codeit.ui.table_popup').show() end,
     { buffer = buf, silent = true, desc = 'View formatted Markdown table' })
   require('codeit.ui.highlight').enable(buf)
