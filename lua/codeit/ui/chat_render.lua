@@ -103,6 +103,7 @@ function M.attach(api, state, options, helpers)
     vim.wo[p.win].wrap = false
     vim.wo[p.win].winblend = 0
     vim.wo[p.win].cursorline = false
+    vim.wo[p.win].winbar = ''
     p.group = vim.api.nvim_create_augroup('codeit_render_' .. p.buf, { clear = true })
     local function draw(delta)
       if preview ~= p or not p.image or not valid(p.win) then return end

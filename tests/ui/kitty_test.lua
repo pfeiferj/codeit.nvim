@@ -33,13 +33,14 @@ assert(vim.base64.decode(table.concat(chunks)) == bytes)
 local win = vim.api.nvim_get_current_win()
 local cell = { cell_width = 10, cell_height = 20 }
 local image = { width = vim.api.nvim_win_get_width(win) * 10, height = 10000 }
+vim.cmd('redraw')
 kitty.place(terminal, 42, win, 3, image, cell)
 local sequence = terminal.writes[#terminal.writes][1]
 assert(sequence:find('a=p,i=42,p=1,q=2,C=1,x=0,y=60,', 1, true))
 assert(not sequence:match(',[cr]='), 'c/r would scale the image')
 assert(sequence:sub(1, 2) == esc .. '7' and sequence:sub(-2) == esc .. '8')
-local position = vim.api.nvim_win_get_position(win)
-assert(sequence:find(('%s[%d;%dH'):format(esc, position[1] + 1, position[2] + 1), 1, true))
+local position = vim.fn.screenpos(win, 1, 1)
+assert(sequence:find(('%s[%d;%dH'):format(esc, position.row, position.col), 1, true))
 
 kitty.place(terminal, 42, win, 99999, image, cell)
 sequence = terminal.writes[#terminal.writes][1]
@@ -49,6 +50,37 @@ assert(y + h == image.height, 'bottom crop must end exactly at the final image p
 kitty.place(terminal, 42, win, 99, { width = 50, height = 53 }, cell)
 sequence = terminal.writes[#terminal.writes][1]
 assert(sequence:find('y=0,w=50,h=53,', 1, true), 'short images keep native dimensions')
+
+-- The old test only exercised a borderless window at the screen origin.
+-- A real preview has a title and border, and may be moved away from (0, 0).
+local preview_buf = vim.api.nvim_create_buf(false, true)
+local preview_win = vim.api.nvim_open_win(preview_buf, false, {
+  relative = 'editor', row = 3, col = 5, width = 20, height = 8,
+  style = 'minimal', border = 'rounded', title = ' Preview header ',
+})
+vim.wo[preview_win].winbar = ''
+vim.cmd('redraw')
+local function destination()
+  local placed = terminal.writes[#terminal.writes][1]
+  local row, col = placed:match(esc .. '%[(%d+);(%d+)H')
+  return tonumber(row), tonumber(col), placed
+end
+kitty.place(terminal, 42, preview_win, 0, { width = 200, height = 10000 }, cell)
+local row, col, placed = destination()
+assert(row == 5 and col == 7, 'place inside border, not over title or at terminal origin')
+assert(placed:find('w=200,h=160,X=0,Y=0,', 1, true))
+kitty.place(terminal, 42, preview_win, 0, { width = 100, height = 20 }, cell)
+row, col, placed = destination()
+assert(row == 8 and col == 12, 'small images must be centered inside preview content')
+assert(placed:find('w=100,h=20,X=0,Y=10,', 1, true), 'center without rescaling; preserve sub-cell offset')
+vim.api.nvim_win_set_config(preview_win, { relative = 'editor', row = 6, col = 8 })
+vim.cmd('redraw')
+kitty.place(terminal, 42, preview_win, 3, { width = 200, height = 10000 }, cell)
+row, col, placed = destination()
+assert(row == 8 and col == 10, 'recompute content origin after moving preview')
+assert(placed:find('y=60,w=200,h=160,', 1, true), 'position and source scroll are independent')
+vim.api.nvim_win_close(preview_win, true)
+vim.api.nvim_buf_delete(preview_buf, { force = true })
 
 terminal.tmux = true
 kitty.place(terminal, 42, win, 0, image, cell)

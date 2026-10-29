@@ -691,8 +691,10 @@ blocks. Raw HTML is shown literally, and Markdown images are replaced by their
 alt text; rendering cannot execute chat HTML/scripts or fetch remote resources.
 No chat content is sent to an external rendering service.
 
-The image is laid out at the preview's width. **Tall content is clipped, not
-scaled down to the terminal height.** Scroll with `j`/`k` or arrows (one terminal
+The image is laid out at the preview's width and placed inside its content
+area, leaving the border and title visible. Images smaller than the viewport
+are centered at their native size. **Tall content is clipped, not scaled down
+to the terminal height.** Scroll with `j`/`k` or arrows (one terminal
 row, with counts), or the mouse wheel (three rows); `Ctrl-D`/`Ctrl-U`, PageDown/PageUp, or Space
 move half a page; `gg`/`G` jump to the top/bottom. Press `q`, Escape, or `Ctrl-G`
 to return to the source page or file. Leaving the preview, losing terminal focus,

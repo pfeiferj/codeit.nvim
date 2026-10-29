@@ -153,15 +153,27 @@ end
 
 --- x/y/w/h are source pixels; intentionally omit c/r (which request scaling).
 function M.place(terminal, id, win, offset, image, cell)
-  local position = vim.api.nvim_win_get_position(win)
-  local w = math.min(image.width, math.floor(vim.api.nvim_win_get_width(win) * cell.cell_width))
-  local h = math.min(image.height, math.floor(vim.api.nvim_win_get_height(win) * cell.cell_height))
+  -- nvim_win_get_position describes the outer float, including its border.
+  -- screenpos gives the actual text-cell origin, below the title/top border
+  -- and to the right of the left border. Preview buffers contain one line.
+  local origin = vim.fn.screenpos(win, 1, 1)
+  assert(origin.row > 0 and origin.col > 0, 'Preview text area is not on screen')
+  local viewport_width = math.floor(vim.api.nvim_win_get_width(win) * cell.cell_width)
+  local viewport_height = math.floor(vim.api.nvim_win_get_height(win) * cell.cell_height)
+  local w, h = math.min(image.width, viewport_width), math.min(image.height, viewport_height)
   local y = math.max(0, math.min(image.height - h, math.floor(offset * cell.cell_height)))
-  local control = ('a=p,i=%d,p=1,q=2,C=1,x=0,y=%d,w=%d,h=%d,z=1'):format(id, y, w, h)
+  -- Center native-size images within the interior, not within the whole
+  -- terminal. Tall images fill the viewport and retain their source crop.
+  local pad_x, pad_y = math.floor((viewport_width - w) / 2), math.floor((viewport_height - h) / 2)
+  local col_offset, row_offset = math.floor(pad_x / cell.cell_width), math.floor(pad_y / cell.cell_height)
+  local x_pixel = math.floor(pad_x - col_offset * cell.cell_width)
+  local y_pixel = math.floor(pad_y - row_offset * cell.cell_height)
+  local control = ('a=p,i=%d,p=1,q=2,C=1,x=0,y=%d,w=%d,h=%d,X=%d,Y=%d,z=1')
+    :format(id, y, w, h, x_pixel, y_pixel)
   -- Let tmux process cursor movement (pane-relative coordinates), but pass
   -- the graphics APC through. Saving/restoring keeps its cursor in sync with
   -- Neovim's. Wrapping CUP itself would incorrectly position in screen space.
-  terminal:write(ESC .. '7' .. ('%s[%d;%dH'):format(ESC, position[1] + 1, position[2] + 1)
+  terminal:write(ESC .. '7' .. ('%s[%d;%dH'):format(ESC, origin.row + row_offset, origin.col + col_offset)
     .. M.wrap(M.command(control), terminal.tmux) .. ESC .. '8', true)
 end
 
