@@ -38,6 +38,10 @@ function M.attach(api, state, options, helpers)
     local old = preview
     if not old then return end
     preview = nil
+    if old.reveal_timer and not old.reveal_timer:is_closing() then
+      old.reveal_timer:stop()
+      old.reveal_timer:close()
+    end
     if old.job then pcall(function() old.job:kill(15) end) end
     if old.terminal then
       if old.uploaded then pcall(kitty.delete, old.terminal, old.image_id) end
@@ -142,6 +146,16 @@ function M.attach(api, state, options, helpers)
             vim.api.nvim_buf_set_lines(p.buf, 0, -1, false, { '' })
             vim.bo[p.buf].modifiable = false
             draw(0)
+            if preview == p then
+              -- With direct TTY output, :redraw queues UI updates but does not
+              -- wait for a separate TUI to paint them. Its initial clear can
+              -- land after our placement. Reassert the same crop once after
+              -- that first paint; do not upload again or reset scroll position.
+              p.reveal_timer = vim.defer_fn(function()
+                p.reveal_timer = nil
+                draw(0) -- draw checks instance/window validity before writing.
+              end, 75)
+            end
           end)
           if not loaded then api.close_rendered_chat(); warn(err) end
         end)

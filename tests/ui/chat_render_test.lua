@@ -51,6 +51,17 @@ vim.system = function(argv, opts, callback)
   vim.fn.writefile({ 'fake PNG bytes' }, request.output, 'b')
   return job
 end
+local original_defer = vim.defer_fn
+local reveals = {}
+vim.defer_fn = function(callback, ms)
+  assert(ms == 75)
+  local timer = { callback = callback }
+  function timer:is_closing() return self.closed == true end
+  function timer:stop() self.stopped = true end
+  function timer:close() self.closed = true end
+  reveals[#reveals + 1] = timer
+  return timer
+end
 local api = {}
 render.attach(api, { transcript_win = win, chat_lines = vim.list_slice(lines, 1, 10) }, {}, {})
 api.render_chat()
@@ -73,6 +84,13 @@ end
 local last = placement(terminals[1])
 assert(tonumber(last:match(',y=(%d+),')) > 0, 'scrolling updates the source crop')
 assert(not last:match(',[cr]='), 'never request image scaling')
+-- Initial TUI redraw can arrive after the first placement. A deferred second
+-- placement must reuse the uploaded image and the user's current scroll crop.
+local writes_before_reveal = #terminals[1].writes
+assert(reveals[1] and reveals[1].callback)
+reveals[1].callback()
+assert(#terminals[1].writes > writes_before_reveal)
+assert(placement(terminals[1]) == last, 'first-paint recovery must preserve scroll and image ID')
 local upload_count = 0
 for _, sequence in ipairs(terminals[1].writes) do
   if sequence:find('a=t,', 1, true) then upload_count = upload_count + 1 end
@@ -106,6 +124,19 @@ assert(vim.wait(1000, function() return #warnings > warning_count end))
 assert(terminals[4].closed)
 assert(vim.fn.filereadable(jobs[4].request.output) == 0)
 
+-- Closing after upload but before the deferred first-paint recovery must
+-- cancel its timer. Even a callback already queued must not write or reopen.
+api.render_chat()
+jobs[5].callback({ code = 0, stdout = vim.json.encode({ width = jobs[5].request.width, height = 10000 }), stderr = '' })
+assert(vim.wait(1000, function() return reveals[2] ~= nil end))
+api.close_rendered_chat()
+assert(reveals[2].stopped and reveals[2].closed)
+local writes_after_close = #terminals[5].writes
+reveals[2].callback()
+assert(#terminals[5].writes == writes_after_close and terminals[5].closed)
+assert(vim.api.nvim_get_current_win() == win)
+vim.defer_fn = original_defer
+
 -- Pixel-size discovery can be asynchronous; closing cancels it and stale
 -- responses must not launch a renderer.
 local measured
@@ -118,7 +149,7 @@ end
 api.render_chat()
 api.close_rendered_chat()
 measured({ cell_width = 10, cell_height = 20 })
-assert(#jobs == 4)
+assert(#jobs == 5)
 kitty.open = original_open
 vim.system, vim.fn.executable, vim.notify = original_system, original_executable, original_notify
 print('chat_render_test: passed')
