@@ -3,10 +3,23 @@
 // Local-only Markdown -> PNG worker. Dependencies are installed by the user,
 // never downloaded on invocation. Markdown arrives on stdin, not in argv/files.
 const fs = require('node:fs');
+const { pathToFileURL } = require('node:url');
+
+async function loadMarked(filename = require.resolve('marked')) {
+  // require.resolve follows the CommonJS export condition. When that build is
+  // imported as ESM, Node may expose its exports only under `default` rather
+  // than synthesizing named exports. ESM-only Marked versions use named ones.
+  const namespace = await import(pathToFileURL(filename).href);
+  const Marked = namespace.Marked ?? namespace.default?.Marked;
+  if (typeof Marked !== 'function') {
+    throw new Error('The resolved marked package does not export a Marked constructor; install marked 15+.');
+  }
+  return Marked;
+}
 
 async function main() {
   const { chromium } = require('playwright');
-  const { Marked } = await import(require.resolve('marked'));
+  const Marked = await loadMarked();
   const css = fs.readFileSync(require.resolve('github-markdown-css/github-markdown.css'), 'utf8');
   const request = JSON.parse(fs.readFileSync(0, 'utf8'));
   const escape = text => text.replace(/[&<>"']/g, c => ({
@@ -51,7 +64,11 @@ async function main() {
   }
 }
 
-main().catch(error => {
-  process.stderr.write(`Codeit Markdown renderer: ${error.message}\nInstall playwright, marked (15+), github-markdown-css and the Playwright Chromium browser; see the Codeit README.\n`);
-  process.exitCode = 1;
-});
+module.exports = { loadMarked };
+
+if (require.main === module) {
+  main().catch(error => {
+    process.stderr.write(`Codeit Markdown renderer: ${error.message}\nInstall playwright, marked (15+), github-markdown-css and the Playwright Chromium browser; see the Codeit README.\n`);
+    process.exitCode = 1;
+  });
+}
