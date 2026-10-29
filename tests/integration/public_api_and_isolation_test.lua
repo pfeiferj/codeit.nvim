@@ -8,7 +8,7 @@ for name, value in pairs(api) do
 end
 table.sort(names)
 local expected = { 'auto_approvals', 'clear', 'close', 'compact', 'configure', 'context', 'context_files', 'context_full',
-  'context_stats', 'costs', 'get_settings', 'history', 'invoke_skill', 'new', 'open', 'resume',
+  'context_stats', 'costs', 'get_settings', 'history', 'invoke_skill', 'new', 'open', 'render_chat', 'resume',
   'send', 'set_provider', 'settings', 'setup', 'stop', 'system_prompt', 'toggle', 'workspaces' }
 assert(vim.deep_equal(names, expected), 'controller extraction changed the public API')
 

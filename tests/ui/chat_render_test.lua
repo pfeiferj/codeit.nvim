@@ -27,20 +27,19 @@ assert(render.scroll_offset(0, 50, 10, 30) == 0)
 
 local original_system, original_executable = vim.system, vim.fn.executable
 local original_notify = vim.notify
-local jobs, images, warnings = {}, {}, {}
+local jobs, terminals, warnings = {}, {}, {}
+local kitty = require('codeit.ui.kitty')
+local original_open = kitty.open
 vim.notify = function(message) warnings[#warnings + 1] = message end
 vim.fn.executable = function() return 1 end
-package.loaded.image = {
-  is_enabled = function() return true end,
-  from_file = function(_, opts)
-    local image = { image_width = 1000, image_height = 10000, opts = opts, draws = {} }
-    function image:render(geometry) self.draws[#self.draws + 1] = geometry end
-    function image:clear() self.cleared = true end
-    images[#images + 1] = image
-    return image
-  end,
-}
-package.loaded['image.utils.term'] = { get_size = function() return { cell_width = 10, cell_height = 20 } end }
+kitty.open = function()
+  local terminal = { writes = {} }
+  function terminal:measure(callback) callback({ cell_width = 10, cell_height = 20 }) end
+  function terminal:write(sequence) self.writes[#self.writes + 1] = sequence end
+  function terminal:close() self.closed = true end
+  terminals[#terminals + 1] = terminal
+  return terminal
+end
 vim.system = function(argv, opts, callback)
   assert(argv[1] == 'node' and argv[2]:match('chat_render%.js$'))
   local request = vim.json.decode(opts.stdin)
@@ -49,6 +48,7 @@ vim.system = function(argv, opts, callback)
   local job = { callback = callback, request = request }
   function job:kill() self.killed = true end
   jobs[#jobs + 1] = job
+  vim.fn.writefile({ 'fake PNG bytes' }, request.output, 'b')
   return job
 end
 local api = {}
@@ -56,18 +56,31 @@ render.attach(api, { transcript_win = win, chat_lines = vim.list_slice(lines, 1,
 api.render_chat()
 local preview_win = vim.api.nvim_get_current_win()
 assert(preview_win ~= win and #jobs == 1)
-jobs[1].callback({ code = 0, stdout = '{}', stderr = '' })
-assert(vim.wait(1000, function() return #images == 1 end))
-assert(images[1].ignore_global_max_size, 'tall images must bypass global height limits')
-assert(images[1].draws[1].y == 0)
+jobs[1].callback({ code = 0, stdout = vim.json.encode({ width = jobs[1].request.width, height = 10000 }), stderr = '' })
+assert(vim.wait(1000, function() return #terminals[1].writes >= 3 end))
+local function placement(terminal)
+  for i = #terminal.writes, 1, -1 do
+    if terminal.writes[i]:find('a=p,', 1, true) then return terminal.writes[i] end
+  end
+end
+assert(placement(terminals[1]):find('y=0,', 1, true))
+assert(vim.fn.filereadable(jobs[1].request.output) == 0, 'delete PNG after upload')
 local preview_buf = vim.api.nvim_win_get_buf(preview_win)
 local mappings = vim.api.nvim_buf_get_keymap(preview_buf, 'n')
 for _, mapping in ipairs(mappings) do
   if mapping.lhs == 'G' then mapping.callback() end
 end
-assert(images[1].draws[#images[1].draws].y < 0, 'scrolling translates instead of shrinking')
+local last = placement(terminals[1])
+assert(tonumber(last:match(',y=(%d+),')) > 0, 'scrolling updates the source crop')
+assert(not last:match(',[cr]='), 'never request image scaling')
+local upload_count = 0
+for _, sequence in ipairs(terminals[1].writes) do
+  if sequence:find('a=t,', 1, true) then upload_count = upload_count + 1 end
+end
+assert(upload_count == 1, 'scrolling must not upload the PNG again')
 api.close_rendered_chat()
-assert(images[1].cleared and not vim.api.nvim_win_is_valid(preview_win))
+assert(terminals[1].closed and not vim.api.nvim_win_is_valid(preview_win))
+assert(terminals[1].writes[#terminals[1].writes]:find('a=d,d=I,i=', 1, true))
 assert(vim.api.nvim_get_current_win() == win)
 assert(vim.deep_equal(vim.api.nvim_buf_get_lines(buf, 0, -1, false), lines))
 
@@ -77,12 +90,35 @@ api.close_rendered_chat()
 assert(jobs[2].killed)
 jobs[2].callback({ code = 0, stdout = '{}', stderr = '' })
 vim.wait(50, function() return false end)
-assert(#images == 1 and vim.api.nvim_get_current_win() == win)
+assert(#terminals[2].writes == 0 and terminals[2].closed and vim.api.nvim_get_current_win() == win)
+assert(vim.fn.filereadable(jobs[2].request.output) == 0)
 
 api.render_chat()
 jobs[3].callback({ code = 1, stderr = 'missing playwright' })
 assert(vim.wait(1000, function() return #warnings > 0 end))
 assert(warnings[#warnings]:find('missing playwright', 1, true))
 assert(vim.api.nvim_get_current_win() == win)
+-- Invalid renderer output must close the transport, not leave an image overlay.
+local warning_count = #warnings
+api.render_chat()
+jobs[4].callback({ code = 0, stdout = '{}', stderr = '' })
+assert(vim.wait(1000, function() return #warnings > warning_count end))
+assert(terminals[4].closed)
+assert(vim.fn.filereadable(jobs[4].request.output) == 0)
+
+-- Pixel-size discovery can be asynchronous; closing cancels it and stale
+-- responses must not launch a renderer.
+local measured
+kitty.open = function()
+  local terminal = {}
+  function terminal:measure(callback) measured = callback end
+  function terminal:close() self.closed = true end
+  return terminal
+end
+api.render_chat()
+api.close_rendered_chat()
+measured({ cell_width = 10, cell_height = 20 })
+assert(#jobs == 4)
+kitty.open = original_open
 vim.system, vim.fn.executable, vim.notify = original_system, original_executable, original_notify
 print('chat_render_test: passed')

@@ -683,25 +683,34 @@ The image is laid out at the preview's width. **Tall content is clipped, not
 scaled down to the terminal height.** Scroll with `j`/`k` or arrows (one terminal
 row, with counts), or the mouse wheel (three rows); `Ctrl-D`/`Ctrl-U`, PageDown/PageUp, or Space
 move half a page; `gg`/`G` jump to the top/bottom. Press `q`, Escape, or `Ctrl-G`
-to return to the original chat. Leaving the preview or resizing the terminal
-closes it; reopen after resizing to lay it out at the new width. Rendering has
+to return to the original chat. Leaving the preview, losing terminal focus,
+suspending Neovim, or resizing the terminal closes it; reopen after resizing to
+lay it out at the new width. Rendering has
 a 60-second timeout and a size limit; fold more content if a chat exceeds it.
+
+Codeit sends the PNG directly using the **Kitty graphics protocol**. Neither
+image.nvim nor ImageMagick is needed. The image is uploaded once per preview;
+scrolling updates a source-pixel crop, without requesting terminal scaling.
+Closing the preview deletes only its own terminal image and releases its data.
 
 This optional feature requires:
 
-- A Kitty graphics protocol terminal, specifically targeting **Ghostty** (also
-  usable with Kitty). GUI clients and terminals without image support cannot
-  display this view. In tmux, follow image.nvim's passthrough setup.
-- [`3rd/image.nvim`](https://github.com/3rd/image.nvim), initialized with the
-  `kitty` backend, plus ImageMagick. For example, with lazy.nvim:
+- Neovim's built-in terminal UI on Linux, macOS, or BSD in **Ghostty** or **Kitty**.
+  GUI/RPC-only clients and unsupported terminals are rejected before graphics
+  are sent. Terminal detection uses `TERM_PROGRAM`, `TERM`, or `KITTY_WINDOW_ID`;
+  preserve these when connecting over SSH or starting tmux. Terminal pixel sizes
+  come from the TTY, with a cell-size escape-query fallback (no guessed sizes).
+  PNG bytes are sent directly, so SSH does not require a shared filesystem.
+- In tmux 3.3+, enable passthrough and focus events in `.tmux.conf`:
 
-  ```lua
-  {
-    '3rd/image.nvim',
-    build = false,
-    opts = { backend = 'kitty', processor = 'magick_cli' },
-  }
+  ```tmux
+  set -g allow-passthrough on
+  set -g focus-events on
   ```
+
+  Graphics commands are wrapped for tmux, while cursor positions remain
+  pane-relative. If pixel-size discovery fails, try Ghostty directly. Nested
+  multiplexers and screen are not supported.
 
 - Node.js 20+ and local npm dependencies: Playwright, Marked 15+, and
   github-markdown-css, plus Playwright's Chromium. Install them yourself (Codeit

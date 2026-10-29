@@ -1,4 +1,5 @@
 local M = {}
+local kitty = require('codeit.ui.kitty')
 local worker = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':p'):gsub('%.lua$', '.js')
 
 --- Snapshot all unfolded transcript rows, not just the current screenful.
@@ -38,7 +39,10 @@ function M.attach(api, state, options, helpers)
     if not old then return end
     preview = nil
     if old.job then pcall(function() old.job:kill(15) end) end
-    if old.image then pcall(function() old.image:clear() end) end
+    if old.terminal then
+      if old.uploaded then pcall(kitty.delete, old.terminal, old.image_id) end
+      old.terminal:close()
+    end
     if old.group then pcall(vim.api.nvim_del_augroup_by_id, old.group) end
     if valid(old.win) then vim.api.nvim_win_close(old.win, true) end
     if old.buf and vim.api.nvim_buf_is_valid(old.buf) then
@@ -52,22 +56,13 @@ function M.attach(api, state, options, helpers)
     local current = vim.api.nvim_get_current_win()
     local source = current == state.sidebar_win and current or state.transcript_win
     if not valid(source) then return warn('Open the chat before rendering it.') end
-    local ok, image_api = pcall(require, 'image')
-    if not ok then return warn('Rendered chat requires image.nvim configured with the kitty backend; see README.') end
-    if image_api.is_enabled and not image_api.is_enabled() then
-      return warn('Enable image.nvim before rendering the chat.')
-    end
-    local term_ok, term = pcall(require, 'image.utils.term')
-    local size_ok, size = false, nil
-    if term_ok then size_ok, size = pcall(term.get_size) end
-    if not size_ok or not size or not size.cell_width or not size.cell_height
-      or size.cell_width <= 0 or size.cell_height <= 0 then
-      return warn('Cannot determine terminal pixel size. Use a Kitty-compatible terminal such as Ghostty.')
-    end
     if vim.fn.executable('node') ~= 1 then return warn('Rendered chat requires Node.js; see README.') end
     local markdown = M.snapshot(source, #state.chat_lines)
     api.close_rendered_chat()
-    local p = { offset = 0, path = vim.fn.tempname() .. '.png' }
+    local opened, terminal = pcall(kitty.open)
+    if not opened then return warn(terminal) end
+    local p = { offset = 0, path = vim.fn.tempname() .. '.png', terminal = terminal,
+      image_id = math.random(1, 2147483647) }
     preview = p
     p.buf = vim.api.nvim_create_buf(false, true)
     vim.bo[p.buf].bufhidden = 'wipe'
@@ -87,9 +82,10 @@ function M.attach(api, state, options, helpers)
     local function draw(delta)
       if preview ~= p or not p.image or not valid(p.win) then return end
       p.offset = M.scroll_offset(p.offset, delta, p.rows, vim.api.nvim_win_get_height(p.win))
-      -- Only translate the full-size image. image.nvim clips to the floating
-      -- window and sends the crop through Kitty; height is never fit to screen.
-      local rendered, err = pcall(function() p.image:render({ x = 0, y = -p.offset, width = width }) end)
+      -- Flush the loading text/float before placing graphics at its physical
+      -- screen position. Reuse the same placement ID when the crop changes.
+      vim.cmd('redraw')
+      local rendered, err = pcall(kitty.place, p.terminal, p.image_id, p.win, p.offset, p.image, p.size)
       if not rendered then api.close_rendered_chat(); warn(err) end
     end
     local function map(key, callback)
@@ -107,44 +103,54 @@ function M.attach(api, state, options, helpers)
     vim.api.nvim_create_autocmd('WinClosed', {
       group = p.group, pattern = tostring(p.win), callback = api.close_rendered_chat,
     })
-    vim.api.nvim_create_autocmd({ 'BufWipeout', 'BufLeave' }, {
+    vim.api.nvim_create_autocmd({ 'BufWipeout', 'BufLeave', 'WinLeave' }, {
       group = p.group, buffer = p.buf, callback = api.close_rendered_chat,
     })
     -- Closing on resize avoids silently rescaling text or showing a stale crop.
-    vim.api.nvim_create_autocmd({ 'VimResized', 'VimLeavePre' }, {
+    vim.api.nvim_create_autocmd({ 'VimResized', 'VimLeavePre', 'VimSuspend', 'FocusLost' }, {
       group = p.group, callback = api.close_rendered_chat,
     })
-    local modules = vim.g.codeit_render_node_modules
-      or (vim.fn.stdpath('data') .. '/codeit/render/node_modules')
-    local started, job = pcall(vim.system, { 'node', worker }, {
-      text = true, timeout = 60000, env = { NODE_PATH = modules },
-      stdin = vim.json.encode({ markdown = markdown, output = p.path,
-        width = math.max(1, math.floor(width * size.cell_width)),
-        font_size = math.max(14, math.floor(size.cell_height * 0.8)), dark = vim.o.background == 'dark' }),
-    }, function(result)
-      vim.schedule(function()
-        p.job = nil
-        if preview ~= p then vim.fn.delete(p.path); return end
-        if result.code ~= 0 then
-          api.close_rendered_chat()
-          return warn((result.stderr or '') ~= '' and result.stderr or 'Markdown renderer failed or timed out.')
-        end
-        local loaded, err = pcall(function()
-          p.image = assert(image_api.from_file(p.path, { window = p.win, buffer = p.buf, width = width,
-            inline = false, with_virtual_padding = false }), 'Could not load rendered PNG')
-          -- Do not change the user's global image.nvim settings or shrink tall chats.
-          p.image.ignore_global_max_size = true
-          p.rows = math.ceil(p.image.image_height / p.image.image_width * width * size.cell_width / size.cell_height)
-          vim.bo[p.buf].modifiable = true
-          vim.api.nvim_buf_set_lines(p.buf, 0, -1, false, { '' })
-          vim.bo[p.buf].modifiable = false
-          draw(0)
+    local function start(size, size_error)
+      if preview ~= p then return end
+      if not size then api.close_rendered_chat(); return warn(size_error) end
+      p.size = size
+      local modules = vim.g.codeit_render_node_modules
+        or (vim.fn.stdpath('data') .. '/codeit/render/node_modules')
+      local started, job = pcall(vim.system, { 'node', worker }, {
+        text = true, timeout = 60000, env = { NODE_PATH = modules },
+        stdin = vim.json.encode({ markdown = markdown, output = p.path,
+          width = math.max(1, math.floor(width * size.cell_width)),
+          font_size = math.max(14, math.floor(size.cell_height * 0.8)), dark = vim.o.background == 'dark' }),
+      }, function(result)
+        vim.schedule(function()
+          p.job = nil
+          if preview ~= p then vim.fn.delete(p.path); return end
+          if result.code ~= 0 then
+            api.close_rendered_chat()
+            return warn((result.stderr or '') ~= '' and result.stderr or 'Markdown renderer failed or timed out.')
+          end
+          local loaded, err = pcall(function()
+            p.image = vim.json.decode(result.stdout)
+            assert(type(p.image) == 'table' and type(p.image.width) == 'number'
+              and type(p.image.height) == 'number' and p.image.width > 0 and p.image.height > 0,
+              'Renderer returned invalid image dimensions')
+            p.rows = math.ceil(p.image.height / size.cell_height)
+            p.uploaded = true -- Also clean up a partially failed upload.
+            kitty.upload(p.terminal, p.image_id, p.path)
+            vim.fn.delete(p.path)
+            vim.bo[p.buf].modifiable = true
+            vim.api.nvim_buf_set_lines(p.buf, 0, -1, false, { '' })
+            vim.bo[p.buf].modifiable = false
+            draw(0)
+          end)
+          if not loaded then api.close_rendered_chat(); warn(err) end
         end)
-        if not loaded then api.close_rendered_chat(); warn(err) end
       end)
-    end)
-    if not started then api.close_rendered_chat(); return warn(job) end
-    p.job = job
+      if not started then api.close_rendered_chat(); return warn(job) end
+      p.job = job
+    end
+    local measured, err = pcall(function() terminal:measure(start) end)
+    if not measured then api.close_rendered_chat(); warn(err) end
   end
 end
 
