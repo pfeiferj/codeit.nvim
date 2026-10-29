@@ -70,11 +70,28 @@ function M.open()
     assert(not self.closed, 'Terminal transport is closed')
     local data = raw and sequence or M.wrap(sequence, self.tmux)
     if send then send(data); return end
-    local offset = 1
+    local offset, stalled_since, delay = 1, nil, 1
     while offset <= #data do
-      local count, err = vim.uv.fs_write(self.fd, data:sub(offset), -1)
-      assert(count and count > 0, err or 'Could not write terminal graphics')
-      offset = offset + count
+      local count, err, code = vim.uv.fs_write(self.fd, data:sub(offset), -1)
+      if count and count > 0 then
+        offset = offset + count
+        stalled_since, delay = nil, 1
+      else
+        local reason = code or (err and err:match('^(%u+):'))
+        local transient = reason == 'EAGAIN' or reason == 'EWOULDBLOCK' or reason == 'EINTR'
+        if not transient then error(err or 'Could not write terminal graphics (no progress)') end
+        local now = vim.uv.hrtime()
+        stalled_since = stalled_since or now
+        if now - stalled_since >= 2000000000 then
+          error('Timed out waiting for terminal output to drain: ' .. tostring(err or reason))
+        end
+        -- An inherited TTY may be nonblocking. Let the terminal drain, then
+        -- retry only the unwritten suffix, never the whole graphics packet.
+        -- Do not dispatch Neovim events here: reentrant redraw/close callbacks
+        -- could interleave escape sequences in the middle of this packet.
+        vim.uv.sleep(delay)
+        delay = math.min(10, delay * 2)
+      end
     end
   end
 

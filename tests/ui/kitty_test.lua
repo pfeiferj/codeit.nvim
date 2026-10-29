@@ -137,6 +137,48 @@ end
 local borrowed = kitty.open()
 borrowed:write(apc)
 assert(borrowed_output == kitty.wrap(apc, true))
+
+-- Reproduce nonblocking TTY backpressure, including a partial write before
+-- EAGAIN. Every byte and tmux envelope must arrive exactly once, in order.
+local hrtime, sleep = vim.uv.hrtime, vim.uv.sleep
+local clock, sleeps, attempts = 0, 0, 0
+vim.uv.hrtime = function() return clock end
+vim.uv.sleep = function(ms) clock = clock + ms * 1000000; sleeps = sleeps + 1 end
+borrowed_output = ''
+vim.uv.fs_write = function(fd, data)
+  assert(fd == 2)
+  attempts = attempts + 1
+  if attempts == 1 or attempts == 4 then
+    return nil, 'EAGAIN: resource temporarily unavailable', 'EAGAIN'
+  elseif attempts == 2 then
+    return nil, 'EWOULDBLOCK: operation would block' -- Error-string fallback.
+  elseif attempts == 5 then
+    return nil, 'EINTR: interrupted system call', 'EINTR'
+  end
+  local count = math.min(7, #data)
+  borrowed_output = borrowed_output .. data:sub(1, count)
+  return count
+end
+borrowed:write(apc)
+assert(borrowed_output == kitty.wrap(apc, true), 'backpressure must not duplicate or drop bytes')
+assert(sleeps == 4, 'transient errors must wait instead of busy-spinning')
+
+-- Permanent errors fail immediately; a stalled TTY has a bounded wait.
+vim.uv.fs_write = function() return nil, 'EIO: input/output error', 'EIO' end
+local waits_before = sleeps
+local wrote, write_error = pcall(function() borrowed:write(apc) end)
+assert(not wrote and tostring(write_error):find('EIO', 1, true))
+assert(sleeps == waits_before)
+vim.uv.fs_write = function() return nil, 'EAGAIN: resource temporarily unavailable', 'EAGAIN' end
+local start = clock
+wrote, write_error = pcall(function() borrowed:write(apc) end)
+assert(not wrote and tostring(write_error):find('Timed out waiting for terminal output', 1, true))
+assert(clock - start >= 2000000000 and clock - start <= 2010000000)
+vim.uv.fs_write = function() return 0 end
+waits_before = sleeps
+assert(not pcall(function() borrowed:write(apc) end), 'zero-byte writes must not spin forever')
+assert(sleeps == waits_before)
+vim.uv.hrtime, vim.uv.sleep = hrtime, sleep
 borrowed:close() -- fs_close above still raises if called.
 
 -- With only RPC pipes, fail with the real open error instead of corrupting RPC.
