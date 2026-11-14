@@ -106,7 +106,7 @@ function M.attach(_, session, helpers)
     billed_turn = billed_turn or session.turn_costs[#session.turn_costs]
     local first, last = billed_turn and billed_turn.first, #session.messages
     if not first then return end
-    local turn = helpers.redact_disabled_skill_results(vim.deepcopy(vim.list_slice(session.messages, first, last)))
+    local turn = require('codeit.images').reference(helpers.redact_disabled_skill_results(vim.list_slice(session.messages, first, last)))
     for _, message in ipairs(turn) do
       message._copilot_reasoning, message._codex_reasoning, message.reasoning_details = nil, nil, nil
     end

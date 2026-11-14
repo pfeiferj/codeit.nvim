@@ -196,7 +196,17 @@ function M.attach(api, session, helpers)
         end
         local user_request
         for i = batch_start - 1, 1, -1 do
-          if session.messages[i].role == 'user' then user_request = session.messages[i].content; break end
+          if session.messages[i].role == 'user' then
+            user_request = session.messages[i].content
+            if type(user_request) == 'table' then
+              local text = {}
+              for _, part in ipairs(user_request) do
+                if part.type == 'text' then text[#text + 1] = part.text end
+              end
+              user_request = table.concat(text, '\n')
+            end
+            break
+          end
         end
         local function review(history, callback, feature, review_active)
           local selected_config = helpers.request_config(feature or 'tool_review')

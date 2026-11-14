@@ -42,6 +42,19 @@ function M.attach(api, session, helpers)
           ui.slash_help()
           return
         end
+        if command.name == 'image' or command.name == 'imageClear' then
+          if session.busy then ui.slash_error('wait for the current response before attaching images'); return end
+          if command.name == 'imageClear' then
+            session.pending_images = {}
+          else
+            local image, path = require('codeit.images').load(args)
+            if not image then ui.slash_error(path); return end
+            session.pending_images[#session.pending_images + 1] = { image = image, path = path }
+          end
+          ui.take_input()
+          helpers.set_status(#session.pending_images .. ' image(s) queued for the next message')
+          return
+        end
         if command.name == 'skill' then
           local name, arguments = require('codeit.skills.invocation').parse(args)
           if not name then ui.slash_error(arguments); return end
@@ -93,7 +106,16 @@ function M.attach(api, session, helpers)
     if #session.messages == 0 then
       table.insert(session.messages, { role = 'system', content = helpers.current_prompt() })
     end
-    table.insert(session.messages, { role = 'user', content = text })
+    local content = text
+    if #session.pending_images > 0 then
+      content = { { type = 'text', text = text } }
+      for _, attachment in ipairs(session.pending_images) do
+        content[#content + 1] = { type = 'text', text = 'Attached image: ' .. attachment.path }
+        content[#content + 1] = attachment.image
+      end
+    end
+    table.insert(session.messages, { role = 'user', content = content })
+    session.pending_images = {}
     session.current_turn = { first = #session.messages, cost = 0, missing_cost = 0, cost_by_function = {} }
     session.turn_costs[#session.turn_costs + 1] = session.current_turn
     if not session.chat_id then session.chat_id = history.new_id() end

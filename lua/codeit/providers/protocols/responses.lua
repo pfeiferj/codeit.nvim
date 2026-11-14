@@ -23,7 +23,7 @@ function M.body(model, messages, tools, provider, tool_choice)
   provider = provider or 'Copilot'
   local reasoning_key = provider == 'Codex' and '_codex_reasoning' or '_copilot_reasoning'
   local input = {}
-  for _, message in ipairs(messages) do
+  for _, message in ipairs(require('codeit.providers.protocols.images').messages(messages)) do
     local value, err = content(message.content, message.role, provider)
     if err then return nil, err end
     if message.role == 'assistant' then

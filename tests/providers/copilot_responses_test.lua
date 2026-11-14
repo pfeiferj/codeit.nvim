@@ -64,6 +64,14 @@ assert(payload.tools[1].name == require('codeit.tools').specs[1]['function'].nam
 assert(payload.tools[1]['function'] == nil and payload.tools[1].strict == false)
 assert(calls[3].options.stdin:find('"properties":{}', 1, true), 'empty schemas must remain JSON objects')
 assert(payload.tool_choice == 'auto')
+assert(not vim.tbl_contains(calls[3].args, 'Copilot-Vision-Request: true'))
+for _, model in ipairs({ 'gpt-6-luna', 'both' }) do
+  assert(chat(model, { { role = 'user', content = {
+    { type = 'text', text = 'Describe this' },
+    { type = 'image_url', image_url = { url = 'data:image/png;base64,aGVsbG8=' } },
+  } } }))
+  assert(vim.tbl_contains(calls[#calls].args, 'Copilot-Vision-Request: true'))
+end
 for _, model in ipairs({ 'gpt-6-luna', 'both' }) do
   assert(chat(model, nil, { require('codeit.wiki').response_tool('search') }, nil, 'required'))
   local required = vim.json.decode(calls[#calls].options.stdin)

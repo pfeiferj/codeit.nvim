@@ -45,7 +45,7 @@ function M.new(messages, turn_costs, cost_by_function)
       }) or 'unknown (not recorded)'))
     end
     if type(message.content) == 'string' then add(message.content)
-    elseif type(message.content) == 'table' then add(vim.json.encode(message.content)) end
+    elseif type(message.content) == 'table' then add(vim.json.encode(require('codeit.images').reference(message.content))) end
     if type(message.tool_calls) == 'table' then add('Tool calls: ' .. vim.json.encode(message.tool_calls)) end
     add('')
   end

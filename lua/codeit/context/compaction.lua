@@ -1,8 +1,21 @@
 local M = {}
 
--- Conservative JSON-based estimates, not a provider tokenizer.
+-- JSON-based text estimates, not a provider tokenizer. Encoded image bytes are
+-- not text tokens; use a rough image allowance until provider usage is available.
 function M.tokens(value)
-  return math.ceil(#vim.json.encode(value) / 4)
+  local images = 0
+  local function estimate(item)
+    if type(item) ~= 'table' then return item end
+    if item.type == 'image_url' then
+      images = images + 1
+      return { type = 'image_url' }
+    end
+    local copy = {}
+    for key, child in pairs(item) do copy[key] = estimate(child) end
+    return copy
+  end
+  local encoded = vim.json.encode(estimate(value))
+  return math.ceil(#encoded / 4) + images * 4096
 end
 
 function M.summary_message(summary)

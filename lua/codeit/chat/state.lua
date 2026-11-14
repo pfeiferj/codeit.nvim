@@ -7,6 +7,7 @@ function M.new(defaults)
     model_presets = vim.deepcopy(session.config.model_presets),
     feature_settings = vim.deepcopy(session.config.feature_settings), request_options = {} }
   session.messages, session.command_results = {}, {}
+  session.pending_images = {}
 
   session.context_reviews, session.review_revision = {}, 0
   session.context_paths, session.selected_skills, session.disabled_context_files = {}, {}, {}

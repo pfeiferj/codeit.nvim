@@ -27,7 +27,7 @@ function M.attach(api, session, helpers)
     end
     local groups, group = {}, {}
     for i, message in ipairs(completed) do
-      group[#group + 1] = vim.json.encode(message)
+      group[#group + 1] = vim.json.encode(require('codeit.images').reference(message))
       local original = session.messages[indices[i]]
       if original.role == 'assistant' and (type(original.tool_calls) ~= 'table' or #original.tool_calls == 0) then
         groups[#groups + 1] = table.concat(group, '\n')

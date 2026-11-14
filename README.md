@@ -781,6 +781,30 @@ Run `/help` to reopen the searchable palette. Command matching is case-insensiti
 
 A single-line draft starting with `/` is treated as a command, not sent to the assistant. To send a literal slash-leading message, prefix it with another slash: `//compact` sends `/compact`. Multiline messages and slashes elsewhere in a message are sent unchanged. Command results stay in chronological order in the chat transcript and are saved with its history, without being sent to the assistant.
 
+#### Image attachments
+
+Use `/image path/to/screenshot.png` in the chat draft to queue an image for the
+next message. Run it again to attach more images, then send your question normally.
+Each command takes one path; spaces are literal, so do not add shell quotes.
+Paths are relative to the workspace or absolute within another trusted directory.
+Use `/imageClear` (or `/image-clear`) to remove all queued images.
+
+Images are read from disk when attached. PNG, JPEG, GIF, and WebP are accepted,
+up to 10 MiB per file; modified loaded buffers are rejected rather than silently
+using older disk contents. Queued images are per chat, are consumed by the next
+message (including `/send`), and are discarded on new/clear, workspace changes,
+or history resume. Unsent attachments are not persisted. Sent image data remains
+in the conversation and its saved history, and may be resent in subsequent
+requests until removed from context or compacted.
+
+The assistant can also call `read_image` to inspect image files itself. It uses
+the same workspace/trusted-directory restrictions and read approvals as file
+reads, returning native image input rather than base64 text. Both attachment
+paths require a vision-capable model and provider; Codeit does not automatically
+switch models or guarantee that provider-specific image limits are met. Image
+inputs can add provider token charges, and local context/token estimates may not
+reflect those charges accurately.
+
 ### Tool-round limits
 
 When the assistant reaches `max_tool_rounds` (default 12) and requests more

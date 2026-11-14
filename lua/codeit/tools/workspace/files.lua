@@ -3,6 +3,7 @@ local spec = require('codeit.tools.spec')
 local paths = require('codeit.tools.workspace.paths')
 local buffers = require('codeit.file_buffer')
 local edits = require('codeit.tools.workspace.edits')
+local images = require('codeit.images')
 local resolve, integer = paths.resolve, paths.integer
 
 local replacement_properties = {
@@ -35,6 +36,9 @@ M.specs = {
   spec('read_source_buffer', 'Read the ordinary buffer active before the chat opened. No path or buffer ID needed. Includes unsaved changes. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, lines (exact text), parallel line_numbers (original 1-based numbers), total_lines, truncated, next_start_line, modified.', {
     start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }),
+  spec('read_image', 'Read a trusted image from disk and return native image content for vision-capable models. Supports PNG, JPEG, GIF, and WebP files up to 10 MiB; local paths are resolved through workspace trust and loaded modified buffers are rejected.', {
+    path = { type = 'string', minLength = 1, description = 'Image path; must be a regular file in the workspace or a trusted external directory.' },
+  }, { 'path' }),
   spec('edit_file', 'Edit a workspace file by path. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes. Use edit_loaded_buffer or edit_source_buffer for buffer targets.', edit_properties('path'), { 'path', 'edits' }),
   spec('edit_loaded_buffer', 'Edit a loaded ordinary buffer by ID, including unnamed or unsaved buffers. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties('buffer_id'), { 'buffer_id', 'edits' }),
   spec('edit_source_buffer', 'Edit the ordinary buffer active before chat opened. No path or buffer ID needed. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties(), { 'edits' }),
@@ -104,9 +108,14 @@ function M.execute(name, args, done, active, approve, reads, prepare, source, or
       done('Saved ALL current buffer changes to ' .. path)
     end, { path = path, filetype = vim.bo[id].filetype, before = before, after = after,
       warning = 'SAVE ALL BUFFER CHANGES (including the user\'s edits)' })
-  elseif name == 'read_file' or name == 'read_loaded_buffer' or name == 'read_source_buffer'
+  elseif name == 'read_file' or name == 'read_loaded_buffer' or name == 'read_source_buffer' or name == 'read_image'
     or name == 'edit_file' or name == 'edit_loaded_buffer' or name == 'edit_source_buffer'
     or name == 'create_file' then
+    if name == 'read_image' then
+      local part, image_path = images.load(args.path)
+      if not part then return done('Error: ' .. image_path) end
+      return done({ { type = 'text', text = 'Read image ' .. image_path }, part })
+    end
     local reading = name == 'read_file' or name == 'read_loaded_buffer' or name == 'read_source_buffer'
     local path, id, err
     if name ~= 'create_file' and args.path == nil then
