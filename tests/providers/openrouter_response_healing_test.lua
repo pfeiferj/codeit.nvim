@@ -41,5 +41,15 @@ assert(body.plugins == nil and body.response_format == nil and streaming ~= nil)
 request(true, nil, 'required')
 assert(body.tool_choice == 'required' and body.plugins == nil and body.response_format == nil,
   'required tool responses must not use JSON text healing')
+messages = { { role = 'user', content = {
+  { type = 'file', file = { filename = 'report.pdf', file_data = 'data:application/pdf;base64,JVBERi0=' } },
+  { type = 'input_audio', input_audio = { data = 'SUQz', format = 'mp3' } },
+} } }
+request(false)
+assert(vim.deep_equal(body.plugins, { { id = 'file-parser', pdf = { engine = 'native' } } }))
+assert(body.messages[1].content[2].input_audio.format == 'mp3')
+request(true)
+assert(#body.plugins == 2 and body.plugins[1].id == 'response-healing')
+assert(body.plugins[2].pdf.engine == 'native', 'native PDFs must not silently switch to OCR/text extraction')
 http.post, vim.env.OPENROUTER_API_KEY = original_post, original_key
 print('OpenRouter response healing requests: passed')

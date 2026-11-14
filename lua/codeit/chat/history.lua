@@ -32,7 +32,7 @@ function M.attach(api, session, helpers)
       if settings.validate(values) then session.config.request_options = vim.deepcopy(chat.request_options) end
     end
     session.messages = chat.messages
-    session.pending_images = {}
+    session.pending_attachments = {}
     session.auto_approvals = require('codeit.chat.auto_approvals').restore(chat.auto_approvals)
     session.read_versions = {}
     session.session_prompt = nil

@@ -3,7 +3,7 @@ local spec = require('codeit.tools.spec')
 local paths = require('codeit.tools.workspace.paths')
 local buffers = require('codeit.file_buffer')
 local edits = require('codeit.tools.workspace.edits')
-local images = require('codeit.images')
+local attachments = require('codeit.attachments')
 local resolve, integer = paths.resolve, paths.integer
 
 local replacement_properties = {
@@ -36,9 +36,10 @@ M.specs = {
   spec('read_source_buffer', 'Read the ordinary buffer active before the chat opened. No path or buffer ID needed. Includes unsaved changes. Lines are 1-based/inclusive; at most 200 lines/20000 encoded bytes. Returns path, buffer_id, lines (exact text), parallel line_numbers (original 1-based numbers), total_lines, truncated, next_start_line, modified.', {
     start_line = { type = 'integer', minimum = 1 }, end_line = { type = 'integer', minimum = 1 },
   }),
-  spec('read_image', 'Read a trusted image from disk and return native image content for vision-capable models. Supports PNG, JPEG, GIF, and WebP files up to 10 MiB; local paths are resolved through workspace trust and loaded modified buffers are rejected.', {
-    path = { type = 'string', minLength = 1, description = 'Image path; must be a regular file in the workspace or a trusted external directory.' },
-  }, { 'path' }),
+  spec('attach_file', 'Attach a file from disk as native input to the next model request in this turn. Requires a capable provider/model; supports image (PNG/JPEG/GIF/WebP), pdf, or audio (WAV/MP3), up to 10 MiB per file. Audio requires Chat Completions, not Responses. Uses file-read approvals and workspace/trusted-directory restrictions; rejects modified loaded buffers and mismatched types.', {
+    path = { type = 'string', minLength = 1, description = 'Attachment path; must be a regular file in the workspace or a trusted external directory.' },
+    type = { type = 'string', enum = { 'image', 'pdf', 'audio' }, description = 'Attachment kind to read.' },
+  }, { 'path', 'type' }),
   spec('edit_file', 'Edit a workspace file by path. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes. Use edit_loaded_buffer or edit_source_buffer for buffer targets.', edit_properties('path'), { 'path', 'edits' }),
   spec('edit_loaded_buffer', 'Edit a loaded ordinary buffer by ID, including unnamed or unsaved buffers. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties('buffer_id'), { 'buffer_id', 'edits' }),
   spec('edit_source_buffer', 'Edit the ordinary buffer active before chat opened. No path or buffer ID needed. Read first. Pass required edits array (1-50 objects with old_text and new_text, even for one replacement); put optional start_line/end_line inside each edit. Exact old_text matches the ORIGINAL revision once; optional paired start_line/end_line scope each match. Overlaps reject the entire batch. Preview and approve once; save clean named files, preserve unsaved changes.', edit_properties(), { 'edits' }),
@@ -108,13 +109,13 @@ function M.execute(name, args, done, active, approve, reads, prepare, source, or
       done('Saved ALL current buffer changes to ' .. path)
     end, { path = path, filetype = vim.bo[id].filetype, before = before, after = after,
       warning = 'SAVE ALL BUFFER CHANGES (including the user\'s edits)' })
-  elseif name == 'read_file' or name == 'read_loaded_buffer' or name == 'read_source_buffer' or name == 'read_image'
+  elseif name == 'read_file' or name == 'read_loaded_buffer' or name == 'read_source_buffer' or name == 'attach_file'
     or name == 'edit_file' or name == 'edit_loaded_buffer' or name == 'edit_source_buffer'
     or name == 'create_file' then
-    if name == 'read_image' then
-      local part, image_path = images.load(args.path)
-      if not part then return done('Error: ' .. image_path) end
-      return done({ { type = 'text', text = 'Read image ' .. image_path }, part })
+    if name == 'attach_file' then
+      local part, attachment_path, kind = attachments.load(args.path, args.type)
+      if not part then return done('Error: ' .. attachment_path) end
+      return done({ { type = 'text', text = 'Attached ' .. kind .. ' file ' .. attachment_path }, part })
     end
     local reading = name == 'read_file' or name == 'read_loaded_buffer' or name == 'read_source_buffer'
     local path, id, err

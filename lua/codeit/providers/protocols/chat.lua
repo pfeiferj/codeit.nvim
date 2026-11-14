@@ -2,7 +2,7 @@ local M = {}
 
 function M.body(model, messages, tools, on_text, tool_choice)
   local body = { model = model, messages = {} }
-  for _, message in ipairs(require('codeit.providers.protocols.images').messages(messages)) do
+  for _, message in ipairs(require('codeit.providers.protocols.attachments').messages(messages)) do
     local copy = vim.tbl_extend('force', {}, message)
     -- Responses replay metadata is private, not a chat-completions message field.
     copy._copilot_reasoning = nil

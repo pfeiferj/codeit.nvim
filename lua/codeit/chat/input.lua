@@ -42,17 +42,17 @@ function M.attach(api, session, helpers)
           ui.slash_help()
           return
         end
-        if command.name == 'image' or command.name == 'imageClear' then
-          if session.busy then ui.slash_error('wait for the current response before attaching images'); return end
-          if command.name == 'imageClear' then
-            session.pending_images = {}
+        if command.name == 'attach' or command.name == 'attachClear' then
+          if session.busy then ui.slash_error('wait for the current response before attaching files'); return end
+          if command.name == 'attachClear' then
+            session.pending_attachments = {}
           else
-            local image, path = require('codeit.images').load(args)
-            if not image then ui.slash_error(path); return end
-            session.pending_images[#session.pending_images + 1] = { image = image, path = path }
+            local part, path, kind = require('codeit.attachments').load(args)
+            if not part then ui.slash_error(path); return end
+            session.pending_attachments[#session.pending_attachments + 1] = { part = part, path = path, type = kind }
           end
           ui.take_input()
-          helpers.set_status(#session.pending_images .. ' image(s) queued for the next message')
+          helpers.set_status(#session.pending_attachments .. ' attachment(s) queued for the next message')
           return
         end
         if command.name == 'skill' then
@@ -107,15 +107,15 @@ function M.attach(api, session, helpers)
       table.insert(session.messages, { role = 'system', content = helpers.current_prompt() })
     end
     local content = text
-    if #session.pending_images > 0 then
+    if #session.pending_attachments > 0 then
       content = { { type = 'text', text = text } }
-      for _, attachment in ipairs(session.pending_images) do
-        content[#content + 1] = { type = 'text', text = 'Attached image: ' .. attachment.path }
-        content[#content + 1] = attachment.image
+      for _, attachment in ipairs(session.pending_attachments) do
+        content[#content + 1] = { type = 'text', text = 'Attached ' .. attachment.type .. ' file: ' .. attachment.path }
+        content[#content + 1] = attachment.part
       end
     end
     table.insert(session.messages, { role = 'user', content = content })
-    session.pending_images = {}
+    session.pending_attachments = {}
     session.current_turn = { first = #session.messages, cost = 0, missing_cost = 0, cost_by_function = {} }
     session.turn_costs[#session.turn_costs + 1] = session.current_turn
     if not session.chat_id then session.chat_id = history.new_id() end

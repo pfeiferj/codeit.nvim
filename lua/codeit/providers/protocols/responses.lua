@@ -11,6 +11,10 @@ local function content(value, role, provider)
       if role == 'assistant' then parts[#parts].annotations = {} end
     elseif part.type == 'image_url' and role == 'user' and type(part.image_url) == 'table' then
       parts[#parts + 1] = { type = 'input_image', image_url = part.image_url.url, detail = part.image_url.detail }
+    elseif part.type == 'file' and role == 'user' and type(part.file) == 'table' then
+      parts[#parts + 1] = { type = 'input_file', filename = part.file.filename, file_data = part.file.file_data }
+    elseif part.type == 'input_audio' then
+      return nil, provider .. ' Responses does not support native audio input; use an audio-capable Chat Completions provider/model'
     else
       return nil, 'Unsupported ' .. provider .. ' Responses content part: ' .. tostring(part.type)
     end
@@ -23,7 +27,7 @@ function M.body(model, messages, tools, provider, tool_choice)
   provider = provider or 'Copilot'
   local reasoning_key = provider == 'Codex' and '_codex_reasoning' or '_copilot_reasoning'
   local input = {}
-  for _, message in ipairs(require('codeit.providers.protocols.images').messages(messages)) do
+  for _, message in ipairs(require('codeit.providers.protocols.attachments').messages(messages)) do
     local value, err = content(message.content, message.role, provider)
     if err then return nil, err end
     if message.role == 'assistant' then

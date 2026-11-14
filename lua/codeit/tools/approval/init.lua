@@ -21,7 +21,7 @@ local read_tools = {
   read_window_buffer = true,
   list_buffers = true, list_workspace_files = true,
   search_workspace = true, read_file = true, read_loaded_buffer = true,
-  read_source_buffer = true, read_image = true, get_diagnostics = true,
+  read_source_buffer = true, attach_file = true, get_diagnostics = true,
   git_status = true, git_diff = true, load_skill = true, read_skill_resource = true,
 }
 
@@ -79,7 +79,7 @@ local function auto_read(name, args, workspace, source, context)
   if not read_tools[name] then return false end
   local function allowed(path) return allowed_file(path, workspace) end
   if name == 'read_skill_resource' then return allowed(context and context.skill_resource_path) end
-  if name == 'read_file' or name == 'read_image' then return allowed(args.path) end
+  if name == 'read_file' or name == 'attach_file' then return allowed(args.path) end
   if name == 'read_window_buffer' then return allowed(buffer_path(id)) end
   if name == 'read_loaded_buffer' or name == 'read_source_buffer' then
     return allowed(buffer_path(args.buffer_id or source))

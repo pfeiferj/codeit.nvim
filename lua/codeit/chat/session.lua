@@ -84,7 +84,7 @@ function M.attach(api, session, helpers)
     session.disabled_context_files = {}
     context_files.set_disabled(session.workspace, session.disabled_context_files)
     session.messages = {}
-    session.pending_images = {}
+    session.pending_attachments = {}
     session.session_prompt = nil
     session.context_summary, session.compacted_until, session.context_summary_skills = nil, nil, nil
     session.context_reviews = {}
@@ -175,7 +175,7 @@ function M.attach(api, session, helpers)
     session.busy = false
     session.chat_id, session.chat_model = nil, nil
     session.messages = {}
-    session.pending_images = {}
+    session.pending_attachments = {}
     session.session_prompt = nil
     session.context_summary, session.compacted_until, session.context_summary_skills = nil, nil, nil
     session.context_reviews = {}
@@ -202,7 +202,7 @@ function M.attach(api, session, helpers)
     session.generation = session.generation + 1
     session.busy, session.stream_preview = false, nil
     session.messages = { { role = 'system', content = prompt } }
-    session.pending_images = {}
+    session.pending_attachments = {}
     session.command_results = {}
     session.context_summary, session.compacted_until, session.context_summary_skills = nil, nil, nil
     session.context_reviews = {}

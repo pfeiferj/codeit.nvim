@@ -85,7 +85,7 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
         else body.reasoning_effort = options.effort end
       end
       local request_headers = { 'Content-Type: application/json' }
-      if require('codeit.providers.protocols.images').present(messages) then
+      if require('codeit.providers.protocols.attachments').present(messages, 'image_url') then
         request_headers[#request_headers + 1] = 'Copilot-Vision-Request: true'
       end
       vim.list_extend(request_headers, headers(token))

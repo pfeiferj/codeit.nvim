@@ -781,29 +781,52 @@ Run `/help` to reopen the searchable palette. Command matching is case-insensiti
 
 A single-line draft starting with `/` is treated as a command, not sent to the assistant. To send a literal slash-leading message, prefix it with another slash: `//compact` sends `/compact`. Multiline messages and slashes elsewhere in a message are sent unchanged. Command results stay in chronological order in the chat transcript and are saved with its history, without being sent to the assistant.
 
-#### Image attachments
+#### Native attachments
 
-Use `/image path/to/screenshot.png` in the chat draft to queue an image for the
-next message. Run it again to attach more images, then send your question normally.
+Use `/attach <path>` in the chat draft to queue a file for the next message.
+Repeat the command to attach multiple files, including a mix of supported types:
+
+```text
+/attach screenshots/example.png
+/attach documents/report.pdf
+/attach recordings/question.wav
+```
+
+Then send your question normally. The type is detected from file contents.
 Each command takes one path; spaces are literal, so do not add shell quotes.
 Paths are relative to the workspace or absolute within another trusted directory.
-Use `/imageClear` (or `/image-clear`) to remove all queued images.
+Use `/attachClear` (or `/attach-clear`) to remove all queued attachments.
 
-Images are read from disk when attached. PNG, JPEG, GIF, and WebP are accepted,
-up to 10 MiB per file; modified loaded buffers are rejected rather than silently
-using older disk contents. Queued images are per chat, are consumed by the next
-message (including `/send`), and are discarded on new/clear, workspace changes,
-or history resume. Unsent attachments are not persisted. Sent image data remains
-in the conversation and its saved history, and may be resent in subsequent
-requests until removed from context or compacted.
+Supported types, up to **10 MiB per file**:
 
-The assistant can also call `read_image` to inspect image files itself. It uses
-the same workspace/trusted-directory restrictions and read approvals as file
-reads, returning native image input rather than base64 text. Both attachment
-paths require a vision-capable model and provider; Codeit does not automatically
-switch models or guarantee that provider-specific image limits are met. Image
-inputs can add provider token charges, and local context/token estimates may not
-reflect those charges accurately.
+| Type | Formats | Native request format |
+| --- | --- | --- |
+| Image | PNG, JPEG, GIF, WebP | Image content parts; requires vision support |
+| PDF | PDF | File content parts; requires native PDF support |
+| Audio | WAV, MP3 | `input_audio` parts; requires an audio-capable Chat Completions model |
+
+Codeit sends file bytes as native attachment parts, not base64 text, and does not
+perform local OCR, text extraction, transcription, or format conversion. Responses
+endpoints reject audio locally with a clear error. OpenRouter PDF requests require
+its native PDF engine rather than silently falling back to OCR/text extraction.
+Other provider/model-specific limits and capabilities still apply; Codeit does
+not automatically switch models. An endpoint being OpenAI-compatible does not
+mean its models accept every attachment type.
+
+Files are read from disk when attached; modified loaded buffers are rejected
+rather than silently using older disk contents. Queued attachments are per chat,
+consumed by the next message (including `/send`), and discarded on new/clear,
+workspace changes, or history resume. Unsent attachments are not persisted.
+Sent file data remains in the conversation and saved history, and may be resent
+in later requests until removed from context or compacted. Background text-only
+reviews and summaries omit attachment payloads. Context/token estimates use a
+rough per-attachment allowance, not page- or duration-aware billing estimates.
+
+The assistant can call `attach_file` with required `path` and `type` arguments
+(`image`, `pdf`, or `audio`) to inspect a file through native model input in its
+next tool-follow-up request. It uses existing workspace/trusted-directory read
+restrictions and approval rules, and rejects a type that does not match the file.
+There are no image-specific command or tool aliases.
 
 ### Tool-round limits
 

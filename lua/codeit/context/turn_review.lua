@@ -21,7 +21,7 @@ function M.attach(api, session, helpers)
     end
     local id, revision, selected_workspace, selected_chat = session.generation, session.review_revision, session.workspace, session.chat_id
     local original = vim.deepcopy(vim.list_slice(session.messages, first, last))
-    local turn = require('codeit.images').reference(helpers.redact_disabled_skill_results(original))
+    local turn = require('codeit.attachments').reference(helpers.redact_disabled_skill_results(original))
     -- Encrypted provider reasoning is not useful to the reviewer.
     for _, message in ipairs(turn) do
       message._copilot_reasoning, message._codex_reasoning = nil, nil

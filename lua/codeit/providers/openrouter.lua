@@ -30,6 +30,10 @@ function M.chat(config, messages, tools, callback, on_text, active, on_activity)
     body.response_format = { type = 'json_object' }
     body.plugins = { { id = 'response-healing' } }
   end
+  if require('codeit.providers.protocols.attachments').present(messages, 'file') then
+    body.plugins = body.plugins or {}
+    body.plugins[#body.plugins + 1] = { id = 'file-parser', pdf = { engine = 'native' } }
+  end
   if config.max_output_tokens then body.max_tokens = config.max_output_tokens end
   body.usage = { include = true }
   if options.routing_mode and options.routing_mode ~= '' then
