@@ -1,5 +1,10 @@
 vim.opt.runtimepath:prepend(vim.fn.getcwd())
 local format = require('codeit.tools.approval.format')
+local executable, system = vim.fn.executable, vim.system
+vim.fn.executable = function(name)
+  if name == 'shfmt' then return 0 end
+  return executable(name)
+end
 
 local json = format.call('read_file', { path = 'a`b.lua', end_line = 20, options = { nested = true, items = { 1, 2 } } })
 assert(json:find('# read_file\n\n```json\n{\n', 1, true), json)
@@ -39,4 +44,37 @@ local fallback = format.call('run_command', { argv = 'bad' })
 assert(fallback:find('```json\n{\n  "argv": "bad"\n}', 1, true), fallback)
 local extra = format.call('run_command', { argv = { 'echo', 'hello' }, flag = false })
 assert(extra:find('```bash\necho hello\n```\n\nOther arguments:\n\n```json\n{\n  "flag": false\n}\n```', 1, true), extra)
+local source = 'if true; then\necho "hello; world"\nfi'
+local formatted = 'if true; then\n  echo "hello; world"\nfi\n'
+vim.fn.executable = function(name)
+  assert(name == 'shfmt', name)
+  return 1
+end
+for _, shell in ipairs({ 'sh', '/bin/bash' }) do
+  vim.system = function(argv, opts)
+    assert(vim.deep_equal(argv, { 'shfmt', '-ln', shell == 'sh' and 'posix' or 'bash', '-i', '2' }))
+    assert(opts.stdin == source and opts.text == true)
+    return { wait = function(_, timeout)
+      assert(timeout == 1000)
+      return { code = 0, stdout = formatted }
+    end }
+  end
+  local pretty = format.call('run_command', { argv = { shell, '-c', source } })
+  assert(pretty:find('```bash\n' .. formatted .. '```', 1, true), pretty)
+end
+for _, failure in ipairs({ 'exit', 'spawn', 'empty' }) do
+  vim.system = function()
+    if failure == 'spawn' then error('failed to start') end
+    return { wait = function()
+      return { code = failure == 'exit' and 1 or 0, stdout = '' }
+    end }
+  end
+  local raw = format.call('run_command', { argv = { 'sh', '-c', source } })
+  assert(raw:find('```bash\n' .. source .. '\n```', 1, true), raw)
+end
+vim.fn.executable, vim.system = executable, system
+if executable('shfmt') == 1 then
+  local pretty = format.call('run_command', { argv = { 'sh', '-c', source } })
+  assert(pretty:find('```bash\n' .. formatted .. '```', 1, true), pretty)
+end
 print('codeit approval formatting tests passed')

@@ -27,10 +27,19 @@ local function shell_arg(arg)
   return "'" .. arg:gsub("'", "'\\''") .. "'"
 end
 
+local function shell_script(script, dialect)
+  if vim.fn.executable('shfmt') ~= 1 then return script end
+  local ok, result = pcall(function()
+    return vim.system({ 'shfmt', '-ln', dialect, '-i', '2' }, { stdin = script, text = true }):wait(1000)
+  end)
+  if not ok or result.code ~= 0 or not result.stdout or result.stdout == '' then return script end
+  return (result.stdout:gsub('\n$', ''))
+end
+
 local function command(argv)
   local executable = argv[1]:match('[^/]+$')
   if #argv == 3 and (executable == 'sh' or executable == 'bash') and argv[2] == '-c' then
-    return argv[3]
+    return shell_script(argv[3], executable == 'sh' and 'posix' or 'bash')
   end
   local parts = {}
   for _, arg in ipairs(argv) do parts[#parts + 1] = shell_arg(arg) end
@@ -40,7 +49,7 @@ local function command(argv)
 end
 
 --- Render arguments with a readable shell representation, unwrapping simple shell
---- scripts for highlighting only; argv-based calls are still executed directly.
+--- scripts for display-only formatting; argv-based calls are still executed directly.
 function M.call(name, args)
   local language, input = 'json', pretty_json(args, 0)
   local extras
