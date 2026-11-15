@@ -28,6 +28,10 @@ local function shell_arg(arg)
 end
 
 local function command(argv)
+  local executable = argv[1]:match('[^/]+$')
+  if #argv == 3 and (executable == 'sh' or executable == 'bash') and argv[2] == '-c' then
+    return argv[3]
+  end
   local parts = {}
   for _, arg in ipairs(argv) do parts[#parts + 1] = shell_arg(arg) end
   local single_line = table.concat(parts, ' ')
@@ -35,8 +39,8 @@ local function command(argv)
   return table.concat(parts, ' \\\n  ')
 end
 
---- Render the exact arguments being approved, with a readable shell representation
---- for argv-based calls (which are executed directly, not through a shell).
+--- Render arguments with a readable shell representation, unwrapping simple shell
+--- scripts for highlighting only; argv-based calls are still executed directly.
 function M.call(name, args)
   local language, input = 'json', pretty_json(args, 0)
   local extras
