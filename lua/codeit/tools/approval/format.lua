@@ -27,10 +27,10 @@ local function shell_arg(arg)
   return "'" .. arg:gsub("'", "'\\''") .. "'"
 end
 
-local function shell_script(script, dialect)
-  if vim.fn.executable('shfmt') ~= 1 then return script end
+local function format_script(script, argv)
+  if vim.fn.executable(argv[1]) ~= 1 then return script end
   local ok, result = pcall(function()
-    return vim.system({ 'shfmt', '-ln', dialect, '-i', '2' }, { stdin = script, text = true }):wait(1000)
+    return vim.system(argv, { stdin = script, text = true }):wait(1000)
   end)
   if not ok or result.code ~= 0 or not result.stdout or result.stdout == '' then return script end
   return (result.stdout:gsub('\n$', ''))
@@ -39,16 +39,25 @@ end
 local function command(argv)
   local executable = argv[1]:match('[^/]+$')
   if #argv == 3 and (executable == 'sh' or executable == 'bash') and argv[2] == '-c' then
-    return shell_script(argv[3], executable == 'sh' and 'posix' or 'bash')
+    return format_script(argv[3], { 'shfmt', '-ln', executable == 'sh' and 'posix' or 'bash', '-i', '2' }), 'bash'
+  end
+  if #argv == 3 and argv[2] == '-c' and executable
+      and (executable == 'python' or executable:match('^python%d+%.?%d*$')) then
+    local empty_config = vim.fn.has('win32') == 1 and 'NUL' or '/dev/null'
+    return format_script(argv[3], { 'black', '--config', empty_config, '--quiet', '-' }), 'python'
+  end
+  if #argv == 3 and (executable == 'node' or executable == 'nodejs')
+      and (argv[2] == '-e' or argv[2] == '--eval') then
+    return format_script(argv[3], { 'prettier', '--no-config', '--no-editorconfig', '--parser', 'babel' }), 'javascript'
   end
   local parts = {}
   for _, arg in ipairs(argv) do parts[#parts + 1] = shell_arg(arg) end
   local single_line = table.concat(parts, ' ')
-  if #single_line <= 80 then return single_line end
-  return table.concat(parts, ' \\\n  ')
+  if #single_line <= 80 then return single_line, 'bash' end
+  return table.concat(parts, ' \\\n  '), 'bash'
 end
 
---- Render arguments with a readable shell representation, unwrapping simple shell
+--- Render arguments with a readable shell representation, unwrapping simple inline
 --- scripts for display-only formatting; argv-based calls are still executed directly.
 function M.call(name, args)
   local language, input = 'json', pretty_json(args, 0)
@@ -59,7 +68,7 @@ function M.call(name, args)
       if type(arg) ~= 'string' then valid = false; break end
     end
     if valid then
-      language, input = 'bash', command(args.argv)
+      input, language = command(args.argv)
       extras = {}
       for key, value in pairs(args) do
         if key ~= 'argv' then extras[key] = value end
