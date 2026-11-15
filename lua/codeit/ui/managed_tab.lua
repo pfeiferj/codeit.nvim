@@ -13,7 +13,7 @@ function M.windows()
   if not M.tab() then return result end
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
     local id = vim.api.nvim_win_get_buf(win)
-    if vim.api.nvim_win_get_config(win).relative == '' and vim.bo[id].buftype == '' then
+    if vim.api.nvim_win_get_config(win).relative == '' and buffers.ordinary(id) then
       result[#result + 1] = win
     end
   end
@@ -97,7 +97,7 @@ vim.api.nvim_create_autocmd('WinClosed', {
 })
 
 function M.user_visible(id)
-  if not buffers.valid(id) or vim.bo[id].buftype ~= '' then return false end
+  if not buffers.ordinary(id) then return false end
   for _, win in ipairs(M.windows()) do
     local entry = attachments[win]
     if entry and entry.buffer == id and entry.user and M.buffer(win) == id then return true end
@@ -107,7 +107,7 @@ end
 
 local function is_empty_startup(current, source)
   if #vim.api.nvim_list_tabpages() ~= 1 or #vim.api.nvim_tabpage_list_wins(current) ~= 1
-    or vim.api.nvim_buf_get_name(source) ~= '' or vim.bo[source].buftype ~= ''
+    or vim.api.nvim_buf_get_name(source) ~= '' or not buffers.ordinary(source)
     or vim.bo[source].modified or vim.api.nvim_buf_line_count(source) ~= 1
     or vim.api.nvim_buf_get_lines(source, 0, 1, false)[1] ~= '' then
     return false
@@ -134,7 +134,7 @@ function M.open()
   tab = vim.api.nvim_get_current_tabpage()
   attachments = {}
   vim.t[tab].codeit = true
-  if buffers.valid(source) and vim.bo[source].buftype == '' then
+  if buffers.ordinary(source) then
     vim.api.nvim_win_set_buf(0, source)
   else
     vim.api.nvim_win_set_buf(0, vim.api.nvim_create_buf(true, false))

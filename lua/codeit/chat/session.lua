@@ -113,7 +113,7 @@ function M.attach(api, session, helpers)
     helpers.sync_workspace()
     if not ui.is_open() then
       local current = vim.api.nvim_get_current_buf()
-      if vim.bo[current].buftype == '' then session.source = current end
+      if require('codeit.file_buffer').ordinary(current) then session.source = current end
     end
     ui.open(M.send, M.close)
     helpers.render()

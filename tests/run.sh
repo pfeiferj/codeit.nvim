@@ -16,7 +16,7 @@ while IFS= read -r suite; do
     mkdir -p "$XDG_DATA_HOME" "$XDG_STATE_HOME"
 
     case "$suite" in
-      tests/context/context_files_test.lua|tests/skills/skill_context_test.lua|tests/skills/skill_invocation_test.lua)
+      tests/context/context_files_test.lua|tests/skills/skill_context_test.lua|tests/skills/skill_invocation_test.lua|tests/ui/netrw_test.lua)
         HOME="$data_dir/home/${suite%.lua}"
         mkdir -p "$HOME"
         export HOME

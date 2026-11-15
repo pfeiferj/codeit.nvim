@@ -58,14 +58,14 @@ M.specs = {
 local function file_buffer(path)
   local id = vim.fn.bufnr(path)
   if id ~= -1 and vim.api.nvim_buf_is_loaded(id) then
-    if vim.bo[id].buftype ~= '' then return nil, 'Not an ordinary file buffer' end
+    if not buffers.ordinary(id) then return nil, 'Not an ordinary file buffer' end
     buffers.refresh(id)
     return id
   end
   id = vim.fn.bufadd(path)
   local ok, err = pcall(vim.fn.bufload, id)
   if not ok then return nil, tostring(err) end
-  if vim.bo[id].buftype ~= '' then return nil, 'Not an ordinary file buffer' end
+  if not buffers.ordinary(id) then return nil, 'Not an ordinary file buffer' end
   return id
 end
 
@@ -84,7 +84,7 @@ function M.execute(name, args, done, active, approve, reads, prepare, source, or
       id, err = buffers.target(args, source)
       if not id then return done('Error: ' .. err) end
     end
-    if vim.bo[id].buftype ~= '' then return done('Error: Only ordinary file buffers can be saved') end
+    if not buffers.ordinary(id) then return done('Error: Only ordinary file buffers can be saved') end
     local path = vim.api.nvim_buf_get_name(id)
     if path == '' then return done('Error: not saved: buffer has no file name') end
     if prepare and not prepare(path) then return done('Error: new project instructions discovered; review them before reissuing this save') end
@@ -98,7 +98,7 @@ function M.execute(name, args, done, active, approve, reads, prepare, source, or
     if before:find('\0', 1, true) then return done('Error: not saved: binary files cannot be previewed safely') end
     local after = table.concat(vim.api.nvim_buf_get_lines(id, 0, -1, false), '\n') .. (vim.bo[id].endofline and '\n' or '')
     return approve('Save ALL current buffer changes, including user changes, to ' .. path .. '?', function()
-      if not buffers.valid(id) or vim.api.nvim_buf_get_name(id) ~= path or vim.bo[id].buftype ~= ''
+      if not buffers.ordinary(id) or vim.api.nvim_buf_get_name(id) ~= path
         or vim.api.nvim_buf_get_changedtick(id) ~= tick or buffers.disk_version(id) ~= disk or vim.bo[id].endofline ~= eol then
         return done('Error: not saved: file or buffer changed while awaiting confirmation')
       end
@@ -184,7 +184,7 @@ function M.execute(name, args, done, active, approve, reads, prepare, source, or
       local checked = original_path
       if args.path then checked = resolve(args.path, true) end
       if checked ~= original_path or not buffers.valid(id) or vim.api.nvim_buf_get_name(id) ~= original_path
-        or vim.bo[id].buftype ~= '' or vim.api.nvim_buf_get_changedtick(id) ~= tick or vim.bo[id].modified ~= was_modified
+        or not buffers.ordinary(id) or vim.api.nvim_buf_get_changedtick(id) ~= tick or vim.bo[id].modified ~= was_modified
         or not vim.bo[id].modifiable or buffers.disk_version(id) ~= disk_version then
         return done('Error: file or buffer changed while awaiting confirmation')
       end

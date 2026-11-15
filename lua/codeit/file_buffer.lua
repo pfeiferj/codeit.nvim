@@ -6,10 +6,18 @@ function M.valid(id)
     and vim.api.nvim_buf_is_valid(id) and vim.api.nvim_buf_is_loaded(id)
 end
 
+function M.ordinary(id)
+  if not M.valid(id) or vim.bo[id].buftype ~= '' or vim.bo[id].filetype == 'netrw' then return false end
+  -- Netrw and other directory views can have an empty buftype, just like files.
+  local path = vim.api.nvim_buf_get_name(id)
+  local stat = path ~= '' and vim.uv.fs_stat(path) or nil
+  return not stat or stat.type == 'file'
+end
+
 function M.target(args, source)
   local id = args.buffer_id or source
   if not M.valid(id) then return nil, 'Buffer is not loaded or no source buffer is available; specify path or buffer_id' end
-  if vim.bo[id].buftype ~= '' then return nil, 'Only ordinary file buffers can be accessed' end
+  if not M.ordinary(id) then return nil, 'Only ordinary file buffers can be accessed' end
   return id
 end
 
@@ -17,7 +25,7 @@ function M.list(source, include_external, workspace)
   workspace = workspace or vim.uv.fs_realpath(vim.fn.getcwd())
   local result = {}
   for _, id in ipairs(vim.api.nvim_list_bufs()) do
-    if M.valid(id) and vim.bo[id].buftype == '' then
+    if M.ordinary(id) then
       local path = vim.api.nvim_buf_get_name(id)
       local real = path ~= '' and (vim.uv.fs_realpath(path) or vim.uv.fs_realpath(vim.fn.fnamemodify(path, ':h')))
       local local_path = workspace and real and (real == workspace or real:sub(1, #workspace + 1) == workspace .. '/')
@@ -30,8 +38,9 @@ function M.list(source, include_external, workspace)
 end
 
 function M.refresh(id)
-  if vim.bo[id].modified or vim.api.nvim_buf_get_name(id) == '' then return end
-  if not vim.uv.fs_stat(vim.api.nvim_buf_get_name(id)) then return end
+  if not M.ordinary(id) or vim.bo[id].modified or vim.api.nvim_buf_get_name(id) == '' then return end
+  local stat = vim.uv.fs_stat(vim.api.nvim_buf_get_name(id))
+  if not stat or stat.type ~= 'file' then return end
   local version = M.disk_version(id)
   if versions[id] == version then return end
   -- checktime can miss same-size changes within one filesystem timestamp tick.
@@ -58,7 +67,7 @@ end
 function M.disk_version(id)
   local path = vim.api.nvim_buf_get_name(id)
   local stat = vim.uv.fs_stat(path)
-  if not stat then return '' end
+  if not stat or stat.type ~= 'file' then return '' end
   local file = io.open(path, 'rb')
   if not file then return vim.json.encode(stat) end
   local text = file:read(200001)

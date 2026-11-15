@@ -51,3 +51,29 @@ assert(vim.bo[id].modified)
 highlighted()
 vim.api.nvim_buf_delete(id, { force = true })
 vim.fn.delete(path)
+
+-- Ordinary buffers include unnamed drafts and read-only files, not explorers.
+local unnamed = vim.api.nvim_create_buf(true, false)
+vim.bo[unnamed].readonly, vim.bo[unnamed].modifiable = true, false
+assert(buffers.ordinary(unnamed) and buffers.target({ buffer_id = unnamed }) == unnamed)
+local special = vim.api.nvim_create_buf(false, true)
+assert(not buffers.ordinary(special))
+vim.bo[special].buftype = ''
+vim.bo[special].filetype = 'netrw'
+assert(not buffers.ordinary(special), 'netrw must be excluded even without a directory name')
+local directory = vim.fn.tempname()
+vim.fn.mkdir(directory, 'p')
+vim.bo[special].filetype = ''
+vim.api.nvim_buf_set_name(special, directory)
+vim.api.nvim_buf_set_lines(special, 0, -1, false, { 'directory listing' })
+vim.bo[special].modified = false
+assert(not buffers.ordinary(special), 'directories must be excluded even without netrw filetype')
+assert(not buffers.target({ buffer_id = special }))
+local tick_before = vim.api.nvim_buf_get_changedtick(special)
+buffers.refresh(special)
+assert(vim.api.nvim_buf_get_changedtick(special) == tick_before)
+assert(buffers.disk_version(special) == '')
+for _, entry in ipairs(buffers.list(nil, true)) do assert(entry.id ~= special) end
+vim.api.nvim_buf_delete(special, { force = true })
+vim.api.nvim_buf_delete(unnamed, { force = true })
+vim.fn.delete(directory, 'd')

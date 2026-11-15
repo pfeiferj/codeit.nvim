@@ -73,7 +73,8 @@ file view.
    auto-approve workspace reads; edits and commands still require approval.
 
 Codeit opens a dedicated tab with a chat sidebar and ordinary file views. The
-initial view shows the buffer you were using. Closing the sidebar returns to your
+initial view shows the ordinary buffer you were using, or a blank buffer when
+opening from an explorer such as netrw. Closing the sidebar returns to your
 previous tab, keeping the conversation, file layout, and unsaved buffers; reopening
 Codeit restores its tab. Use `:CodeitNew` for a fresh chat or `:CodeitHistory` to
 resume an earlier one.
@@ -596,8 +597,10 @@ text-only task.
 ### File views
 
 The assistant can manage ordinary file views in the Codeit tab. Chat windows,
-popups, and other tabs are excluded. Closing the last file view switches it to a
-blank buffer instead, including when using Neovim's window-closing commands.
+popups, netrw/directory explorers, and other tabs are excluded. Explorers can stay
+open in the Codeit tab, but are not source buffers or assistant file targets.
+Closing the last file view switches it to a blank buffer instead, including when
+using Neovim's window-closing commands.
 Explicitly closing the Codeit tab still closes the tab normally. Native window
 closes restore the pane with a new window ID; the `close_window` tool keeps its ID.
 Window operations never save files or grant read permission.
