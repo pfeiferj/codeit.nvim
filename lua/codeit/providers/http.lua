@@ -122,7 +122,7 @@ function M.post(url, headers, body, callback, streaming, active)
     vim.list_extend(args, { '--header', header })
   end
   vim.list_extend(args, { '--data-binary', '@-', url })
-  http_json(args, { stdin = vim.json.encode(body), text = true }, callback, false, streaming, active, body.model)
+  http_json(args, { stdin = require('codeit.utf8').sanitize(vim.json.encode(body)), text = true }, callback, false, streaming, active, body.model)
 end
 
 function M.get(url, headers, callback)

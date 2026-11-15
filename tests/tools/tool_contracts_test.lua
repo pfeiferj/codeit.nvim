@@ -179,17 +179,21 @@ vim.system = function(argv, opts, cb)
   assert(vim.tbl_contains(argv, '--proto-redir'))
   assert(not vim.tbl_contains(argv, '--max-filesize'))
   assert(vim.tbl_contains(argv, '--limit-rate'))
-  local output, status, timeout
+  local output, status, timeout, unicode
   for i, arg in ipairs(argv) do
     if arg == '--output' then output = argv[i + 1] end
     if arg == '--url' then
       status = argv[i + 1]:find('404', 1, true) and '404' or '200'
       timeout = argv[i + 1]:find('timeout', 1, true)
+      unicode = argv[i + 1]:find('unicode', 1, true)
     end
   end
   assert(output == '-')
   vim.schedule(function()
     if status == '404' then opts.stdout(nil, 'Not Found')
+    elseif unicode then
+      opts.stdout(nil, string.rep('x', 19999) .. ('😀'):sub(1, 1))
+      opts.stdout(nil, ('😀'):sub(2))
     else
       -- Multiple chunks, exceeding the former 200KB transfer cap.
       for _ = 1, 30 do opts.stdout(nil, string.rep('x', 10000)) end
@@ -206,6 +210,8 @@ has(failed, '"http_status":404')
 has(failed, 'http://127.0.0.1/final')
 local fetched = vim.json.decode(run('fetch_url', { url = 'http://127.0.0.1/ok' }))
 assert(fetched.http_status == 200 and fetched.truncated and #fetched.body == 20000)
+local unicode = vim.json.decode(run('fetch_url', { url = 'http://127.0.0.1/unicode' }))
+assert(unicode.body == string.rep('x', 19999) and unicode.truncated)
 local timeout = run('fetch_url', { url = 'http://127.0.0.1/timeout' })
 has(timeout, 'Error: URL fetch failed')
 has(timeout, 'Operation timed out')

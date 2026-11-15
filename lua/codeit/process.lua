@@ -47,6 +47,10 @@ function M.run(argv, cwd, done, active, opts)
     end, opts.kill_after_ms or 1000)
   end
   deliver = function(result)
+    if result.truncated then
+      result.stdout = require('codeit.utf8').prefix(result.stdout, #result.stdout)
+      result.stderr = require('codeit.utf8').prefix(result.stderr, #result.stderr)
+    end
     local ok, err = pcall(done, result)
     if not ok then
       -- Surface observer errors as a tool result instead of leaving its caller busy.

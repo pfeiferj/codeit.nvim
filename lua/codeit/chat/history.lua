@@ -103,7 +103,7 @@ function M.attach(api, session, helpers)
           content = content .. ' [tools: ' .. table.concat(names, ', ') .. ']'
         end
         local limit = message.role == 'tool' and 500 or 1200
-        local line = message.role .. ': ' .. content:sub(1, limit)
+        local line = message.role .. ': ' .. require('codeit.utf8').prefix(content, limit)
         -- Keep the most recent activity when conversations are long.
         lines[#lines + 1] = line
         size = size + #line
@@ -138,7 +138,7 @@ function M.attach(api, session, helpers)
         end
         content = table.concat(parts, ' ')
       end
-      local summary = type(content) == 'string' and vim.trim(content:gsub('%s+', ' ')):sub(1, 160) or ''
+      local summary = type(content) == 'string' and require('codeit.utf8').prefix(vim.trim(content:gsub('%s+', ' ')), 160) or ''
       -- The conversation may have continued while this request was in flight.
       -- Never restore a summary of an older version of the chat.
       local current = history.load(selected_workspace, chat.id)

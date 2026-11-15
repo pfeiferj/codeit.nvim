@@ -504,6 +504,11 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitWorkspaces` | Review known workspaces and their effective read trust |
 | `:CodeitUntrust` | Revoke workspace trust |
 
+Text sent to providers preserves valid Unicode and JSON-escapes control characters.
+Invalid UTF-8 bytes (for example, in binary command output) are replaced with `�`
+in the outgoing request without changing the stored transcript. Capped command
+output and history-summary excerpts avoid cutting a UTF-8 character in half.
+
 ### Background tasks
 
 The assistant can use `start_background_task` for long-running commands. Starting

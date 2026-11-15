@@ -27,7 +27,7 @@ function M.execute(name, args, done, active, approve, reads, prepare, source, or
         local errors, status, url = (result.stderr or ''):match('^(.*)\nCODEIT_HTTP:(%d%d%d)\n(.*)$')
         local failed = result.code ~= 0 or not status or tonumber(status) < 200 or tonumber(status) >= 300
         done((failed and 'Error: URL fetch failed\n' or '') .. vim.json.encode({
-          http_status = tonumber(status), final_url = url, body = table.concat(chunks),
+          http_status = tonumber(status), final_url = url, body = require('codeit.utf8').prefix(table.concat(chunks), bytes),
           truncated = truncated, exit_code = result.code,
           error = failed and (vim.trim(errors or result.stderr or '') ~= '' and vim.trim(errors or result.stderr)
             or (result.timed_out and 'Transfer timed out' or 'HTTP ' .. tostring(status))) or nil,

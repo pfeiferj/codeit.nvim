@@ -7,6 +7,27 @@ runner.run({ 'sh', '-c', "printf '%030000d' 0" }, dir, function(value) result = 
 assert(vim.wait(5000, function() return result ~= nil end))
 assert(#result.stdout == 20000 and result.truncated and result.code == 0)
 
+for _, char in ipairs({ 'é', '—', '😀' }) do
+  result = nil
+  runner.run({ 'printf', '%s', string.rep('a', 19999) .. char }, dir, function(value) result = value end)
+  assert(vim.wait(5000, function() return result ~= nil end))
+  assert(result.stdout == string.rep('a', 19999) and result.truncated and result.code == 0)
+end
+
+-- Assemble chunks before trimming: a stream chunk boundary may split valid UTF-8.
+local real_system = vim.system
+vim.system = function(_, options, callback)
+  options.stdout(nil, ('é'):sub(1, 1))
+  options.stdout(nil, ('é'):sub(2) .. 'x')
+  vim.schedule(function() callback({ code = 0 }) end)
+  return { kill = function() end }
+end
+result = nil
+runner.run({ 'fake' }, dir, function(value) result = value end, nil, { max_bytes = 2 })
+assert(vim.wait(1000, function() return result ~= nil end))
+assert(result.stdout == 'é' and result.truncated)
+vim.system = real_system
+
 local active, called = true, false
 runner.run({ 'sh', '-c', 'sleep 0.4; touch child-finished' }, dir, function() called = true end,
   function() return active end, { poll_ms = 10, kill_after_ms = 30 })
