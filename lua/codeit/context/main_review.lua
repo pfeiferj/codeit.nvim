@@ -1,11 +1,12 @@
 local M = {}
 local review = require('codeit.context.review')
+local mcp = require('codeit.tools.mcp')
 
 function M.specs(specs)
   local result = vim.deepcopy(specs)
   for _, definition in ipairs(result) do
     local fn = definition['function']
-    if fn.name ~= 'ask_user' and fn.name ~= 'load_skill' then
+    if fn.name ~= 'ask_user' and fn.name ~= 'load_skill' and not mcp.is_tool(fn.name) then
       local parameters = fn.parameters
       parameters.properties.keep_in_context = { type = 'boolean',
         description = 'Whether to keep this call and its result in future context after the current user turn finishes. False removes both without a summary, but keeps them available throughout this turn. Keep unique implementation details, unresolved errors, and useful verification evidence; remove ephemeral or redundant data only when future work will not need it. When uncertain, use true.' }
@@ -21,7 +22,9 @@ function M.replacements(turn)
   for _, message in ipairs(turn) do
     for _, call in ipairs(message.tool_calls or {}) do
       local ok, args = pcall(vim.json.decode, call['function'].arguments or '')
-      if ok and type(args) == 'table' and args.keep_in_context == false then removed[call.id] = true end
+      if not mcp.is_tool(call['function'].name) and ok and type(args) == 'table' and args.keep_in_context == false then
+        removed[call.id] = true
+      end
     end
   end
   local replacements = {}

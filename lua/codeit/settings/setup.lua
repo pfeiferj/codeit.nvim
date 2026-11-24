@@ -8,6 +8,9 @@ function M.attach(api, session, helpers)
   local defaults = require('codeit.settings.defaults')
   function M.setup(opts)
     session.config = vim.tbl_deep_extend('force', vim.deepcopy(defaults), require('codeit.risk').settings(opts or {}))
+    local mcp_config = session.config.mcp
+    session.config.mcp = require('codeit.tools.mcp').configure(mcp_config)
+    local registries = require('codeit.tools.mcp_registry').configure(mcp_config and mcp_config.registries)
     if type(session.config.compaction) ~= 'table' then error('codeit: compaction must be a table') end
     for _, key in ipairs({ 'summary_tokens', 'output_reserve', 'manual_keep_turns' }) do
       local value = session.config.compaction[key]
@@ -79,7 +82,7 @@ function M.attach(api, session, helpers)
       request_options = vim.deepcopy(session.config.request_options) }
     helpers.apply_settings(settings.resolve(session.base_settings, history.workspace()))
     M.new()
-    require('codeit.commands').register(M)
+    require('codeit.commands').register(M, session.config.mcp, registries)
     require('codeit.log_retention').setup()
   end
 end

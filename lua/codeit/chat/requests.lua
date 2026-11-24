@@ -9,6 +9,7 @@ local context_files = require('codeit.context.files')
 local settings = require('codeit.settings')
 local tool_limit_prompt = require('codeit.tools.limit_prompt')
 local tool_arguments = require('codeit.tools.arguments')
+local mcp = require('codeit.tools.mcp')
 local stream_idle_ms = 10000
 
 function M.attach(api, session, helpers)
@@ -43,6 +44,14 @@ function M.attach(api, session, helpers)
     end
     local main_review = session.config.context_review == 'main'
     local specs = budget.declined and {} or tools.request_specs(session.workspace, approval.workspace_trust(session.workspace), session.selected_skills)
+    if not budget.mcp and session.config.mcp then
+      local configured = require('codeit.tools.mcp_registry').merge(session.config.mcp, session.workspace)
+      budget.mcp = mcp.new(configured, session.workspace, function()
+        return session.busy and id == session.generation and session.workspace == history.workspace()
+      end)
+    end
+    local mcp_specs, mcp_advertised = mcp.specs(not budget.declined and budget.mcp)
+    vim.list_extend(specs, mcp_specs)
     if main_review then specs = require('codeit.context.main_review').specs(specs) end
     local limit = budget.long_context_limit or (session.config.max_context_tokens == nil and detected_limit or session.config.max_context_tokens)
     local selected_config = budget.long_context or helpers.request_config()
@@ -166,7 +175,7 @@ function M.attach(api, session, helpers)
         local fn = call['function']
         local raw = fn.arguments
         local arguments, _, canonical = tool_arguments.decode(raw, session.config.tool_json_healing)
-        if main_review and arguments and arguments.keep_in_context ~= nil then
+        if main_review and not mcp.is_tool(fn.name) and arguments and arguments.keep_in_context ~= nil then
           arguments = vim.deepcopy(arguments)
           arguments.keep_in_context = nil
         end
@@ -257,7 +266,7 @@ function M.attach(api, session, helpers)
           if type(fn) == 'table' then
             local args = decoded_arguments[index]
             if fn.name == 'ask_user' then break end -- Later calls may be invalidated by the answer.
-            if args and type(fn.name) == 'string' and not tools.validate(fn.name, args) then
+            if args and type(fn.name) == 'string' and not mcp.is_tool(fn.name) and not tools.validate(fn.name, args) then
               local prefetched, assessment = pcall(approval.prefetch, fn.name, args,
                 { user_request = user_request, review = review, decide = decide, source_buffer = session.source },
                 function() return id == session.generation end)
@@ -357,6 +366,8 @@ function M.attach(api, session, helpers)
             prepare = prepare,
             read_versions = session.read_versions,
             skill_selections = session.selected_skills,
+            mcp_state = budget.mcp,
+            mcp_advertised = mcp_advertised,
           })
         end
         next_call(1)

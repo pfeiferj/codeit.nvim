@@ -497,6 +497,8 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitContext` | Inspect effective context and edit its summary |
 | `:CodeitContextFull` | Edit the full effective request context as JSON |
 | `:CodeitContextFiles` | Toggle instruction files and skills |
+| `:CodeitMcpRegistry [query]` | Browse or search an MCP registry, preview live tools, or install a remote server |
+| `:CodeitMcpInstalled` | List or remove registry-installed servers |
 | `:CodeitSystemPrompt` | Edit the current conversation's system prompt |
 | `:CodeitSettings` | Configure providers, models, presets, and request options |
 | `:CodeitProvider {openrouter\|copilot\|codex\|openai}` | Switch providers and start a fresh chat |
@@ -509,6 +511,94 @@ Text sent to providers preserves valid Unicode and JSON-escapes control characte
 Invalid UTF-8 bytes (for example, in binary command output) are replaced with `�`
 in the outgoing request without changing the stored transcript. Capped command
 output and history-summary excerpts avoid cutting a UTF-8 character in half.
+
+### MCP servers
+
+Configure remote or local Model Context Protocol (MCP) servers in your Neovim setup:
+
+```lua
+require('codeit').setup({
+  mcp = {
+    servers = {
+      github = {
+        url = 'https://api.githubcopilot.com/mcp/',
+        description = 'Work with GitHub repositories and issues',
+        bearer_token_env = 'GITHUB_TOKEN', -- A GitHub PAT with the permissions you need.
+      },
+      docs = {
+        command = '/absolute/path/to/docs-mcp',
+        args = { '--stdio' },
+        description = 'Search internal documentation',
+        enabled = false, -- Optional; defaults to true when configured.
+        timeout_ms = 30000, -- Optional; per MCP request.
+        -- env = { DOCS_TOKEN = vim.env.DOCS_TOKEN }, -- Optional environment overrides.
+      },
+    },
+    workspaces = {
+      ['~/work/project'] = { docs = true },  -- Enable a globally disabled server.
+      ['~/work/sandbox'] = { docs = false }, -- Disable a server in one workspace.
+    },
+  },
+})
+```
+
+`workspaces` keys match Codeit's workspace (the current working directory, with
+symlinks resolved when possible). Overrides affect only the named workspace and
+only its enable switches; repositories cannot supply server commands. Use
+`description` to help the model decide which server to discover. Commands and
+environment overrides are not advertised to the model.
+
+At the start of a turn, the model sees only the enabled server names and their
+short descriptions. It can discover a server's catalog and activate a specific
+tool. On the next round, that tool is exposed as a regular model function with
+its own input schema. Activated schemas and server connections last only for
+the current turn. MCP tools count toward the normal tool-round limit.
+
+Codeit asks before starting a local server or connecting to a remote server, and
+before each tool call, even in trusted workspaces. Local servers inherit your
+environment and run with your permissions; they are **not sandboxed**. Remote
+servers receive the configured headers and any approved tool arguments. Results
+are included in chat context and may be stored in history.
+
+Remote servers use **Streamable HTTP** (JSON and SSE responses) and require
+`curl`. Prefer HTTPS. Use `bearer_token_env = 'TOKEN_NAME'` for bearer auth,
+`header_env = { ['X-API-Key'] = 'TOKEN_NAME' }` for another header, or `headers`
+for fixed non-secret values. Browser OAuth login and legacy SSE transport are
+not supported. MCP resources, prompts, and subagent access are not supported.
+
+#### MCP registries
+
+Run `:CodeitMcpRegistry` to browse, or `:CodeitMcpRegistry github` to start with
+`github` as the search query. Choose between the built-in GitHub registry
+(`api.mcp.github.com`) and the official MCP Registry. Registry search matches
+server metadata, not individual tools. Select an endpoint and **Preview and
+search live tools** to connect and filter its current tool catalog without
+installing it or invoking any tools.
+
+Select **Install in this workspace** or **Install globally** to save the selected
+HTTPS endpoint. Installation saves configuration only: it does not contact the
+endpoint, download packages, or run code. When prompted for credentials, enter
+an **environment variable name**, not a token. For GitHub's hosted MCP server,
+use `GITHUB_TOKEN` as the bearer token variable (or as the full `Authorization`
+header value's variable if the manifest requests that instead). The registry
+and the hosted MCP server are separate endpoints with separate authentication.
+
+Installed servers are available on the next chat turn. Use `:CodeitMcpInstalled`
+to remove them. A global install can still be disabled with an `mcp.workspaces`
+override using its displayed server ID. Codeit can browse manifests for local
+packages and legacy transports but only installs concrete HTTPS Streamable HTTP
+endpoints.
+
+Add another registry that implements the MCP Registry v0.1 API in `setup()`:
+
+```lua
+mcp = {
+  registries = {
+    internal = { url = 'https://registry.example.com', bearer_token_env = 'REGISTRY_TOKEN' },
+    -- official = false, -- Hide a built-in registry.
+  },
+}
+```
 
 ### Background tasks
 

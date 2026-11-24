@@ -4,6 +4,7 @@ local window_tools = require('codeit.tools.windows')
 local approval = require('codeit.tools.approval')
 local file_buffer = require('codeit.file_buffer')
 local tool_log = require('codeit.tools.log')
+local mcp = require('codeit.tools.mcp')
 
 local gated = { edit_file = true, edit_loaded_buffer = true, edit_source_buffer = true,
   create_file = true, save_buffer = true, save_loaded_buffer = true, save_source_buffer = true,
@@ -124,7 +125,8 @@ end
 
 --- Execute a tool and call done(result_string, optional_cancel_signal).
 function M.execute(name, args, source, done, active, context)
-  args = require('codeit.risk').assessment(args)
+  local external = mcp.is_tool(name)
+  if not external then args = require('codeit.risk').assessment(args) end
   local completed, callback = false, done
   local entry = context and context.tool_log_entry or tool_log.start(name, args)
   done = function(result, signal)
@@ -141,6 +143,7 @@ function M.execute(name, args, source, done, active, context)
     end
   end
   return safe(function()
+    if external then return mcp.execute(name, args, source, done, active, context, safe) end
     -- Validate before approval and editor API calls.
     local invalid = M.validate(name, args, context)
     if invalid then return done('Error: ' .. invalid) end

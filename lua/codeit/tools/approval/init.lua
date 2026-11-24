@@ -525,8 +525,9 @@ function M.request(name, args, prompt, active, done, action, context)
     end
     return action()
   end
-  local needs_command_check = command_approved and verdict ~= 'ask'
-  if not needs_command_check and not save_tools[name] then
+  local once_only = save_tools[name] or context.external_tool
+  local needs_command_check = command_approved and verdict ~= 'ask' and not once_only
+  if not needs_command_check and not once_only then
     if verdict == 'approve' then return automatically('validator') end
     if verdict ~= 'ask' then
       if remembered[signature] then return automatically('remembered_exact_call') end
@@ -543,7 +544,7 @@ function M.request(name, args, prompt, active, done, action, context)
   end
 
   local function live() return not active or active() end
-  local skip_summary = context.diff or save_tools[name] or require('codeit.tools.windows').names[name]
+  local skip_summary = context.diff or once_only or require('codeit.tools.windows').names[name]
     or workspace_read(name, args, context, workspace)
   local has_assessor = not M.risk_review_disabled()
     and (M.uses_decisions() and context.decide or not M.uses_decisions() and context.review)
@@ -559,6 +560,7 @@ function M.request(name, args, prompt, active, done, action, context)
   end
   local function prompt_text()
     return approval_format.call(name, args)
+      .. (context.external_tool and ('\n\n**External action:** ' .. context.external_tool) or '')
       .. (context.skill_resource_path and ('\n\n**Resolved resource:** ' .. canonical(context.skill_resource_path)) or '')
       .. (skip_summary and '' or '\n\nSummary: ' .. summary
         .. (M.risk_review_disabled() and '' or '\n\n**Risk score:** '
@@ -602,8 +604,8 @@ function M.request(name, args, prompt, active, done, action, context)
       { key = '3', id = 'reject', label = 'Reject (optional reason)' },
       { key = '4', id = 'cancel', label = 'Cancel task' },
     }
-    if save_tools[name] then
-      options[1].label = 'Save ALL buffer changes once'
+    if once_only then
+      if save_tools[name] then options[1].label = 'Save ALL buffer changes once' end
       table.remove(options, 2)
       for index, option in ipairs(options) do option.key = tostring(index) end
     end
@@ -624,7 +626,7 @@ function M.request(name, args, prompt, active, done, action, context)
           vim.notify('codeit: wait for the risk assessment before approving', vim.log.levels.WARN)
           return choose()
         end
-        if choice == 'always' and save_tools[name] then return done('Rejected: saving requires approval once') end
+        if choice == 'always' and once_only then return done('Rejected: this call requires approval once') end
         local function approve()
           if not live() then return end
           -- Never persist an approval that would bypass future typed confirmations.
