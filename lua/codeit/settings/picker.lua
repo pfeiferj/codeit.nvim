@@ -32,7 +32,7 @@ local function boolean_label(value)
   return '(provider default)'
 end
 
-function M.show(current, apply, live)
+function M.show(current, apply, live, mcp)
   local draft = require('codeit.risk').settings(current)
   draft.feature_settings = draft.feature_settings or {}
   draft.model_presets = draft.model_presets or {}
@@ -287,6 +287,9 @@ function M.show(current, apply, live)
       .. tool_call_risk_label((draft.approval or {}).tool_call_risk) }
     items[#items + 1] = { id = 'context_review_mode', section = 'Context', label = 'Context review: '
       .. context_review_label(draft.context_review) }
+    if mcp and mcp.base then
+      items[#items + 1] = { id = 'mcp', label = 'MCP servers and registries', section = 'MCP' }
+    end
     local wiki = draft.personal_wiki or require('codeit.settings.defaults').personal_wiki
     items[#items + 1] = { id = 'wiki_enabled', section = 'Personal wiki', label = 'Automatic wiki updates: '
       .. (wiki.enabled and 'Enabled' or 'Disabled') }
@@ -322,6 +325,8 @@ function M.show(current, apply, live)
           if provider then draft.provider = provider end
           menu()
         end)
+      elseif id == 'mcp' then
+        require('codeit.settings.mcp_picker').show(mcp, valid, menu)
       elseif id == 'tool_call_risk' then
         select({ false, 'summary', true, 'decisions', 'disabled' }, { prompt = 'Tool-call risk assessment source',
           format_item = tool_call_risk_label }, function(value)

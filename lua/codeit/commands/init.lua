@@ -13,11 +13,16 @@ function M.tasks()
     { desc = 'View background tasks, live logs, and cancel running tasks', force = true })
 end
 
-function M.register(api, mcp_config, registries, oauth_cache)
+function M.register(api, mcp_config)
   local M = api
-  if registries then
+  if mcp_config then
     vim.api.nvim_create_user_command('CodeitMcpRegistry', function(args)
-      require('codeit.tools.mcp_registry').browse(registries, mcp_config, args.args, oauth_cache)
+      local settings = require('codeit.settings.mcp')
+      local workspace = require('codeit.chat.storage').workspace()
+      local saved = settings.read()
+      local base, registries, oauth_cache = mcp_config()
+      require('codeit.tools.mcp_registry').browse(settings.registries(registries, saved),
+        settings.resolve(base, workspace, saved), args.args, oauth_cache)
     end, { nargs = '*', desc = 'Browse or search MCP registries and install remote servers', force = true })
     vim.api.nvim_create_user_command('CodeitMcpInstalled', function()
       require('codeit.tools.mcp_registry').manage()

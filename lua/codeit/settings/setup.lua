@@ -11,7 +11,7 @@ function M.attach(api, session, helpers)
     session.mcp_oauth_cache = {}
     local mcp_config = session.config.mcp
     session.config.mcp = require('codeit.tools.mcp').configure(mcp_config)
-    local registries = require('codeit.tools.mcp_registry').configure(mcp_config and mcp_config.registries)
+    session.mcp_registries = require('codeit.tools.mcp_registry').configure(mcp_config and mcp_config.registries)
     if type(session.config.compaction) ~= 'table' then error('codeit: compaction must be a table') end
     for _, key in ipairs({ 'summary_tokens', 'output_reserve', 'manual_keep_turns' }) do
       local value = session.config.compaction[key]
@@ -71,7 +71,8 @@ function M.attach(api, session, helpers)
       feature_settings = session.config.feature_settings, context_review = session.config.context_review,
       personal_wiki = session.config.personal_wiki,
       approval = { tool_call_risk = session.config.approval.tool_call_risk },
-      model_presets = session.config.model_presets, request_options = session.config.request_options })
+      model_presets = session.config.model_presets, request_options = session.config.request_options,
+      mcp = session.config.mcp })
     if not valid then error('codeit: ' .. settings_err) end
     session.base_settings = { provider = session.config.provider, models = vim.deepcopy(session.config.models),
       context_review = session.config.context_review,
@@ -79,11 +80,15 @@ function M.attach(api, session, helpers)
       max_context_tokens = session.config.max_context_tokens == nil and 'auto' or session.config.max_context_tokens,
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),
+      mcp = vim.deepcopy(mcp_config or {}),
       approval = { tool_call_risk = session.config.approval.tool_call_risk },
       request_options = vim.deepcopy(session.config.request_options) }
     helpers.apply_settings(settings.resolve(session.base_settings, history.workspace()))
     M.new()
-    require('codeit.commands').register(M, session.config.mcp, registries, session.mcp_oauth_cache)
+    require('codeit.commands').register(M, function()
+      helpers.sync_workspace()
+      return session.config.mcp, session.mcp_registries, session.mcp_oauth_cache
+    end)
     require('codeit.log_retention').setup()
   end
 end

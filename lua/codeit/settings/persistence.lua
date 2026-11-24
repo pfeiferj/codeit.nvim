@@ -36,7 +36,8 @@ function M.resolve(base, workspace)
           personal_wiki = vim.deepcopy(saved.personal_wiki or previous.personal_wiki),
           approval = vim.tbl_extend('force', {}, previous.approval or {}, saved.approval or {}),
           request_options = vim.deepcopy(saved.request_options),
-          feature_settings = vim.deepcopy(saved.feature_settings), model_presets = vim.deepcopy(saved.model_presets) }
+          feature_settings = vim.deepcopy(saved.feature_settings), model_presets = vim.deepcopy(saved.model_presets),
+          mcp = vim.deepcopy(saved.mcp or previous.mcp) }
         if result.max_context_tokens == nil then result.max_context_tokens = previous.max_context_tokens end
         if result.context_review == nil then result.context_review = previous.context_review end
         for _, key in ipairs({ 'feature_settings', 'model_presets' }) do
@@ -46,6 +47,24 @@ function M.resolve(base, workspace)
     end
   end
   return result
+end
+
+local function write(data)
+  local path = filename()
+  local dir = vim.fn.fnamemodify(path, ':h')
+  vim.fn.mkdir(dir, 'p')
+  local temporary = path .. '.' .. tostring(vim.uv.hrtime()) .. '.tmp'
+  local fd, err = vim.uv.fs_open(temporary, 'w', 384)
+  if not fd then return false, err end
+  local encoded = vim.json.encode(data)
+  local written
+  written, err = vim.uv.fs_write(fd, encoded, 0)
+  vim.uv.fs_close(fd)
+  if written ~= #encoded then vim.uv.fs_unlink(temporary); return false, err or 'incomplete settings write' end
+  local ok
+  ok, err = vim.uv.fs_rename(temporary, path)
+  if not ok then vim.uv.fs_unlink(temporary) end
+  return ok, err
 end
 
 function M.save(settings, scope, workspace)
@@ -59,23 +78,28 @@ function M.save(settings, scope, workspace)
   local data
   data, err = read()
   if not data then return false, err end
+  local previous = scope == 'global' and data.global or scope == 'workspace' and data.workspaces[workspace]
+  if settings.mcp == nil and type(previous) == 'table' then settings.mcp = previous.mcp end
   if scope == 'global' then data.global = vim.deepcopy(settings)
   else data.workspaces[workspace] = vim.deepcopy(settings) end
-  local path = filename()
-  local dir = vim.fn.fnamemodify(path, ':h')
-  vim.fn.mkdir(dir, 'p')
-  local temporary = path .. '.' .. tostring(vim.uv.hrtime()) .. '.tmp'
-  local fd
-  fd, err = vim.uv.fs_open(temporary, 'w', 384)
-  if not fd then return false, err end
-  local encoded = vim.json.encode(data)
-  local written
-  written, err = vim.uv.fs_write(fd, encoded, 0)
-  vim.uv.fs_close(fd)
-  if written ~= #encoded then vim.uv.fs_unlink(temporary); return false, err or 'incomplete settings write' end
-  ok, err = vim.uv.fs_rename(temporary, path)
-  if not ok then vim.uv.fs_unlink(temporary) end
-  return ok, err
+  return write(data)
+end
+
+function M.read_mcp()
+  local data, err = read()
+  if not data then return nil, err end
+  if data.mcp ~= nil and type(data.mcp) ~= 'table' then return nil, 'invalid saved MCP settings' end
+  return data.mcp or {}
+end
+
+function M.update_mcp(update)
+  local data, err = read()
+  if not data then return nil, err end
+  if data.mcp ~= nil and type(data.mcp) ~= 'table' then return nil, 'invalid saved MCP settings' end
+  local next_mcp, failure = update(data.mcp or {})
+  if not next_mcp then return nil, failure end
+  data.mcp = next_mcp
+  return write(data)
 end
 
 return M

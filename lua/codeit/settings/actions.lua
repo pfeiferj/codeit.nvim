@@ -14,7 +14,8 @@ function M.attach(api, session, helpers)
       model_presets = vim.deepcopy(session.config.model_presets),
       feature_settings = vim.deepcopy(session.config.feature_settings),
       approval = { tool_call_risk = session.config.approval.tool_call_risk },
-      request_options = vim.deepcopy(session.config.request_options) }
+      request_options = vim.deepcopy(session.config.request_options),
+      mcp = vim.deepcopy(session.mcp_raw) }
     values.models[session.config.provider] = helpers.model()
     return values
   end
@@ -40,7 +41,9 @@ function M.attach(api, session, helpers)
     scope = scope or 'session'
     if not vim.tbl_contains({ 'session', 'global', 'workspace' }, scope) then return false, 'invalid settings scope' end
     if scope ~= 'session' then
-      ok, err = settings.save(values, scope, session.workspace)
+      local snapshot = vim.deepcopy(values)
+      if vim.deep_equal(snapshot.mcp, session.mcp_raw) then snapshot.mcp = nil end
+      ok, err = settings.save(snapshot, scope, session.workspace)
       if not ok then return false, err end
     end
     local changed = values.provider ~= session.config.provider or values.models[values.provider] ~= helpers.model()
@@ -64,7 +67,7 @@ function M.attach(api, session, helpers)
       else vim.notify('codeit: settings applied (' .. scope .. ')') end
     end, function()
       return not session.busy and session.generation == view_generation and history.workspace() == selected_workspace
-    end)
+    end, { base = session.config.mcp, registries = session.mcp_registries, workspace = selected_workspace })
   end
 end
 

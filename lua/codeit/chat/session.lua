@@ -35,6 +35,12 @@ function M.attach(api, session, helpers)
     session.config.model_presets = vim.deepcopy(values.model_presets or session.config.model_presets or {})
     session.config.feature_settings = vim.deepcopy(values.feature_settings or session.config.feature_settings or {})
     session.config.request_options = vim.deepcopy(values.request_options)
+    if values.mcp ~= nil then
+      session.mcp_raw = vim.deepcopy(values.mcp)
+      session.config.mcp = require('codeit.tools.mcp').configure(values.mcp)
+      session.mcp_registries = require('codeit.tools.mcp_registry').configure(values.mcp.registries)
+      session.mcp_oauth_cache = session.mcp_oauth_cache or {}
+    end
     if values.approval and values.approval.tool_call_risk ~= nil
       and values.approval.tool_call_risk ~= session.config.approval.tool_call_risk then
       session.config.approval.tool_call_risk = values.approval.tool_call_risk

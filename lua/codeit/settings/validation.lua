@@ -21,6 +21,12 @@ function M.validate(settings)
     end
   end
 
+  if settings.mcp ~= nil then
+    local ok, err = pcall(require('codeit.tools.mcp').configure, settings.mcp)
+    if ok then ok, err = pcall(require('codeit.tools.mcp_registry').configure, settings.mcp.registries) end
+    if not ok then return false, tostring(err):gsub('^codeit: ', '') end
+  end
+
   if settings.personal_wiki ~= nil then
     local wiki = settings.personal_wiki
     if type(wiki) ~= 'table' or type(wiki.enabled) ~= 'boolean'

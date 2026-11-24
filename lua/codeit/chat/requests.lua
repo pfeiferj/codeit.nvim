@@ -45,7 +45,7 @@ function M.attach(api, session, helpers)
     local main_review = session.config.context_review == 'main'
     local specs = budget.declined and {} or tools.request_specs(session.workspace, approval.workspace_trust(session.workspace), session.selected_skills)
     if not budget.mcp and session.config.mcp then
-      local configured = require('codeit.tools.mcp_registry').merge(session.config.mcp, session.workspace)
+      local configured = require('codeit.settings.mcp').resolve(session.config.mcp, session.workspace)
       budget.mcp = mcp.new(configured, session.workspace, function()
         return session.busy and id == session.generation and session.workspace == history.workspace()
       end, session.mcp_oauth_cache)

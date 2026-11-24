@@ -514,7 +514,21 @@ output and history-summary excerpts avoid cutting a UTF-8 character in half.
 
 ### MCP servers
 
-Configure remote or local Model Context Protocol (MCP) servers in your Neovim setup:
+Open **`:CodeitSettings` → MCP servers and registries** to configure MCP without
+editing Lua. In **Servers and workspace overrides**, add a global remote or
+stdio server, or select a server to change its global default and its current
+workspace override. Choose **Inherit** to remove an override. You can edit
+connections added in settings or installed from a registry; connections
+provided by `setup()` keep their Lua definitions. To remove a registry install,
+use `:CodeitMcpInstalled`.
+
+The **Registries** menu manages registry URLs and environment-variable names
+for authentication, and lets you disable or restore built-in registries. MCP
+changes are saved from their own menus and take effect on the next chat turn
+or registry browse. Enter environment-variable names, not token values, and
+keep credentials out of endpoint URLs and stdio arguments.
+
+You can also configure remote or local Model Context Protocol (MCP) servers in your Neovim setup:
 
 ```lua
 require('codeit').setup({

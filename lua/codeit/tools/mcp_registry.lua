@@ -119,7 +119,7 @@ end
 
 local function notify(message) vim.notify('codeit: ' .. message) end
 
-function M.install(config, id, server, workspace)
+local function install_definition(id, server)
   local ok, normalized = pcall(require('codeit.tools.mcp').configure, { servers = { [id] = server } })
   if not ok then return nil, normalized end
   local installed = normalized.servers[id]
@@ -128,10 +128,30 @@ function M.install(config, id, server, workspace)
   end
   if installed.headers and next(installed.headers) then return nil, 'Registry installs require environment references for headers' end
   installed.headers = nil
+  return installed
+end
+
+function M.install(config, id, server, workspace)
+  local installed, failure = install_definition(id, server)
+  if not installed then return nil, failure end
   local entries, err = load()
   if not entries then return nil, err end
   if entries[id] or config.servers[id] then return nil, 'Server ID is already installed or configured: ' .. id end
   entries[id] = { server = installed, workspace = workspace }
+  return save(entries)
+end
+
+function M.update_install(id, server, workspace)
+  local installed, failure = install_definition(id, server)
+  if not installed then return nil, failure end
+  local entries, err = load()
+  if not entries then return nil, err end
+  local entry = entries[id]
+  if type(entry) ~= 'table' or (entry.workspace and entry.workspace ~= workspace) then
+    return nil, 'MCP registry install is no longer available in this workspace'
+  end
+  installed.enabled = type(entry.server) ~= 'table' or entry.server.enabled ~= false
+  entry.server = installed
   return save(entries)
 end
 
