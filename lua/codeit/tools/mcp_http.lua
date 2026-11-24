@@ -46,8 +46,11 @@ function M.request(method, url, headers, body, timeout, done, stream)
     '--globoff', '--proto', '=http,https', '--max-time', tostring(timeout / 1000), '--request', method, '--config', '-', '--', url }
   local config = {}
   for name, value in pairs(headers) do config[#config + 1] = 'header = ' .. quote(name .. ': ' .. value) end
-  -- A JSON value always starts with '{', so curl cannot interpret this as a filename.
-  if body then config[#config + 1] = 'data-binary = ' .. quote(vim.json.encode(body)) end
+  if body then
+    local encoded = type(body) == 'string' and body or vim.json.encode(body)
+    if encoded:sub(1, 1) == '@' then done(nil, 'Invalid MCP HTTP request body'); return function() end end
+    config[#config + 1] = 'data-binary = ' .. quote(encoded)
+  end
   local process, status, response_headers
   local output, preamble, bytes, finished = {}, '', 0, false
   local function cancel()

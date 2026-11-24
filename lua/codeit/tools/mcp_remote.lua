@@ -2,9 +2,10 @@ local M = {}
 local http = require('codeit.tools.mcp_http')
 local versions = { '2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05' }
 
-function M.start(server, _, active, ready)
+local function connect(server, active, ready, token, invalidate)
   local headers, err = http.headers(server)
   if not headers then return ready(nil, err) end
+  if token then headers.Authorization = 'Bearer ' .. token end
   local client, serial, session, version = {}, 0, nil, nil
   local pending, timer, leave
   headers.Accept = 'application/json, text/event-stream'
@@ -32,11 +33,11 @@ function M.start(server, _, active, ready)
     local id = not notification and serial or nil
     local request = {}
     pending = request
-    local function finish(result, failure)
+    local function finish(result, failure, challenge)
       if pending ~= request then return end
       pending = nil
       if request.cancel then request.cancel() end
-      if active() then done(result, failure) else client.close() end
+      if active() then done(result, failure, challenge) else client.close() end
     end
     local function receive(value, response_headers)
       if type(value) ~= 'table' or value.jsonrpc ~= '2.0' then return finish(nil, 'Invalid MCP JSON-RPC response') end
@@ -97,7 +98,15 @@ function M.start(server, _, active, ready)
         return
       end
       if response.status == 401 or response.status == 403 then
-        return finish(nil, 'MCP endpoint returned HTTP ' .. response.status .. '; check authentication and permissions')
+        local failure = 'MCP endpoint returned HTTP ' .. response.status .. '; check authentication and permissions'
+        if response.status == 401 and server.oauth then
+          if token then invalidate(token) end
+          if method == 'initialize' then return finish(nil, failure, response.headers['www-authenticate'] or '') end
+          client.close(true)
+          if active() then done(nil, failure .. '; rediscover the server to sign in again') end
+          return
+        end
+        return finish(nil, failure)
       end
       if response.status < 200 or response.status >= 300 then
         return finish(nil, 'MCP endpoint returned HTTP ' .. response.status)
@@ -121,17 +130,31 @@ function M.start(server, _, active, ready)
   end })
   client.request('initialize', {
     protocolVersion = versions[1], capabilities = vim.empty_dict(), clientInfo = { name = 'codeit.nvim', version = '1' },
-  }, function(result, failure)
+  }, function(result, failure, challenge)
     if not result or not vim.tbl_contains(versions, result.protocolVersion) or type(result.capabilities) ~= 'table'
       or type(result.capabilities.tools) ~= 'table' then
       client.close()
-      return ready(nil, failure or 'MCP server did not negotiate a supported tools protocol')
+      return ready(nil, failure or 'MCP server did not negotiate a supported tools protocol', challenge)
     end
     version = result.protocolVersion
     rpc('notifications/initialized', nil, true, function(ok, notify_err)
       if ok then ready(client) else client.close(); ready(nil, notify_err) end
     end)
   end)
+end
+
+function M.start(server, _, active, ready, cache)
+  if not server.oauth then return connect(server, active, ready) end
+  local oauth = require('codeit.tools.mcp_oauth')
+  cache = cache or {}
+  local function invalidate(token) oauth.invalidate(server, cache, token) end
+  connect(server, active, function(client, failure, challenge)
+    if client or challenge == nil then return ready(client, failure) end
+    oauth.login(server, challenge, cache, active, function(token, err)
+      if not token then return ready(nil, err) end
+      connect(server, active, function(connected, connect_err) ready(connected, connect_err) end, token, invalidate)
+    end)
+  end, oauth.token(server, cache), invalidate)
 end
 
 return M

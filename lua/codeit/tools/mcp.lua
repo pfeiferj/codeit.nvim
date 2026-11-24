@@ -53,11 +53,20 @@ function M.configure(config)
     for key, value in pairs(server.env or {}) do
       check(text(key, 512) and not key:find('=', 1, true) and type(value) == 'string' and not value:find('%z'), field .. '.env')
     end
+    local oauth = require('codeit.tools.mcp_oauth').configure(server.oauth, server.url)
+    if oauth then
+      check(not server.bearer_token_env, field .. ' (OAuth cannot be combined with a bearer token)')
+      for _, map in ipairs({ 'headers', 'header_env' }) do
+        for key in pairs(server[map] or {}) do
+          check(key:lower() ~= 'authorization', field .. ' (OAuth sets the Authorization header)')
+        end
+      end
+    end
     local timeout = server.timeout_ms == nil and 30000 or server.timeout_ms
     check(type(timeout) == 'number' and timeout >= 100 and timeout <= 300000 and timeout % 1 == 0, field .. '.timeout_ms')
     validated.servers[id] = { command = server.command, args = not remote and vim.deepcopy(server.args or {}) or nil,
       url = server.url, headers = vim.deepcopy(server.headers), header_env = vim.deepcopy(server.header_env),
-      bearer_token_env = server.bearer_token_env, env = vim.deepcopy(server.env), enabled = server.enabled ~= false,
+      bearer_token_env = server.bearer_token_env, oauth = oauth, env = vim.deepcopy(server.env), enabled = server.enabled ~= false,
       description = server.description, timeout_ms = timeout }
   end
   for path, overrides in pairs(workspaces) do
@@ -74,8 +83,8 @@ function M.configure(config)
   return validated
 end
 
-function M.new(config, workspace, active)
-  return { config = config, workspace = workspace, active = active, connections = {}, tools = {} }
+function M.new(config, workspace, active, oauth_cache)
+  return { config = config, workspace = workspace, active = active, connections = {}, tools = {}, oauth_cache = oauth_cache }
 end
 
 local function server_for(state, id)
@@ -228,7 +237,7 @@ function M.execute(name, args, source, done, active, context, safe)
           end
         end
         discover(state, args, connection, done)
-      end)
+      end, state.oauth_cache)
     end)
     return
   end

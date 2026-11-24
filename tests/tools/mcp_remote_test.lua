@@ -160,7 +160,7 @@ assert(registry.merge(config, '/workspace').servers.installed.bearer_token_env =
 local saved = table.concat(vim.fn.readfile(vim.fn.stdpath('data') .. '/codeit/mcp-installs.json'), '\n')
 assert(saved:find('TEST_MCP_TOKEN', 1, true) and not saved:find('test-token', 1, true))
 assert(not registry.install(config, 'literal', { url = remotes[1].url, headers = { Authorization = 'secret' } }))
-local selections = { 1, 3, 1, 3 }
+local selections = { 1, 3, 1, 3, 2 }
 vim.ui.select = function(items, opts, cb)
   local index = table.remove(selections, 1)
   assert(index and items[index], opts.prompt)

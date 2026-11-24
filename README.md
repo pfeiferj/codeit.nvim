@@ -563,8 +563,42 @@ are included in chat context and may be stored in history.
 Remote servers use **Streamable HTTP** (JSON and SSE responses) and require
 `curl`. Prefer HTTPS. Use `bearer_token_env = 'TOKEN_NAME'` for bearer auth,
 `header_env = { ['X-API-Key'] = 'TOKEN_NAME' }` for another header, or `headers`
-for fixed non-secret values. Browser OAuth login and legacy SSE transport are
-not supported. MCP resources, prompts, and subagent access are not supported.
+for fixed non-secret values. Legacy SSE transport, MCP resources, prompts, and
+subagent access are not supported.
+
+For browser sign-in, set `oauth = true` on a remote server instead of
+`bearer_token_env`. When the server requests authentication, Codeit discovers
+its OAuth issuer and asks before opening the browser. The issuer must support
+PKCE (S256). Codeit uses public dynamic client registration when available;
+otherwise configure a registered client ID, for example:
+
+```lua
+oauth = { client_id = 'your-public-client-id', redirect_port = 33418 }
+```
+
+Codeit defaults to desktop VS Code's callback, `http://127.0.0.1:33418/`, and
+picks a free loopback port if the default is busy. If your issuer requires an
+exact redirect URL, register that URL and set `oauth.redirect_port = 33418`
+to prevent fallback. For a custom port, register `http://127.0.0.1:<port>/`.
+Replace any previously registered Codeit `/callback` path with `/`.
+Set `oauth.scopes` only if you need to override the scopes advertised by the server.
+Tokens are kept in memory for the current Neovim session and refreshed when the
+issuer supplies a refresh token. An issuer that accepts `client_secret_post`
+can use `client_secret_env` with an explicitly pinned HTTPS `issuer`:
+
+```lua
+oauth = {
+  issuer = 'https://github.com/login/oauth',
+  client_id = 'your-github-app-client-id',
+  client_secret_env = 'GITHUB_MCP_CLIENT_SECRET',
+  redirect_port = 33418,
+}
+```
+
+GitHub's hosted MCP issuer does not currently advertise dynamic registration;
+register your own client to use OAuth, or use a PAT via `bearer_token_env`.
+For registered clients needing a secret or a fixed callback port, use `setup()`
+rather than the registry's public-client OAuth picker.
 
 #### MCP registries
 
@@ -577,8 +611,9 @@ installing it or invoking any tools.
 
 Select **Install in this workspace** or **Install globally** to save the selected
 HTTPS endpoint. Installation saves configuration only: it does not contact the
-endpoint, download packages, or run code. When prompted for credentials, enter
-an **environment variable name**, not a token. For GitHub's hosted MCP server,
+endpoint, download packages, or run code. Choose **Browser OAuth** for a
+compatible issuer, or choose token authentication and enter an **environment
+variable name**, not a token. For GitHub's hosted MCP server,
 use `GITHUB_TOKEN` as the bearer token variable (or as the full `Authorization`
 header value's variable if the manifest requests that instead). The registry
 and the hosted MCP server are separate endpoints with separate authentication.

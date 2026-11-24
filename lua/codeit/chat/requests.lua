@@ -48,7 +48,7 @@ function M.attach(api, session, helpers)
       local configured = require('codeit.tools.mcp_registry').merge(session.config.mcp, session.workspace)
       budget.mcp = mcp.new(configured, session.workspace, function()
         return session.busy and id == session.generation and session.workspace == history.workspace()
-      end)
+      end, session.mcp_oauth_cache)
     end
     local mcp_specs, mcp_advertised = mcp.specs(not budget.declined and budget.mcp)
     vim.list_extend(specs, mcp_specs)

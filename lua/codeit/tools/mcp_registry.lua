@@ -135,7 +135,7 @@ function M.install(config, id, server, workspace)
   return save(entries)
 end
 
-local function configure_auth(remote, done)
+local function configure_auth(remote, use_oauth, done)
   local config = { url = remote.url, header_env = {} }
   local headers = vim.islist(remote.headers) and remote.headers or {}
   if #headers > 32 then return notify('Too many registry header definitions') end
@@ -143,6 +143,14 @@ local function configure_auth(remote, done)
   local function next_header(index)
     local header = headers[index]
     if not header then
+      if use_oauth then
+        return vim.ui.input({ prompt = 'Public OAuth client ID (blank for dynamic registration): ' }, function(value)
+          if value then
+            config.oauth = { client_id = value ~= '' and value or nil }
+            done(config)
+          end
+        end)
+      end
       if has_auth then return done(config) end
       return vim.ui.input({ prompt = 'Bearer token environment variable (blank for none): ' }, function(value)
         if not value then return end
@@ -153,6 +161,7 @@ local function configure_auth(remote, done)
     end
     if type(header) ~= 'table' or not http.header(header.name) then return notify('Invalid registry header definition') end
     local authorization = header.name:lower() == 'authorization'
+    if use_oauth and authorization then return next_header(index + 1) end
     has_auth = has_auth or authorization
     local bearer = authorization and type(header.value) == 'string' and header.value:match('^[Bb]earer%s')
     local hint = bearer and 'Bearer token' or 'value'
@@ -171,7 +180,7 @@ local function configure_auth(remote, done)
   next_header(1)
 end
 
-local function preview(server)
+local function preview(server, oauth_cache)
   local ok, normalized = pcall(require('codeit.tools.mcp').configure, { servers = { preview = server } })
   if not ok then return notify(normalized) end
   require('codeit.tools.mcp_remote').start(normalized.servers.preview, nil, function() return true end, function(client, err)
@@ -193,10 +202,10 @@ local function preview(server)
         end)
       end)
     end)
-  end)
+  end, oauth_cache)
 end
 
-function M.browse(registries, config, initial_query)
+function M.browse(registries, config, initial_query, oauth_cache)
   local workspace = require('codeit.chat.storage').workspace()
   local names = vim.tbl_keys(registries)
   table.sort(names)
@@ -233,13 +242,17 @@ function M.browse(registries, config, initial_query)
             local scopes = { 'Preview and search live tools (connect)', 'Install in this workspace', 'Install globally' }
             vim.ui.select(scopes, { prompt = remote.url .. ' — ' .. label(item.name, 120) .. ' (' .. id .. ')' }, function(action, index)
               if not action then return end
-              configure_auth(remote, function(server)
-                if index == 1 then return preview(server) end
-                server.description = label(item.description, 200)
-                if server.description == '' then server.description = nil end
-                local installed, failure = M.install(config, id, server, index == 2 and workspace or nil)
-                notify(installed and ('Installed MCP server ' .. id .. '; available on the next chat turn') or failure)
-              end)
+              vim.ui.select({ 'Browser OAuth', 'Environment token or no authentication' },
+                { prompt = 'Authentication for ' .. remote.url }, function(auth)
+                  if not auth then return end
+                  configure_auth(remote, auth == 'Browser OAuth', function(server)
+                    if index == 1 then return preview(server, oauth_cache) end
+                    server.description = label(item.description, 200)
+                    if server.description == '' then server.description = nil end
+                    local installed, failure = M.install(config, id, server, index == 2 and workspace or nil)
+                    notify(installed and ('Installed MCP server ' .. id .. '; available on the next chat turn') or failure)
+                  end)
+                end)
             end)
           end)
         end)

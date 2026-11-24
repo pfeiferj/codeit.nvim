@@ -8,6 +8,7 @@ function M.attach(api, session, helpers)
   local defaults = require('codeit.settings.defaults')
   function M.setup(opts)
     session.config = vim.tbl_deep_extend('force', vim.deepcopy(defaults), require('codeit.risk').settings(opts or {}))
+    session.mcp_oauth_cache = {}
     local mcp_config = session.config.mcp
     session.config.mcp = require('codeit.tools.mcp').configure(mcp_config)
     local registries = require('codeit.tools.mcp_registry').configure(mcp_config and mcp_config.registries)
@@ -82,7 +83,7 @@ function M.attach(api, session, helpers)
       request_options = vim.deepcopy(session.config.request_options) }
     helpers.apply_settings(settings.resolve(session.base_settings, history.workspace()))
     M.new()
-    require('codeit.commands').register(M, session.config.mcp, registries)
+    require('codeit.commands').register(M, session.config.mcp, registries, session.mcp_oauth_cache)
     require('codeit.log_retention').setup()
   end
 end
