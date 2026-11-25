@@ -16,7 +16,16 @@ end
 local function contents()
   return vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(assert(window())), 0, -1, false)
 end
+local function history_contents()
+  return vim.api.nvim_buf_get_lines(0, 0, -1, false)
+end
 local origin, tab = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_tabpage()
+vim.cmd('CodeitNotifications')
+assert(vim.deep_equal(history_contents(), { 'No Codeit notifications yet.' }))
+assert(not vim.bo.modifiable and vim.wo.wrap)
+local empty_buf = vim.api.nvim_get_current_buf()
+vim.cmd('normal q')
+assert(vim.api.nvim_get_current_win() == origin and not vim.api.nvim_buf_is_valid(empty_buf))
 assert(vim.notify('other plugin', vim.log.levels.WARN, { title = 'Other' }) == 'forwarded')
 assert(#forwarded == 1 and not window())
 vim.notify('codeit: first', vim.log.levels.ERROR)
@@ -57,6 +66,12 @@ timers[1].callback()
 assert(vim.deep_equal(contents(), { '[WARN] third', 'more' }))
 timers[3].callback()
 assert(not window() and not vim.api.nvim_buf_is_valid(buf))
+vim.cmd('CodeitNotifications')
+local log = history_contents()
+assert(#log == 6 and log[1]:match('^%d%d:%d%d:%d%d %[WARN%] third$') and log[2] == 'more')
+assert(log[4]:match('%[INFO%] Approval required$') and log[6]:match('%[ERROR%] first$'))
+assert(not window(), 'opening history must not restore expired popups')
+vim.cmd.close()
 -- Reopening after expiry and resizing must keep wrapped Unicode within the screen.
 vim.notify('codeit: ' .. string.rep('界é', 80), vim.log.levels.DEBUG)
 vim.notify('codeit: trace', vim.log.levels.TRACE)
@@ -94,5 +109,21 @@ assert(vim.wait(100, function()
   return window() and vim.deep_equal(contents(), { '[WARN] longer' })
 end))
 assert(vim.wait(300, function() return window() == nil end))
+vim.cmd('CodeitNotifications')
+log = history_contents()
+assert(log[1]:match('%[WARN%] longer$') and log[3]:match('%[INFO%] fast event$'))
+vim.cmd.close()
+
+local expire
+vim.defer_fn = function(callback) expire = callback end
+for index = 1, 101 do
+  vim.notify('codeit: record ' .. index)
+  expire()
+end
+vim.cmd('CodeitNotifications')
+log = history_contents()
+assert(#log == 199 and log[1]:match('record 101$') and log[#log]:match('record 2$'))
+vim.cmd.close()
+vim.defer_fn = defer
 vim.notify = original_notify
-print('codeit notification popup tests passed')
+print('codeit notification popup and history tests passed')

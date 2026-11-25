@@ -1,6 +1,8 @@
 local M = {}
 local namespace = vim.api.nvim_create_namespace('codeit_notifications')
 local entries, buf, win = {}, nil, nil
+local history, history_win = {}, nil
+local history_limit = 100
 local installed = false
 local groups = {
   [vim.log.levels.ERROR] = { 'ERROR', 'DiagnosticError' },
@@ -102,6 +104,9 @@ function M.notify(message, level, opts)
   highlights()
   local entry = { message = tostring(message):gsub('^codeit:%s*', ''), level = level or vim.log.levels.INFO }
   entries[#entries + 1] = entry
+  entry.time = os.date('%H:%M:%S')
+  history[#history + 1] = entry
+  if #history > history_limit then table.remove(history, 1) end
   render()
   vim.defer_fn(function()
     for index, candidate in ipairs(entries) do
@@ -111,9 +116,40 @@ function M.notify(message, level, opts)
   end, (opts and opts.timeout) or 4000)
 end
 
+function M.show_history()
+  local lines = {}
+  for index = #history, 1, -1 do
+    local entry = history[index]
+    local group = groups[entry.level] or groups[vim.log.levels.INFO]
+    if #lines > 0 then lines[#lines + 1] = '' end
+    local text = entry.time .. ' [' .. group[1] .. '] ' .. entry.message:gsub('\r', '')
+    vim.list_extend(lines, vim.split(text, '\n', { plain = true }))
+  end
+  if #lines == 0 then lines[1] = 'No Codeit notifications yet.' end
+
+  if history_win and vim.api.nvim_win_is_valid(history_win) then
+    vim.api.nvim_win_close(history_win, true)
+  end
+  local history_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[history_buf].bufhidden = 'wipe'
+  vim.api.nvim_buf_set_lines(history_buf, 0, -1, false, lines)
+  vim.bo[history_buf].modifiable = false
+  local width = math.min(80, math.max(1, vim.o.columns - 4))
+  local height = math.min(24, math.max(1, vim.o.lines - vim.o.cmdheight - 4))
+  history_win = vim.api.nvim_open_win(history_buf, true, {
+    relative = 'editor', row = math.max(0, math.floor((vim.o.lines - vim.o.cmdheight - height - 2) / 2)),
+    col = math.max(0, math.floor((vim.o.columns - width - 2) / 2)), width = width, height = height,
+    style = 'minimal', border = 'rounded', title = ' Codeit Notifications ', title_pos = 'center',
+  })
+  vim.wo[history_win].wrap = true
+  vim.keymap.set('n', 'q', '<Cmd>close<CR>', { buffer = history_buf, silent = true })
+end
+
 function M.install()
   if installed then return end
   installed = true
+  vim.api.nvim_create_user_command('CodeitNotifications', M.show_history,
+    { desc = 'Review recent Codeit notifications', force = true })
   local notify = vim.notify
   -- Preserve other plugins' notifier and slash-command notification capture.
   vim.notify = function(message, level, opts)

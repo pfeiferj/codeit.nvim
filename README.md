@@ -85,7 +85,11 @@ terminal, without taking focus. Messages are labeled and highlighted by severity
 and `CodeitNotifyTRACE`). Each message expires independently after four seconds;
 the popup closes when the last message expires and follows you across tabs. If
 the stack exceeds the terminal height, the newest messages remain visible.
-Notifications from other plugins continue to use your existing notifier.
+Use `:CodeitNotifications` to review the last 100 Codeit notifications, including
+expired ones, newest first. Scroll with normal Neovim keys and press `q` to close.
+Reopen the view to see newer notifications. History is kept only for the current
+Neovim session. Notifications from other plugins continue to use your existing
+notifier and are not recorded here.
 
 For navigation, file views, and appearance options, see [Usage](#usage).
 
@@ -491,6 +495,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitAutoApprovals` | Review automatic approvals by tool/command and ask the reviewer questions |
 | `:CodeitCosts` | Review saved usage and ask questions about costs |
 | `:CodeitTasks` | View background tasks and logs, or cancel a running task |
+| `:CodeitNotifications` | Review recent Codeit notifications from this Neovim session |
 | `:CodeitSubagents` | View session subagent runs and chat logs, or cancel a run |
 | `:CodeitClear` (`/clear`) | Delete the current chat context without summarizing; keep the session, system prompt, settings, and cumulative usage |
 | `:CodeitCompact[!] [instructions]` | Summarize completed turns with optional guidance (`!` includes the most recent turn) |
