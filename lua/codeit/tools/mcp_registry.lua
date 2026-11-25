@@ -2,9 +2,16 @@ local M = {}
 local http = require('codeit.tools.mcp_http')
 local utf8 = require('codeit.utf8')
 local paths = require('codeit.tools.mcp_metadata_path')
+local oauth = require('codeit.tools.mcp_oauth')
 M.oauth_fields = { 'client_id', 'resource', 'token_url', 'redirect_url', 'issuer', 'redirect_port', 'scopes' }
 local defaults = { github = { url = 'https://api.mcp.github.com' },
   official = { url = 'https://registry.modelcontextprotocol.io' } }
+
+local function oauth_value(field, value)
+  if field == 'redirect_port' and type(value) == 'string' and value:match('^%d+$') then return tonumber(value) end
+  if field == 'scopes' and type(value) == 'string' then return vim.split(value, '%s+', { trimempty = true }) end
+  return value
+end
 
 function M.configure(options)
   if options ~= nil and type(options) ~= 'table' then error('codeit: mcp.registries must be a table') end
@@ -27,8 +34,19 @@ function M.configure(options)
           end
         end
       end
+      local static = registry.oauth_defaults
+      if static ~= nil then
+        if type(static) ~= 'table' then error('codeit: invalid MCP registry oauth_defaults') end
+        for field, value in pairs(static) do
+          if not vim.tbl_contains(M.oauth_fields, field) then
+            error('codeit: invalid MCP registry OAuth default field: ' .. tostring(field))
+          end
+          -- Validate the field without treating the registry URL as a server endpoint.
+          oauth.configure({ [field] = oauth_value(field, value) }, 'https://example.invalid')
+        end
+      end
       registries[name] = { url = registry.url:gsub('/+$', ''), bearer_token_env = registry.bearer_token_env,
-        oauth_metadata = vim.deepcopy(mappings) }
+        oauth_metadata = vim.deepcopy(mappings), oauth_defaults = vim.deepcopy(static) }
     end
   end
   return registries
@@ -181,18 +199,17 @@ end
 
 function M.oauth_from_metadata(registry, manifest, envelope, url)
   local mapped = {}
+  for field, value in pairs(registry.oauth_defaults or {}) do mapped[field] = oauth_value(field, value) end
   for field, path in pairs(registry.oauth_metadata or {}) do
     local keys = paths.parse(path)
     local value = paths.get(envelope, keys)
     if value == nil then value = paths.get(manifest._meta, keys) end
     if value ~= nil then
-      if field == 'redirect_port' and type(value) == 'string' and value:match('^%d+$') then value = tonumber(value) end
-      if field == 'scopes' and type(value) == 'string' then value = vim.split(value, '%s+', { trimempty = true }) end
-      mapped[field] = value
+      mapped[field] = oauth_value(field, value)
     end
   end
   if not next(mapped) then return nil end
-  local ok, normalized = pcall(require('codeit.tools.mcp_oauth').configure, mapped, url)
+  local ok, normalized = pcall(oauth.configure, mapped, url)
   if not ok then return nil, normalized end
   return normalized
 end
@@ -204,9 +221,9 @@ local function confirm_mapped(mapped, done)
     local value = mapped[field]
     if value ~= nil then values[#values + 1] = field .. ': ' .. (type(value) == 'table' and table.concat(value, ' ') or tostring(value)) end
   end
-  vim.ui.select({ 'Use mapped OAuth settings', 'Configure manually', 'Cancel' },
+  vim.ui.select({ 'Use registry OAuth settings', 'Configure manually', 'Cancel' },
     { prompt = 'Review registry OAuth settings — ' .. table.concat(values, ' | ') }, function(choice)
-      if choice == 'Use mapped OAuth settings' then done(mapped)
+      if choice == 'Use registry OAuth settings' then done(mapped)
       elseif choice == 'Configure manually' then done() end
     end)
 end

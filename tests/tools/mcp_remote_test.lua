@@ -182,7 +182,8 @@ registry.manage()
 assert(not registry.merge(config, '/other').servers[registry_id])
 selections = { 1, 3, 1, 3, 1, 1 }
 vim.ui.input = function() error('mapped client ID should not prompt for input') end
-local configured = registry.configure({ local_test = { url = url, bearer_token_env = 'TEST_MCP_TOKEN', oauth_metadata = {
+local configured = registry.configure({ local_test = { url = url, bearer_token_env = 'TEST_MCP_TOKEN',
+  oauth_defaults = { client_id = 'shared-id', redirect_port = '8765', scopes = 'read write' }, oauth_metadata = {
   client_id = '$["some.key"].client_id', resource = '$["some.key"].resource', token_url = '$["some.key"].token_url',
   redirect_url = '$["some.key"].redirect_url',
 } }, github = false, official = false })
@@ -190,6 +191,11 @@ registry.browse(configured, config, 'a &b')
 local mapped = wait(function() return registry.merge(config, '/other').servers[registry_id] end).oauth
 assert(mapped.client_id == 'wrapper-id' and mapped.resource == 'https://example.invalid/resource')
 assert(mapped.token_url == 'https://login.example.invalid/token' and mapped.redirect_url == 'http://127.0.0.1:8765/callback')
+assert(mapped.redirect_port == 8765 and vim.deep_equal(mapped.scopes, { 'read', 'write' }))
+local fallback = assert(registry.oauth_from_metadata(configured.local_test, {}, {}, remotes[1].url))
+assert(fallback.client_id == 'shared-id' and fallback.resource == nil)
+assert(not pcall(registry.configure, { local_test = { url = url, oauth_defaults = { client_secret_env = 'SECRET' } } }))
+assert(not pcall(registry.configure, { local_test = { url = url, oauth_defaults = { redirect_port = 'bad' } } }))
 assert(#selections == 0)
 assert(not pcall(registry.configure, { local_test = { url = url, oauth_metadata = { client_secret_env = '$.secret' } } }))
 for _, socket in ipairs(clients) do if not socket:is_closing() then socket:close() end end

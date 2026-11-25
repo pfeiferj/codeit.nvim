@@ -218,6 +218,7 @@ function M.show(context, live, back)
     local items = { { id = 'edit', label = 'Edit registry URL and authentication' } }
     if effective then
       items[#items + 1] = { id = 'oauth_metadata', label = 'OAuth metadata paths' }
+      items[#items + 1] = { id = 'oauth_defaults', label = 'OAuth defaults' }
       items[#items + 1] = { id = 'disable', label = 'Disable registry globally' }
     end
     if previous ~= nil then
@@ -232,32 +233,40 @@ function M.show(context, live, back)
       if item.id == 'edit' then
         input('MCP Registry API URL (no credentials): ', (effective or {}).url, function(url)
           input('Registry bearer token environment variable (blank for none): ', (effective or {}).bearer_token_env, function(token)
-            local value, err = settings.registry(id, { url = url, bearer_token_env = token ~= '' and token or nil,
-              oauth_metadata = (effective or {}).oauth_metadata })
+            local updated = vim.deepcopy(effective or {})
+            updated.url, updated.bearer_token_env = url, token ~= '' and token or nil
+            local value, err = settings.registry(id, updated)
             if not value then warn(err); return reopen() end
             set('registries', id, value, reopen)
           end, reopen)
         end, reopen)
-      elseif item.id == 'oauth_metadata' then
-        local mappings = vim.deepcopy(effective.oauth_metadata or {})
-        local function edit_paths()
+      elseif item.id == 'oauth_metadata' or item.id == 'oauth_defaults' then
+        local is_path = item.id == 'oauth_metadata'
+        local values = vim.deepcopy(effective[item.id] or {})
+        local title = is_path and 'OAuth paths in server _meta: ' or 'OAuth defaults: '
+        local function display(value)
+          if type(value) == 'table' then return table.concat(value, ' ') end
+          if value ~= nil then return tostring(value) end
+        end
+        local function edit_values()
           local fields = {}
-          for _, key in ipairs(registry.oauth_fields) do field(fields, key, key, mappings[key]) end
+          for _, key in ipairs(registry.oauth_fields) do field(fields, key, key, display(values[key])) end
           fields[#fields + 1] = { label = 'Back to registry' }
-          select('OAuth paths in server _meta: ' .. id, fields, function(choice)
+          select(title .. id, fields, function(choice)
             if not choice.id then return reopen() end
-            input(choice.id .. ' path relative to _meta (blank to clear): ', mappings[choice.id], function(path)
-              local updated = vim.deepcopy(mappings)
-              updated[choice.id] = path ~= '' and path or nil
-              local value, err = settings.registry(id, vim.tbl_extend('force', effective, { oauth_metadata = updated }))
-              if not value then warn(err); return edit_paths() end
+            local label = is_path and ' path relative to _meta' or ' default value'
+            input(choice.id .. label .. ' (blank to clear): ', display(values[choice.id]), function(text)
+              local updated = vim.deepcopy(values)
+              updated[choice.id] = text ~= '' and text or nil
+              local value, err = settings.registry(id, vim.tbl_extend('force', effective, { [item.id] = updated }))
+              if not value then warn(err); return edit_values() end
               local ok, failure = settings.set('registries', id, value, workspace)
-              if ok then mappings = updated else warn(failure) end
-              edit_paths()
-            end, edit_paths)
+              if ok then values = updated else warn(failure) end
+              edit_values()
+            end, edit_values)
           end)
         end
-        edit_paths()
+        edit_values()
       elseif item.id == 'disable' then set('registries', id, false, registries)
       elseif item.id == 'reset' then set('registries', id, nil, registries)
       elseif item.id == 'delete' then

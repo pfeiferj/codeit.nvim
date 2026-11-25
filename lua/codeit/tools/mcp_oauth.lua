@@ -53,8 +53,18 @@ function M.configure(value, url)
     error('codeit: MCP OAuth client_secret_env requires a client_id and pinned HTTPS issuer')
   end
   local resource, token_url, redirect_url = value.resource, value.token_url, value.redirect_url
+  local token_suffix = '/oauth2/token'
+  if issuer and token_url == nil then
+    token_url = issuer:gsub('/+$', '') .. token_suffix
+  end
   for field, endpoint in pairs({ resource = resource, token_url = token_url }) do
     if not M.secure_url(endpoint) then error('codeit: invalid MCP OAuth ' .. field) end
+  end
+  if not issuer and token_url then
+    local origin, path = split(token_url)
+    if path:sub(-#token_suffix) == token_suffix then
+      issuer = origin .. path:sub(1, -#token_suffix - 1)
+    end
   end
   if redirect_url ~= nil then
     local host, fixed_port, path

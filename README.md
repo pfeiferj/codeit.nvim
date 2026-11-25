@@ -620,6 +620,13 @@ trusted by your browser. If neither variable is set, Codeit uses `openssl` to
 create a temporary self-signed certificate for that host on each sign-in. The
 browser may warn or refuse the callback because the certificate is not trusted.
 
+If you configure `oauth.token_url` but omit `oauth.issuer`, Codeit infers the
+issuer from a token path ending in `/oauth2/token`. For example,
+`https://localhost/blah/oauth2/token` gives `https://localhost/blah`. If you
+configure only `oauth.issuer`, Codeit appends `/oauth2/token` to it to infer the
+token URL. Set both explicitly if your provider uses a different token path.
+Configured and inferred URLs must still agree with OAuth discovery metadata.
+
 Set `oauth.scopes` only if you need to override the scopes advertised by the server.
 Tokens are kept in memory for the current Neovim session and refreshed when the
 issuer supplies a refresh token. An issuer that accepts `client_secret_post`
@@ -628,6 +635,7 @@ can use `client_secret_env` with an explicitly pinned HTTPS `issuer`:
 ```lua
 oauth = {
   issuer = 'https://github.com/login/oauth',
+  token_url = 'https://github.com/login/oauth/access_token',
   client_id = 'your-github-app-client-id',
   client_secret_env = 'GITHUB_MCP_CLIENT_SECRET',
   redirect_port = 33418,
@@ -671,12 +679,17 @@ entry's `_meta` first, then the nested server manifest's `_meta`. Paths support
 dot keys, double-quoted bracket keys, and zero-based array indexes; wildcards
 and filters aren't supported. Leave a path blank to remove it.
 
+To set a shared public client ID or other static values, choose **OAuth defaults**
+in the same registry menu, or set `oauth_defaults` in `setup()`. If a metadata
+path resolves to a value for a server, that value overrides the registry default
+for that field. Leave a default blank to clear it.
+
 When you choose **Browser OAuth** for an install or preview, Codeit asks you to
-review the resolved values. It skips the client ID prompt if you accept a mapped
-ID. Missing values are left unset, and changing a mapping does not change existing
-installs. Mapped `resource` and `token_url` must agree with OAuth discovery.
-A mapped `redirect_url` must also be a fixed HTTP or HTTPS loopback callback;
-Codeit cannot receive hosted redirects. Client secrets are not imported.
+review the resolved values. It skips the client ID prompt if you accept a
+resolved ID. Changing a default or mapping does not change existing installs.
+The resolved `resource` and `token_url` must agree with OAuth discovery, and
+`redirect_url` must be a fixed HTTP or HTTPS loopback callback. Codeit cannot
+receive hosted redirects. Registry OAuth settings do not accept client secrets.
 
 Add another registry that implements the MCP Registry v0.1 API in `setup()`:
 
@@ -686,7 +699,8 @@ mcp = {
     internal = {
       url = 'https://registry.example.com',
       bearer_token_env = 'REGISTRY_TOKEN',
-      oauth_metadata = { client_id = '$["some.key"].client_id' },
+      oauth_defaults = { client_id = 'shared-public-client-id' },
+      oauth_metadata = { client_id = '$["some.key"].client_id' }, -- Optional per-server override
     },
     -- official = false, -- Hide a built-in registry.
   },
