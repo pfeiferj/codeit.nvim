@@ -620,12 +620,9 @@ trusted by your browser. If neither variable is set, Codeit uses `openssl` to
 create a temporary self-signed certificate for that host on each sign-in. The
 browser may warn or refuse the callback because the certificate is not trusted.
 
-If you configure `oauth.token_url` but omit `oauth.issuer`, Codeit infers the
-issuer from a token path ending in `/oauth2/token`. For example,
-`https://localhost/blah/oauth2/token` gives `https://localhost/blah`. If you
-configure only `oauth.issuer`, Codeit appends `/oauth2/token` to it to infer the
-token URL. Set both explicitly if your provider uses a different token path.
-Configured and inferred URLs must still agree with OAuth discovery metadata.
+Codeit uses OAuth discovery metadata for any unset `oauth.issuer` or
+`oauth.token_url`. If you set either URL explicitly, it must agree with the
+published metadata.
 
 Set `oauth.scopes` only if you need to override the scopes advertised by the server.
 Tokens are kept in memory for the current Neovim session and refreshed when the

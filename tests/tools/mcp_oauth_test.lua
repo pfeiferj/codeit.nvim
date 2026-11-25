@@ -5,7 +5,6 @@ local remote = require('codeit.tools.mcp_remote')
 local resource = 'https://mcp.example.test/api/mcp'
 local issuer = 'https://auth.example.test/tenant'
 local token_endpoint = issuer .. '/oauth2/token'
-local advertised_issuers = { issuer }
 local metadata = 'https://mcp.example.test/metadata'
 local function parse(value)
   local result = {}
@@ -43,7 +42,7 @@ http.request = function(method, url, headers, body, _, done)
   end
   assert(headers.Authorization == nil, 'credentials must not be forwarded to discovery or issuer endpoints')
   if url == metadata then
-    return reply(200, { resource = resource, authorization_servers = advertised_issuers })
+    return reply(200, { resource = resource, authorization_servers = { issuer } })
   elseif url == 'https://auth.example.test/.well-known/oauth-authorization-server/tenant' then
     return reply(200, { issuer = issuer, authorization_endpoint = issuer .. '/authorize', token_endpoint = token_endpoint,
       registration_endpoint = issuer .. '/register', code_challenge_methods_supported = { 'S256' },
@@ -153,7 +152,7 @@ assert(not pcall(setup, { servers = { demo = { url = resource,
 local confidential = setup({ servers = { demo = { url = resource, oauth = { client_id = 'registered-secret-id',
   client_secret_env = 'MCP_TEST_SECRET', issuer = issuer } } } }).servers.demo
 vim.env.MCP_TEST_SECRET = 'test+secret'
-assert(confidential.oauth.token_url == token_endpoint)
+assert(confidential.oauth.token_url == nil)
 assert(connect(confidential, {})).close()
 assert(launches == 3 and registrations == 1 and auth_query.client_id == 'registered-secret-id')
 
@@ -163,18 +162,16 @@ local pinned_client, pinned_error = connect(pinned, {})
 assert(not pinned_client and pinned_error:find('token_url', 1, true) and launches == 3)
 assert(pinned.oauth.issuer == nil)
 
-advertised_issuers = { 'https://other.example.test', issuer }
-local inferred = setup({ servers = { demo = { url = resource, oauth = { client_id = 'public-id',
+local token_only = setup({ servers = { demo = { url = resource, oauth = { client_id = 'public-id',
   resource = resource, token_url = token_endpoint } } } }).servers.demo
-assert(inferred.oauth.issuer == issuer)
-assert(connect(inferred, {})).close()
+assert(token_only.oauth.issuer == nil)
+assert(connect(token_only, {})).close()
 assert(launches == 4 and auth_query.client_id == 'public-id')
-advertised_issuers = { issuer }
 
 local slash_issuer = oauth.configure({ issuer = issuer .. '/' }, resource)
-assert(slash_issuer.issuer == issuer .. '/' and slash_issuer.token_url == token_endpoint)
+assert(slash_issuer.issuer == issuer .. '/' and slash_issuer.token_url == nil)
 local queried_token = oauth.configure({ token_url = token_endpoint .. '?mode=test' }, resource)
-assert(queried_token.issuer == issuer and queried_token.token_url == token_endpoint .. '?mode=test')
+assert(queried_token.issuer == nil and queried_token.token_url == token_endpoint .. '?mode=test')
 local explicit = oauth.configure({ issuer = issuer, token_url = issuer .. '/custom' }, resource)
 assert(explicit.issuer == issuer and explicit.token_url == issuer .. '/custom')
 assert(not pcall(oauth.configure, { client_id = 'public-id', client_secret_env = 'MCP_TEST_SECRET',
