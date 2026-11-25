@@ -165,7 +165,8 @@ for _, url in ipairs({
   'http://127.256.0.1:8765/callback', 'http://127.00.0.1:8765/callback',
   'http://127.1:8765/callback', 'http://[::1]:8765/callback',
 }) do
-  assert(not pcall(oauth.configure, { redirect_url = url }, resource), url)
+  local ok, err = pcall(oauth.configure, { redirect_url = url }, resource)
+  assert(not ok and err:find(url, 1, true), tostring(err))
 end
 
 local listen = require('codeit.tools.mcp_oauth_callback').listen

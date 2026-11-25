@@ -63,7 +63,8 @@ function M.configure(value, url)
     if not host or not loopback_host(host) or not number or number < 1 or number > 65535
       or tostring(number) ~= fixed_port or #path > 256
       or path:find('//', 1, true) or (path .. '/'):find('/%.%.?/') then
-      error('codeit: invalid MCP OAuth redirect_url (expected a fixed loopback URL)')
+      local rejected = type(redirect_url) == 'string' and vim.inspect(redirect_url) or ('<' .. type(redirect_url) .. '>')
+      error('codeit: invalid MCP OAuth redirect_url ' .. rejected .. ' (expected a fixed loopback URL)')
     end
   end
   return { client_id = id, scopes = vim.deepcopy(scopes), redirect_port = port, issuer = issuer, client_secret_env = secret_env,
