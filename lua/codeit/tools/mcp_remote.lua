@@ -143,6 +143,17 @@ local function connect(server, active, ready, token, invalidate)
   end)
 end
 
+function M.sign_in(server, cache, active, done)
+  if not server.oauth then return done(nil, 'MCP server does not use browser OAuth') end
+  connect(server, active, function(client, failure, challenge)
+    if client then client.close() end
+    if not client and challenge == nil then return done(nil, failure) end
+    require('codeit.tools.mcp_oauth').login(server, challenge or '', cache or {}, active, function(token, err)
+      done(token ~= nil, err)
+    end, true)
+  end)
+end
+
 function M.start(server, _, active, ready, cache)
   if not server.oauth then return connect(server, active, ready) end
   local oauth = require('codeit.tools.mcp_oauth')

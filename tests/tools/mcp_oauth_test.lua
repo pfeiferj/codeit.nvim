@@ -125,14 +125,23 @@ assert(not pcall(setup, { servers = { no_tls = { url = 'http://mcp.example.test'
 assert(not pcall(setup, { servers = { duplicate = { url = resource, oauth = true, bearer_token_env = 'TOKEN' } } }))
 local server = setup({ servers = { demo = { url = resource, oauth = true } } }).servers.demo
 local cache = {}
-local client = assert(connect(server, cache))
+local function sign_in()
+  local ok, err
+  remote.sign_in(server, cache, function() return true end, function(value, failure) ok, err = value, failure end)
+  wait(function() return ok end)
+  return ok, err
+end
+assert(sign_in())
 assert(bad_callback_status == '400' and launches == 1 and registrations == 1 and oauth.token(server, cache) == accepted)
-client.close()
 assert(connect(server, cache)).close()
 assert(launches == 1 and refreshes == 0)
 accepted = 'next-token'
-client = assert(connect(server, cache))
+local client = assert(connect(server, cache))
 assert(refreshes == 1 and launches == 1 and oauth.token(server, cache) == accepted)
+choice = 'Cancel'
+local signed_in, sign_in_error = sign_in()
+assert(not signed_in and sign_in_error:find('cancelled') and refreshes == 1 and oauth.token(server, cache) == accepted)
+choice = 'Open browser'
 allow_tools = false
 local failure
 client.request('tools/call', { name = 'echo' }, function(_, err) failure = err end)

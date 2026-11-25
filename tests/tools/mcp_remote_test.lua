@@ -174,11 +174,21 @@ vim.ui.input = function(opts, cb)
   cb('TEST_MCP_TOKEN')
 end
 local registry_id = 'test-first-' .. vim.fn.sha256('test/first\n' .. remotes[1].url):sub(1, 10)
-registry.browse({ local_test = { url = url, bearer_token_env = 'TEST_MCP_TOKEN' } }, config, 'a &b')
+local remote_transport = require('codeit.tools.mcp_remote')
+local sign_in = remote_transport.sign_in
+local install_cache, sign_ins = {}, 0
+remote_transport.sign_in = function(server, cache, active, done)
+  local installed = registry.merge(config, '/other').servers[registry_id]
+  assert(installed and installed.oauth and vim.deep_equal(server.oauth, installed.oauth))
+  assert(server.timeout_ms == installed.timeout_ms and cache == install_cache and active())
+  sign_ins = sign_ins + 1
+  done(false, 'MCP OAuth sign-in cancelled')
+end
+registry.browse({ local_test = { url = url, bearer_token_env = 'TEST_MCP_TOKEN' } }, config, 'a &b', install_cache)
 wait(function() return registry.merge(config, '/other').servers[registry_id] end)
-assert(#selections == 0)
+assert(#selections == 0 and sign_ins == 0)
 selections = { 2, 2 }
-registry.manage()
+registry.manage(install_cache)
 assert(not registry.merge(config, '/other').servers[registry_id])
 selections = { 1, 3, 1, 3, 1, 1 }
 vim.ui.input = function() error('mapped client ID should not prompt for input') end
@@ -187,8 +197,13 @@ local configured = registry.configure({ local_test = { url = url, bearer_token_e
   client_id = '$["some.key"].client_id', resource = '$["some.key"].resource', token_url = '$["some.key"].token_url',
   redirect_url = '$["some.key"].redirect_url',
 } }, github = false, official = false })
-registry.browse(configured, config, 'a &b')
+registry.browse(configured, config, 'a &b', install_cache)
 local mapped = wait(function() return registry.merge(config, '/other').servers[registry_id] end).oauth
+assert(sign_ins == 1)
+selections = { 2, 3 }
+registry.manage(install_cache)
+assert(sign_ins == 2)
+remote_transport.sign_in = sign_in
 assert(mapped.client_id == 'wrapper-id' and mapped.resource == 'https://example.invalid/resource')
 assert(mapped.token_url == 'https://login.example.invalid/token' and mapped.redirect_url == 'http://127.0.0.1:8765/callback')
 assert(mapped.redirect_port == 8765 and vim.deep_equal(mapped.scopes, { 'read', 'write' }))
@@ -198,5 +213,24 @@ assert(not pcall(registry.configure, { local_test = { url = url, oauth_defaults 
 assert(not pcall(registry.configure, { local_test = { url = url, oauth_defaults = { redirect_port = 'bad' } } }))
 assert(#selections == 0)
 assert(not pcall(registry.configure, { local_test = { url = url, oauth_metadata = { client_secret_env = '$.secret' } } }))
+
+-- Invalid metadata must not discard the defaults before starting a preview.
+local preview_registries = vim.deepcopy(configured)
+preview_registries.local_test.oauth_metadata.client_id = '$["some.key"]'
+local start = remote_transport.start
+local preview_server, preview_cache = nil, {}
+remote_transport.start = function(server, _, _, _, cache)
+  assert(cache == preview_cache)
+  preview_server = server
+end
+selections = { 1, 3, 1, 1, 1, 1 }
+vim.ui.input = function() error('preview should use the default client ID without prompting') end
+registry.browse(preview_registries, config, 'a &b', preview_cache)
+wait(function() return preview_server end)
+remote_transport.start = start
+assert(#selections == 0 and preview_server.url == remotes[1].url)
+assert(preview_server.oauth.client_id == 'shared-id' and preview_server.oauth.redirect_port == 8765)
+assert(vim.deep_equal(preview_server.oauth.scopes, { 'read', 'write' }))
+
 for _, socket in ipairs(clients) do if not socket:is_closing() then socket:close() end end
 server:close()

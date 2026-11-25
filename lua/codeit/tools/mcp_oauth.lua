@@ -205,7 +205,7 @@ local function random_hex()
   if bytes then return (bytes:gsub('.', function(char) return ('%02x'):format(char:byte()) end)) end
 end
 
-function M.login(server, challenge, cache, active, done)
+function M.login(server, challenge, cache, active, done, force_browser)
   if server.oauth.client_secret_env and (vim.env[server.oauth.client_secret_env] or '') == '' then
     return done(nil, 'Set $' .. server.oauth.client_secret_env .. ' for MCP OAuth')
   end
@@ -286,7 +286,7 @@ function M.login(server, challenge, cache, active, done)
   end
   local existing = cache[cache_key]
   local requested_scope = challenge_param(challenge, 'scope')
-  if existing and existing.refresh and (not requested_scope or requested_scope == existing.context.scope) then
+  if not force_browser and existing and existing.refresh and (not requested_scope or requested_scope == existing.context.scope) then
     return exchange(existing.context, { grant_type = 'refresh_token', refresh_token = existing.refresh }, existing.refresh,
       active, function(entry) if entry then store(entry) else cache[cache_key] = nil; browser() end end)
   end

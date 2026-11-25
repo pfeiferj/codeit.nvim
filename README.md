@@ -503,7 +503,7 @@ In `:CodeitSettings`, select **Preset fast**, **Preset long context**, or **Pres
 | `:CodeitContextFull` | Edit the full effective request context as JSON |
 | `:CodeitContextFiles` | Toggle instruction files and skills |
 | `:CodeitMcpRegistry [query]` | Browse or search an MCP registry, preview live tools, or install a remote server |
-| `:CodeitMcpInstalled` | List or remove registry-installed servers |
+| `:CodeitMcpInstalled` | List, sign in to, or remove registry-installed servers |
 | `:CodeitSystemPrompt` | Edit the current conversation's system prompt |
 | `:CodeitSettings` | Configure providers, models, presets, and request options |
 | `:CodeitProvider {openrouter\|copilot\|codex\|openai}` | Switch providers and start a fresh chat |
@@ -662,8 +662,13 @@ use `GITHUB_TOKEN` as the bearer token variable (or as the full `Authorization`
 header value's variable if the manifest requests that instead). The registry
 and the hosted MCP server are separate endpoints with separate authentication.
 
-Installed servers are available on the next chat turn. Use `:CodeitMcpInstalled`
-to remove them. A global install can still be disabled with an `mcp.workspaces`
+Installing a server with **Browser OAuth** starts sign-in immediately. If you
+cancel or sign-in fails, the server stays installed. To retry or sign in again,
+open `:CodeitMcpInstalled`, select the server, and choose **Sign in with browser
+OAuth**. The same menu lets you remove an install.
+
+Installed servers are available on the next chat turn. A global install can
+still be disabled with an `mcp.workspaces`
 override using its displayed server ID. Codeit can browse manifests for local
 packages and legacy transports but only installs concrete HTTPS Streamable HTTP
 endpoints.
@@ -679,7 +684,8 @@ and filters aren't supported. Leave a path blank to remove it.
 To set a shared public client ID or other static values, choose **OAuth defaults**
 in the same registry menu, or set `oauth_defaults` in `setup()`. If a metadata
 path resolves to a value for a server, that value overrides the registry default
-for that field. Leave a default blank to clear it.
+for that field. If the resulting OAuth settings fail validation, Codeit warns
+and offers the configured defaults on their own. Leave a default blank to clear it.
 
 When you choose **Browser OAuth** for an install or preview, Codeit asks you to
 review the resolved values. It skips the client ID prompt if you accept a

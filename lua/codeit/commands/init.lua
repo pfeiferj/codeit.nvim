@@ -25,8 +25,9 @@ function M.register(api, mcp_config)
         settings.resolve(base, workspace, saved), args.args, oauth_cache)
     end, { nargs = '*', desc = 'Browse or search MCP registries and install remote servers', force = true })
     vim.api.nvim_create_user_command('CodeitMcpInstalled', function()
-      require('codeit.tools.mcp_registry').manage()
-    end, { desc = 'Review or remove registry-installed MCP servers', force = true })
+      local _, _, oauth_cache = mcp_config()
+      require('codeit.tools.mcp_registry').manage(oauth_cache)
+    end, { desc = 'Review, sign in to, or remove registry-installed MCP servers', force = true })
   end
   vim.api.nvim_create_user_command('CodeitSettings', M.settings,
     { desc = 'Manage main/feature models, presets, request options, and saved settings', force = true })

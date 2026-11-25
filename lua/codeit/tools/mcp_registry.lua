@@ -198,8 +198,9 @@ function M.uninstall(id, workspace)
 end
 
 function M.oauth_from_metadata(registry, manifest, envelope, url)
-  local mapped = {}
-  for field, value in pairs(registry.oauth_defaults or {}) do mapped[field] = oauth_value(field, value) end
+  local configured_defaults = {}
+  for field, value in pairs(registry.oauth_defaults or {}) do configured_defaults[field] = oauth_value(field, value) end
+  local mapped = vim.tbl_extend('force', {}, configured_defaults)
   for field, path in pairs(registry.oauth_metadata or {}) do
     local keys = paths.parse(path)
     local value = paths.get(envelope, keys)
@@ -210,8 +211,12 @@ function M.oauth_from_metadata(registry, manifest, envelope, url)
   end
   if not next(mapped) then return nil end
   local ok, normalized = pcall(oauth.configure, mapped, url)
-  if not ok then return nil, normalized end
-  return normalized
+  if ok then return normalized end
+  if next(configured_defaults) then
+    local valid, fallback = pcall(oauth.configure, configured_defaults, url)
+    if valid then return fallback, normalized end
+  end
+  return nil, normalized
 end
 
 local function confirm_mapped(mapped, done)
@@ -300,6 +305,15 @@ local function preview(server, oauth_cache)
   end, oauth_cache)
 end
 
+local function sign_in(id, server, oauth_cache)
+  local normalized, failure = install_definition(id, server)
+  if not normalized then return notify(failure) end
+  require('codeit.tools.mcp_remote').sign_in(normalized, oauth_cache, function() return true end, function(ok, err)
+    if ok then notify('Signed in to MCP server ' .. id)
+    else notify('Could not sign in to MCP server ' .. id .. ': ' .. err .. '; retry from :CodeitMcpInstalled') end
+  end)
+end
+
 function M.browse(registries, config, initial_query, oauth_cache)
   local workspace = require('codeit.chat.storage').workspace()
   local names = vim.tbl_keys(registries)
@@ -344,7 +358,10 @@ function M.browse(registries, config, initial_query, oauth_cache)
                   if use_oauth then
                     local failure
                     mapped, failure = M.oauth_from_metadata(registries[name], item, (envelope_metadata or {})[item], remote.url)
-                    if failure then notify('Ignoring invalid registry OAuth metadata: ' .. failure) end
+                    if failure then
+                      local fallback = mapped and '; offering registry OAuth defaults instead' or ''
+                      notify('Ignoring invalid registry OAuth metadata: ' .. failure .. fallback)
+                    end
                   end
                   confirm_mapped(mapped, function(reviewed)
                     configure_auth(remote, use_oauth, reviewed, function(server)
@@ -352,7 +369,9 @@ function M.browse(registries, config, initial_query, oauth_cache)
                       server.description = label(item.description, 200)
                       if server.description == '' then server.description = nil end
                       local installed, failure = M.install(config, id, server, index == 2 and workspace or nil)
-                      notify(installed and ('Installed MCP server ' .. id .. '; available on the next chat turn') or failure)
+                      if not installed then return notify(failure) end
+                      notify('Installed MCP server ' .. id .. '; available on the next chat turn')
+                      if server.oauth then sign_in(id, server, oauth_cache) end
                     end)
                   end)
                 end)
@@ -365,16 +384,25 @@ function M.browse(registries, config, initial_query, oauth_cache)
   end)
 end
 
-function M.manage()
+function M.manage(oauth_cache)
+  local workspace = require('codeit.chat.storage').workspace()
   local entries, err = load()
   if not entries then return notify(err) end
   local ids = vim.tbl_keys(entries)
   table.sort(ids)
-  vim.ui.select(ids, { prompt = 'Installed MCP servers (select to remove)' }, function(id)
+  vim.ui.select(ids, { prompt = 'Installed MCP servers' }, function(id)
     if not id then return end
-    vim.ui.select({ 'Cancel', 'Remove' }, { prompt = 'Remove ' .. id .. '?' }, function(answer)
-      if answer ~= 'Remove' then return end
-      local entry = entries[id]
+    local entry = entries[id]
+    local server = type(entry) == 'table' and entry.server or nil
+    local actions = { 'Cancel', 'Remove' }
+    if type(server) == 'table' and server.oauth and (entry.workspace == nil or entry.workspace == workspace) then
+      actions[#actions + 1] = 'Sign in with browser OAuth'
+    end
+    vim.ui.select(actions, { prompt = 'Manage ' .. id }, function(action)
+      if action == 'Sign in with browser OAuth' then
+        return sign_in(id, server, oauth_cache)
+      end
+      if action ~= 'Remove' then return end
       local ok, save_err = M.uninstall(id, type(entry) == 'table' and entry.workspace or nil)
       notify(ok and ('Removed MCP server ' .. id) or save_err)
     end)
