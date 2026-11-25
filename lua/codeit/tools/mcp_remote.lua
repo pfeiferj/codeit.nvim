@@ -145,12 +145,16 @@ end
 
 function M.sign_in(server, cache, active, done)
   if not server.oauth then return done(nil, 'MCP server does not use browser OAuth') end
+  local function login(challenge)
+    require('codeit.tools.mcp_oauth').login(server, challenge, cache or {}, active, function(token, err)
+      done(token ~= nil, err)
+    end, true)
+  end
+  if server.oauth.authorization_url then return login('') end
   connect(server, active, function(client, failure, challenge)
     if client then client.close() end
     if not client and challenge == nil then return done(nil, failure) end
-    require('codeit.tools.mcp_oauth').login(server, challenge or '', cache or {}, active, function(token, err)
-      done(token ~= nil, err)
-    end, true)
+    login(challenge or '')
   end)
 end
 

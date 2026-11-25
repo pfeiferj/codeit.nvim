@@ -53,7 +53,8 @@ function M.configure(value, url)
     error('codeit: MCP OAuth client_secret_env requires a client_id and pinned HTTPS issuer')
   end
   local resource, token_url, redirect_url = value.resource, value.token_url, value.redirect_url
-  for field, endpoint in pairs({ resource = resource, token_url = token_url }) do
+  local authorization_url = value.authorization_url
+  for field, endpoint in pairs({ resource = resource, token_url = token_url, authorization_url = authorization_url }) do
     if not M.secure_url(endpoint) then error('codeit: invalid MCP OAuth ' .. field) end
   end
   if redirect_url ~= nil then
@@ -71,13 +72,14 @@ function M.configure(value, url)
     end
   end
   return { client_id = id, scopes = vim.deepcopy(scopes), redirect_port = port, issuer = issuer, client_secret_env = secret_env,
-    resource = resource, token_url = token_url, redirect_url = redirect_url }
+    resource = resource, token_url = token_url, redirect_url = redirect_url, authorization_url = authorization_url }
 end
 
 local function key(server)
   local config = server.oauth
   return vim.json.encode({ server.url, config.client_id or '', config.scopes or {}, config.redirect_port or 0,
-    config.issuer or '', config.client_secret_env or '', config.resource or '', config.token_url or '', config.redirect_url or '' })
+    config.issuer or '', config.client_secret_env or '', config.resource or '', config.token_url or '', config.redirect_url or '',
+    config.authorization_url or '' })
 end
 
 function M.token(server, cache)
@@ -181,6 +183,19 @@ local function discover(server, challenge, active, done)
   end)
 end
 
+local function resolve_context(server, challenge, active, done)
+  local config = server.oauth
+  if not config.authorization_url then return discover(server, challenge, active, done) end
+  if not config.token_url or not config.client_id then
+    return done(nil, 'OAuth without discovery requires authorization_url, token_url, and client_id')
+  end
+  if config.client_secret_env and split(config.token_url) ~= split(config.issuer) then
+    return done(nil, 'MCP OAuth token endpoint must share the pinned issuer origin when using a client secret')
+  end
+  done({ resource = config.resource or server.url, secret_env = config.client_secret_env,
+    metadata = { issuer = config.issuer, authorization_endpoint = config.authorization_url, token_endpoint = config.token_url } })
+end
+
 local function exchange(context, data, previous, active, done)
   data.resource, data.client_id = context.resource, context.client_id
   if context.secret_env then
@@ -215,7 +230,7 @@ function M.login(server, challenge, cache, active, done, force_browser)
     done(entry.token)
   end
   local function browser()
-    discover(server, challenge, active, function(context, err)
+    resolve_context(server, challenge, active, function(context, err)
       if not context then return done(nil, err) end
       if server.oauth.scopes then context.scope = table.concat(server.oauth.scopes, ' ') end
       if context.scope == '' then context.scope = nil end

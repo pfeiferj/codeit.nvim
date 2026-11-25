@@ -125,9 +125,9 @@ assert(not pcall(setup, { servers = { no_tls = { url = 'http://mcp.example.test'
 assert(not pcall(setup, { servers = { duplicate = { url = resource, oauth = true, bearer_token_env = 'TOKEN' } } }))
 local server = setup({ servers = { demo = { url = resource, oauth = true } } }).servers.demo
 local cache = {}
-local function sign_in()
+local function sign_in(target, target_cache)
   local ok, err
-  remote.sign_in(server, cache, function() return true end, function(value, failure) ok, err = value, failure end)
+  remote.sign_in(target or server, target_cache or cache, function() return true end, function(value, failure) ok, err = value, failure end)
   wait(function() return ok end)
   return ok, err
 end
@@ -176,6 +176,27 @@ local token_only = setup({ servers = { demo = { url = resource, oauth = { client
 assert(token_only.oauth.issuer == nil)
 assert(connect(token_only, {})).close()
 assert(launches == 4 and auth_query.client_id == 'public-id')
+
+local manual_options = { client_id = 'public-id', issuer = issuer, authorization_url = issuer .. '/authorize',
+  token_url = token_endpoint, scopes = { 'read', 'notes' } }
+local manual = setup({ servers = { demo = { url = resource, oauth = manual_options } } }).servers.demo
+local manual_cache, requests_before = {}, #http_requests
+assert(sign_in(manual, manual_cache))
+assert(launches == 5 and registrations == 1 and oauth.token(manual, manual_cache) == accepted)
+assert(#http_requests == requests_before + 1 and http_requests[#http_requests].url == token_endpoint)
+assert(not oauth.token(token_only, manual_cache))
+assert(connect(manual, manual_cache)).close()
+assert(launches == 5)
+
+assert(not pcall(oauth.configure, { authorization_url = 'http://auth.example.test' }, resource))
+local function check_manual_error(options, expected)
+  local invalid = setup({ servers = { demo = { url = resource, oauth = options } } }).servers.demo
+  local ok, failure = sign_in(invalid, {})
+  assert(not ok and failure:find(expected, 1, true) and launches == 5, failure)
+end
+check_manual_error({ authorization_url = manual_options.authorization_url, client_id = 'public-id' }, 'requires')
+check_manual_error(vim.tbl_extend('force', manual_options, { client_secret_env = 'MCP_TEST_SECRET',
+  token_url = 'https://other.example.test/token' }), 'pinned issuer origin')
 
 local slash_issuer = oauth.configure({ issuer = issuer .. '/' }, resource)
 assert(slash_issuer.issuer == issuer .. '/' and slash_issuer.token_url == nil)

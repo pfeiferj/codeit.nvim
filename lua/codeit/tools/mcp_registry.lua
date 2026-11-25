@@ -3,7 +3,7 @@ local http = require('codeit.tools.mcp_http')
 local utf8 = require('codeit.utf8')
 local paths = require('codeit.tools.mcp_metadata_path')
 local oauth = require('codeit.tools.mcp_oauth')
-M.oauth_fields = { 'client_id', 'resource', 'token_url', 'redirect_url', 'issuer', 'redirect_port', 'scopes' }
+M.oauth_fields = { 'client_id', 'resource', 'authorization_url', 'token_url', 'redirect_url', 'issuer', 'redirect_port', 'scopes' }
 local defaults = { github = { url = 'https://api.mcp.github.com' },
   official = { url = 'https://registry.modelcontextprotocol.io' } }
 

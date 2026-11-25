@@ -620,11 +620,17 @@ trusted by your browser. If neither variable is set, Codeit uses `openssl` to
 create a temporary self-signed certificate for that host on each sign-in. The
 browser may warn or refuse the callback because the certificate is not trusted.
 
-Codeit uses OAuth discovery metadata for any unset `oauth.issuer` or
-`oauth.token_url`. If you set either URL explicitly, it must agree with the
-published metadata.
+By default Codeit uses OAuth discovery. If you set `oauth.issuer`,
+`oauth.resource`, or `oauth.token_url` in that mode, they must agree with the
+published metadata. Set `oauth.scopes` to override the advertised scopes.
 
-Set `oauth.scopes` only if you need to override the scopes advertised by the server.
+For a server without discovery, set `oauth.authorization_url` (the browser
+endpoint), `oauth.token_url`, and `oauth.client_id`. Setting `authorization_url`
+opts out of discovery entirely. You can set it in **Edit server connection** for
+an existing install. Use trusted endpoints from your provider, and set
+`oauth.scopes` explicitly if the provider requires them. The OAuth provider must
+still support PKCE S256 and a loopback redirect. If you use `client_secret_env`,
+you still need a pinned HTTPS `issuer` on the same origin as the token URL.
 Tokens are kept in memory for the current Neovim session and refreshed when the
 issuer supplies a refresh token. An issuer that accepts `client_secret_post`
 can use `client_secret_env` with an explicitly pinned HTTPS `issuer`:
@@ -690,8 +696,10 @@ and offers the configured defaults on their own. Leave a default blank to clear 
 When you choose **Browser OAuth** for an install or preview, Codeit asks you to
 review the resolved values. It skips the client ID prompt if you accept a
 resolved ID. Changing a default or mapping does not change existing installs.
-The resolved `resource` and `token_url` must agree with OAuth discovery, and
-`redirect_url` must be a fixed HTTP or HTTPS loopback callback. Codeit cannot
+You can also supply `authorization_url` and `token_url` through registry OAuth
+settings to opt out of discovery. Otherwise, the resolved `resource` and
+`token_url` must agree with discovery. In either mode, `redirect_url` must be a
+fixed HTTP or HTTPS loopback callback. Codeit cannot
 receive hosted redirects. Registry OAuth settings do not accept client secrets.
 
 Add another registry that implements the MCP Registry v0.1 API in `setup()`:
