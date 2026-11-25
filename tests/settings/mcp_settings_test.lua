@@ -69,11 +69,21 @@ type_in('custom')
 choose('edit')
 type_in('https://example.test/registry')
 type_in('REGISTRY_TOKEN')
+choose('oauth_metadata')
+choose('client_id')
+type_in('$["some.key"].client_id')
+choose('token_url')
+local previous_notify = vim.notify
+vim.notify = function() end
+type_in('$..token_url')
+vim.notify = previous_notify
+choose(nil)
 local picked
 registry.browse = function(registries) picked = registries end
 vim.cmd('CodeitMcpRegistry')
 assert(picked.github == nil and picked.private.url == 'https://registry.example.test')
 assert(picked.custom.bearer_token_env == 'REGISTRY_TOKEN')
+assert(picked.custom.oauth_metadata.client_id == '$["some.key"].client_id' and not picked.custom.oauth_metadata.token_url)
 choose(nil)
 choose('github')
 choose('reset')

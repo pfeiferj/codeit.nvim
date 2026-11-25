@@ -593,8 +593,11 @@ oauth = { client_id = 'your-public-client-id', redirect_port = 33418 }
 Codeit defaults to desktop VS Code's callback, `http://127.0.0.1:33418/`, and
 picks a free loopback port if the default is busy. If your issuer requires an
 exact redirect URL, register that URL and set `oauth.redirect_port = 33418`
-to prevent fallback. For a custom port, register `http://127.0.0.1:<port>/`.
-Replace any previously registered Codeit `/callback` path with `/`.
+to prevent fallback. If you configure `oauth.redirect_url`, Codeit sends it
+unchanged to the issuer and listens on its port by default. Setting
+`oauth.redirect_port` changes only the local listener port. If the ports differ,
+forward the redirect URL's port to the listener, and register the original
+redirect URL with your issuer.
 Set `oauth.scopes` only if you need to override the scopes advertised by the server.
 Tokens are kept in memory for the current Neovim session and refreshed when the
 issuer supplies a refresh token. An issuer that accepts `client_secret_post`
@@ -638,12 +641,31 @@ override using its displayed server ID. Codeit can browse manifests for local
 packages and legacy transports but only installs concrete HTTPS Streamable HTTP
 endpoints.
 
+To use company-specific OAuth metadata, open **`:CodeitSettings` → MCP servers
+and registries → Registries → your registry → OAuth metadata paths**. For example,
+set `client_id` to `$["some.key"].client_id`. The `$` refers to the server entry's
+`_meta` object, not the whole registry response. Codeit checks the response
+entry's `_meta` first, then the nested server manifest's `_meta`. Paths support
+dot keys, double-quoted bracket keys, and zero-based array indexes; wildcards
+and filters aren't supported. Leave a path blank to remove it.
+
+When you choose **Browser OAuth** for an install or preview, Codeit asks you to
+review the resolved values. It skips the client ID prompt if you accept a mapped
+ID. Missing values are left unset, and changing a mapping does not change existing
+installs. Mapped `resource` and `token_url` must agree with OAuth discovery.
+A mapped `redirect_url` must be a fixed `http://127.0.0.1:<port>/…` callback;
+Codeit cannot receive hosted redirects. Client secrets are not imported.
+
 Add another registry that implements the MCP Registry v0.1 API in `setup()`:
 
 ```lua
 mcp = {
   registries = {
-    internal = { url = 'https://registry.example.com', bearer_token_env = 'REGISTRY_TOKEN' },
+    internal = {
+      url = 'https://registry.example.com',
+      bearer_token_env = 'REGISTRY_TOKEN',
+      oauth_metadata = { client_id = '$["some.key"].client_id' },
+    },
     -- official = false, -- Hide a built-in registry.
   },
 }

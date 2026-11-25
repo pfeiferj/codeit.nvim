@@ -20,7 +20,10 @@ local function handle(socket, method, path, headers, body)
     assert(path:find('search=a%20%26b', 1, true))
     local page = path:find('cursor=x%2By%3D', 1, true)
     return json(socket, { servers = { { server = { name = page and 'test/second' or 'test/first', description = 'Search demo',
-      remotes = { { type = 'sse', url = 'https://example.invalid/legacy' }, { type = 'streamable-http', url = 'https://example.invalid/mcp' } } } },
+      _meta = { ['some.key'] = { client_id = 'manifest-id', resource = 'https://example.invalid/resource' } },
+      remotes = { { type = 'sse', url = 'https://example.invalid/legacy' }, { type = 'streamable-http', url = 'https://example.invalid/mcp' } } },
+      _meta = { ['some.key'] = { client_id = 'wrapper-id', token_url = 'https://login.example.invalid/token',
+        redirect_url = 'http://127.0.0.1:8765/callback' } } },
       { server = { name = 'test/deleted' }, _meta = { ['io.modelcontextprotocol.registry/official'] = { status = 'deleted' } } } },
       metadata = page and vim.empty_dict() or { nextCursor = 'x+y=' } })
   end
@@ -177,5 +180,17 @@ assert(#selections == 0)
 selections = { 2, 2 }
 registry.manage()
 assert(not registry.merge(config, '/other').servers[registry_id])
+selections = { 1, 3, 1, 3, 1, 1 }
+vim.ui.input = function() error('mapped client ID should not prompt for input') end
+local configured = registry.configure({ local_test = { url = url, bearer_token_env = 'TEST_MCP_TOKEN', oauth_metadata = {
+  client_id = '$["some.key"].client_id', resource = '$["some.key"].resource', token_url = '$["some.key"].token_url',
+  redirect_url = '$["some.key"].redirect_url',
+} }, github = false, official = false })
+registry.browse(configured, config, 'a &b')
+local mapped = wait(function() return registry.merge(config, '/other').servers[registry_id] end).oauth
+assert(mapped.client_id == 'wrapper-id' and mapped.resource == 'https://example.invalid/resource')
+assert(mapped.token_url == 'https://login.example.invalid/token' and mapped.redirect_url == 'http://127.0.0.1:8765/callback')
+assert(#selections == 0)
+assert(not pcall(registry.configure, { local_test = { url = url, oauth_metadata = { client_secret_env = '$.secret' } } }))
 for _, socket in ipairs(clients) do if not socket:is_closing() then socket:close() end end
 server:close()

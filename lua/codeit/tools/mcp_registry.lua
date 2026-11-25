@@ -1,6 +1,8 @@
 local M = {}
 local http = require('codeit.tools.mcp_http')
 local utf8 = require('codeit.utf8')
+local paths = require('codeit.tools.mcp_metadata_path')
+M.oauth_fields = { 'client_id', 'resource', 'token_url', 'redirect_url', 'issuer', 'redirect_port', 'scopes' }
 local defaults = { github = { url = 'https://api.mcp.github.com' },
   official = { url = 'https://registry.modelcontextprotocol.io' } }
 
@@ -16,7 +18,17 @@ function M.configure(options)
         or registry.bearer_token_env ~= nil and not http.env_name(registry.bearer_token_env) then
         error('codeit: invalid mcp.registries.' .. name)
       end
-      registries[name] = { url = registry.url:gsub('/+$', ''), bearer_token_env = registry.bearer_token_env }
+      local mappings = registry.oauth_metadata
+      if mappings ~= nil then
+        if type(mappings) ~= 'table' then error('codeit: invalid MCP registry oauth_metadata') end
+        for field, path in pairs(mappings) do
+          if not vim.tbl_contains(M.oauth_fields, field) or not paths.parse(path) then
+            error('codeit: invalid MCP registry OAuth metadata field or path: ' .. tostring(field))
+          end
+        end
+      end
+      registries[name] = { url = registry.url:gsub('/+$', ''), bearer_token_env = registry.bearer_token_env,
+        oauth_metadata = vim.deepcopy(mappings) }
     end
   end
   return registries
@@ -45,7 +57,7 @@ function M.search(registry, query, cursor, done)
     if response.status ~= 200 then return done(nil, 'MCP registry returned HTTP ' .. response.status) end
     local ok, page = pcall(vim.json.decode, response.body)
     if not ok or type(page) ~= 'table' or not vim.islist(page.servers) then return done(nil, 'Invalid MCP registry response') end
-    local entries = {}
+    local entries, envelope_metadata = {}, {}
     for _, result in ipairs(page.servers) do
       if type(result) == 'table' and type(result.server) == 'table' then
         local manifest = result.server
@@ -53,12 +65,13 @@ function M.search(registry, query, cursor, done)
         local status = type(meta) == 'table' and meta.status or manifest.status
         if label(manifest.name, 250) ~= '' and status ~= 'deleted' and status ~= 'deprecated' then
           entries[#entries + 1] = manifest
+          envelope_metadata[manifest] = result._meta
         end
       end
     end
     local next_cursor = type(page.metadata) == 'table' and page.metadata.nextCursor
     if type(next_cursor) ~= 'string' or #next_cursor > 512 or next_cursor == '' or next_cursor == cursor then next_cursor = nil end
-    done(entries, nil, next_cursor)
+    done(entries, nil, next_cursor, envelope_metadata)
   end)
 end
 
@@ -155,7 +168,39 @@ function M.update_install(id, server, workspace)
   return save(entries)
 end
 
-local function configure_auth(remote, use_oauth, done)
+function M.oauth_from_metadata(registry, manifest, envelope, url)
+  local mapped = {}
+  for field, path in pairs(registry.oauth_metadata or {}) do
+    local keys = paths.parse(path)
+    local value = paths.get(envelope, keys)
+    if value == nil then value = paths.get(manifest._meta, keys) end
+    if value ~= nil then
+      if field == 'redirect_port' and type(value) == 'string' and value:match('^%d+$') then value = tonumber(value) end
+      if field == 'scopes' and type(value) == 'string' then value = vim.split(value, '%s+', { trimempty = true }) end
+      mapped[field] = value
+    end
+  end
+  if not next(mapped) then return nil end
+  local ok, normalized = pcall(require('codeit.tools.mcp_oauth').configure, mapped, url)
+  if not ok then return nil, normalized end
+  return normalized
+end
+
+local function confirm_mapped(mapped, done)
+  if not mapped then return done() end
+  local values = {}
+  for _, field in ipairs(M.oauth_fields) do
+    local value = mapped[field]
+    if value ~= nil then values[#values + 1] = field .. ': ' .. (type(value) == 'table' and table.concat(value, ' ') or tostring(value)) end
+  end
+  vim.ui.select({ 'Use mapped OAuth settings', 'Configure manually', 'Cancel' },
+    { prompt = 'Review registry OAuth settings — ' .. table.concat(values, ' | ') }, function(choice)
+      if choice == 'Use mapped OAuth settings' then done(mapped)
+      elseif choice == 'Configure manually' then done() end
+    end)
+end
+
+local function configure_auth(remote, use_oauth, mapped, done)
   local config = { url = remote.url, header_env = {} }
   local headers = vim.islist(remote.headers) and remote.headers or {}
   if #headers > 32 then return notify('Too many registry header definitions') end
@@ -164,9 +209,11 @@ local function configure_auth(remote, use_oauth, done)
     local header = headers[index]
     if not header then
       if use_oauth then
+        config.oauth = vim.deepcopy(mapped or {})
+        if config.oauth.client_id then return done(config) end
         return vim.ui.input({ prompt = 'Public OAuth client ID (blank for dynamic registration): ' }, function(value)
           if value then
-            config.oauth = { client_id = value ~= '' and value or nil }
+            config.oauth.client_id = value ~= '' and value or nil
             done(config)
           end
         end)
@@ -239,7 +286,7 @@ function M.browse(registries, config, initial_query, oauth_cache)
     end
     list = function(query, cursor)
       if #query > 200 then return notify('MCP registry search is too long') end
-      M.search(registries[name], query, cursor, function(entries, err, next_cursor)
+      M.search(registries[name], query, cursor, function(entries, err, next_cursor, envelope_metadata)
         if not entries then return notify(err) end
         local choices = { { action = 'New search' } }
         if next_cursor then choices[#choices + 1] = { action = 'Next page' } end
@@ -265,12 +312,20 @@ function M.browse(registries, config, initial_query, oauth_cache)
               vim.ui.select({ 'Browser OAuth', 'Environment token or no authentication' },
                 { prompt = 'Authentication for ' .. remote.url }, function(auth)
                   if not auth then return end
-                  configure_auth(remote, auth == 'Browser OAuth', function(server)
-                    if index == 1 then return preview(server, oauth_cache) end
-                    server.description = label(item.description, 200)
-                    if server.description == '' then server.description = nil end
-                    local installed, failure = M.install(config, id, server, index == 2 and workspace or nil)
-                    notify(installed and ('Installed MCP server ' .. id .. '; available on the next chat turn') or failure)
+                  local use_oauth, mapped = auth == 'Browser OAuth', nil
+                  if use_oauth then
+                    local failure
+                    mapped, failure = M.oauth_from_metadata(registries[name], item, (envelope_metadata or {})[item], remote.url)
+                    if failure then notify('Ignoring invalid registry OAuth metadata: ' .. failure) end
+                  end
+                  confirm_mapped(mapped, function(reviewed)
+                    configure_auth(remote, use_oauth, reviewed, function(server)
+                      if index == 1 then return preview(server, oauth_cache) end
+                      server.description = label(item.description, 200)
+                      if server.description == '' then server.description = nil end
+                      local installed, failure = M.install(config, id, server, index == 2 and workspace or nil)
+                      notify(installed and ('Installed MCP server ' .. id .. '; available on the next chat turn') or failure)
+                    end)
                   end)
                 end)
             end)

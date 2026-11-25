@@ -37,13 +37,27 @@ function M.configure(value, url)
   if secret_env ~= nil and (not http.env_name(secret_env) or not id or not issuer or issuer:sub(1, 8) ~= 'https://') then
     error('codeit: MCP OAuth client_secret_env requires a client_id and pinned HTTPS issuer')
   end
-  return { client_id = id, scopes = vim.deepcopy(scopes), redirect_port = port, issuer = issuer, client_secret_env = secret_env }
+  local resource, token_url, redirect_url = value.resource, value.token_url, value.redirect_url
+  for field, endpoint in pairs({ resource = resource, token_url = token_url }) do
+    if not M.secure_url(endpoint) then error('codeit: invalid MCP OAuth ' .. field) end
+  end
+  if redirect_url ~= nil then
+    local fixed_port, path
+    if type(redirect_url) == 'string' then fixed_port, path = redirect_url:match('^http://127%.0%.0%.1:(%d+)(/[%w_./-]*)$') end
+    local number = tonumber(fixed_port)
+    if not number or number < 1 or number > 65535 or tostring(number) ~= fixed_port or #path > 256
+      or path:find('//', 1, true) or (path .. '/'):find('/%.%.?/') then
+      error('codeit: invalid MCP OAuth redirect_url (expected a fixed loopback URL)')
+    end
+  end
+  return { client_id = id, scopes = vim.deepcopy(scopes), redirect_port = port, issuer = issuer, client_secret_env = secret_env,
+    resource = resource, token_url = token_url, redirect_url = redirect_url }
 end
 
 local function key(server)
   local config = server.oauth
   return vim.json.encode({ server.url, config.client_id or '', config.scopes or {}, config.redirect_port or 0,
-    config.issuer or '', config.client_secret_env or '' })
+    config.issuer or '', config.client_secret_env or '', config.resource or '', config.token_url or '', config.redirect_url or '' })
 end
 
 function M.token(server, cache)
@@ -109,8 +123,8 @@ local function discover(server, challenge, active, done)
   local urls = metadata_url and { metadata_url } or { origin .. '/.well-known/oauth-protected-resource' .. path,
     origin .. '/.well-known/oauth-protected-resource' }
   first_metadata(urls, active, function(value)
-    -- Tokens must be requested for the configured MCP resource, not a substituted URL.
-    return M.secure_url(value.resource) and value.resource:gsub('/+$', '') == server.url:gsub('/+$', '')
+    -- A configured resource pin still has to agree with the endpoint's discovery metadata.
+    return M.secure_url(value.resource) and value.resource:gsub('/+$', '') == (server.oauth.resource or server.url):gsub('/+$', '')
       and vim.islist(value.authorization_servers) and #value.authorization_servers > 0
   end, function(resource)
     if not resource then return done(nil, 'Could not discover OAuth protected-resource metadata for this MCP endpoint') end
@@ -131,6 +145,9 @@ local function discover(server, challenge, active, done)
         if not vim.islist(metadata.code_challenge_methods_supported)
           or not vim.tbl_contains(metadata.code_challenge_methods_supported, 'S256') then
           return done(nil, 'MCP OAuth issuer does not advertise PKCE S256')
+        end
+        if server.oauth.token_url and server.oauth.token_url ~= metadata.token_endpoint then
+          return done(nil, 'Discovered MCP OAuth token endpoint does not match the configured token_url')
         end
         if server.oauth.client_secret_env and split(metadata.token_endpoint) ~= base then
           return done(nil, 'MCP OAuth token endpoint must share the pinned issuer origin when using a client secret')
@@ -200,9 +217,16 @@ function M.login(server, challenge, cache, active, done)
             if entry then store(entry) else done(nil, token_err) end
           end)
         end
-        redirect, stop = require('codeit.tools.mcp_oauth_callback').listen(server.oauth.redirect_port, state, active, use_code,
-          context.metadata.issuer, context.metadata.authorization_response_iss_parameter_supported == true)
-        if not redirect then return done(nil, stop) end
+        local advertised_port, path
+        if server.oauth.redirect_url then
+          advertised_port, path = server.oauth.redirect_url:match(':(%d+)(/.*)$')
+        end
+        local port = server.oauth.redirect_port or tonumber(advertised_port)
+        local listener_url
+        listener_url, stop = require('codeit.tools.mcp_oauth_callback').listen(port, state, active, use_code,
+          context.metadata.issuer, context.metadata.authorization_response_iss_parameter_supported == true, path, advertised_port)
+        if not listener_url then return done(nil, stop) end
+        redirect = server.oauth.redirect_url or listener_url
         local function launch(client_id)
           context.client_id = client_id
           local endpoint = context.metadata.authorization_endpoint

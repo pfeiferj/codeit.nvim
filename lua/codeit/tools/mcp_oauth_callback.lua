@@ -6,7 +6,9 @@ local function decode(value)
   return (value:gsub('+', ' '):gsub('%%(%x%x)', function(hex) return string.char(tonumber(hex, 16)) end))
 end
 
-function M.listen(port, state, active, done, issuer, require_issuer)
+function M.listen(port, state, active, done, issuer, require_issuer, path, advertised_port)
+  path = path or '/'
+  local advertised_authority = advertised_port and ('127.0.0.1:' .. advertised_port)
   local server, authority
   local sockets, timer, closed = {}, nil, false
   local function close()
@@ -39,7 +41,8 @@ function M.listen(port, state, active, done, issuer, require_issuer)
       local boundary = input:find('\r\n\r\n', 1, true)
       if not boundary and #input <= 8192 then return end
       socket:read_stop()
-      local query = input:match('^GET /%?([^%s]+) HTTP/1%.[01]\r\n')
+      local request_path, query = input:match('^GET ([^?%s]+)%?([^%s]+) HTTP/1%.[01]\r\n')
+      if request_path ~= path then query = nil end
       local host, params = nil, {}
       if boundary and boundary <= 8192 and query and not claimed then
         for name, value in input:sub(1, boundary + 1):gmatch('\r\n([^:\r\n]+):[ \t]*([^\r\n]+)') do
@@ -55,7 +58,9 @@ function M.listen(port, state, active, done, issuer, require_issuer)
         end
       end
       local valid_issuer = params.iss == issuer or params.iss == nil and not require_issuer
-      if host ~= authority or params.state ~= state or not valid_issuer or not (params.error or params.code and #params.code > 0) then
+      -- A port forward can preserve the browser's original loopback Host header.
+      local valid_host = host == authority or (advertised_authority ~= nil and host == advertised_authority)
+      if not valid_host or params.state ~= state or not valid_issuer or not (params.error or params.code and #params.code > 0) then
         return respond(socket, '400 Bad Request', 'Invalid OAuth callback.')
       end
       claimed = true
@@ -90,7 +95,7 @@ function M.listen(port, state, active, done, issuer, require_issuer)
     if not active() then close()
     elseif uv.hrtime() >= deadline then close(); done(nil, 'OAuth sign-in timed out') end
   end))
-  return 'http://' .. authority .. '/', close
+  return 'http://' .. authority .. path, close
 end
 
 return M

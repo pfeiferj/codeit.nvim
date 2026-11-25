@@ -74,26 +74,33 @@ vim.ui.select = function(_, opts, done)
   assert(opts.prompt:find('https://auth.example.test', 1, true))
   done(choice)
 end
+local expected_redirect, forwarded_port
 vim.ui.open = function(url)
   assert(url:find(issuer .. '/authorize?', 1, true) == 1)
   launches = launches + 1
   auth_query = parse(url:match('%?(.*)$'))
   assert(auth_query.response_type == 'code' and auth_query.code_challenge_method == 'S256')
   assert(auth_query.scope == 'read notes' and auth_query.resource == resource)
-  assert(#auth_query.state >= 32 and auth_query.redirect_uri:match('^http://127%.0%.0%.1:%d+/$'))
+  assert(#auth_query.state >= 32)
+  if expected_redirect then assert(auth_query.redirect_uri == expected_redirect, auth_query.redirect_uri)
+  else assert(auth_query.redirect_uri:match('^http://127%.0%.0%.1:%d+/$')) end
   if auth_query.client_id == 'registered-id' then assert(auth_query.redirect_uri == redirect) end
-  return vim.system({ 'curl', '--disable', '--silent', '--noproxy', '*', '--max-time', '2', '--write-out', '%{http_code}', '--',
-    auth_query.redirect_uri .. '?state=forged&code=invalid' }, { text = true }, vim.schedule_wrap(function(result)
+  local curl = { 'curl', '--disable', '--silent', '--noproxy', '*', '--max-time', '2', '--write-out', '%{http_code}' }
+  if forwarded_port then
+    vim.list_extend(curl, { '--connect-to', '127.0.0.1:1:127.0.0.1:' .. forwarded_port })
+  end
+  local function callback(query, done)
+    local argv = vim.list_extend(vim.deepcopy(curl), { '--', auth_query.redirect_uri .. '?' .. query })
+    return vim.system(argv, { text = true }, done and vim.schedule_wrap(done) or nil)
+  end
+  return callback('state=forged&code=invalid', function(result)
     bad_callback_status = result.stdout:sub(-3)
     assert(bad_callback_status == '400')
-    vim.system({ 'curl', '--disable', '--silent', '--noproxy', '*', '--max-time', '2', '--write-out', '%{http_code}', '--',
-      auth_query.redirect_uri .. '?state=' .. auth_query.state .. '&iss=https%3A%2F%2Fwrong.example&code=forged' },
-      { text = true }, vim.schedule_wrap(function(mismatch)
-        assert(mismatch.stdout:sub(-3) == '400')
-        vim.system({ 'curl', '--disable', '--silent', '--noproxy', '*', '--max-time', '2', '--', auth_query.redirect_uri
-          .. '?state=' .. auth_query.state .. '&iss=https%3A%2F%2Fauth.example.test%2Ftenant&code=valid%2Bcode' }, {})
-      end))
-  end))
+    callback('state=' .. auth_query.state .. '&iss=https%3A%2F%2Fwrong.example&code=forged', function(mismatch)
+      assert(mismatch.stdout:sub(-3) == '400')
+      callback('state=' .. auth_query.state .. '&iss=https%3A%2F%2Fauth.example.test%2Ftenant&code=valid%2Bcode')
+    end)
+  end)
 end
 local function wait(read)
   assert(vim.wait(5000, function() return read() ~= nil end), 'OAuth operation timed out')
@@ -141,6 +148,12 @@ vim.env.MCP_TEST_SECRET = 'test+secret'
 assert(connect(confidential, {})).close()
 assert(launches == 3 and registrations == 1 and auth_query.client_id == 'registered-secret-id')
 
+local pinned = setup({ servers = { demo = { url = resource, oauth = { client_id = 'public-id',
+  resource = resource, token_url = issuer .. '/different-token' } } } }).servers.demo
+local pinned_client, pinned_error = connect(pinned, {})
+assert(not pinned_client and pinned_error:find('token_url', 1, true) and launches == 3)
+assert(not pcall(setup, { servers = { demo = { url = resource, oauth = { redirect_url = 'https://example.test/callback' } } } }))
+
 local listen = require('codeit.tools.mcp_oauth_callback').listen
 local function active() return true end
 local function unexpected() error('unexpected OAuth callback') end
@@ -160,3 +173,26 @@ local fixed_redirect, fixed_error = listen(busy_port, 'fixed', active, unexpecte
 assert(fixed_redirect == nil and fixed_error:find('Could not listen', 1, true))
 close_second()
 close_first()
+
+local received
+local custom, close_custom = listen(nil, 'custom-state', active, function(code) received = code end, nil, false, '/corporate/callback')
+assert(custom and custom:match('/corporate/callback$'), close_custom)
+local function browser_get(target)
+  local result
+  vim.system({ 'curl', '--disable', '--silent', '--noproxy', '*', '--max-time', '2', '--write-out', '%{http_code}', '--',
+    target .. '?state=custom-state&code=ok' }, { text = true }, function(value) result = value end)
+  return wait(function() return result end).stdout:sub(-3)
+end
+assert(browser_get((custom:gsub('/corporate/callback$', '/'))) == '400' and received == nil)
+assert(browser_get(custom) == '200' and wait(function() return received end) == 'ok')
+
+expected_redirect = custom
+local function sign_in_with_redirect(url, port)
+  local configured = setup({ servers = { demo = { url = resource, oauth = {
+    client_id = 'public-id', redirect_url = url, redirect_port = port,
+  } } } }).servers.demo
+  assert(connect(configured, {})).close()
+end
+sign_in_with_redirect(custom)
+expected_redirect, forwarded_port = 'http://127.0.0.1:1/corporate/callback', custom:match(':(%d+)/')
+sign_in_with_redirect(expected_redirect, tonumber(forwarded_port))
