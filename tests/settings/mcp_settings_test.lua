@@ -16,6 +16,12 @@ local function choose(id)
   end
   error('No item ' .. tostring(id) .. ' in ' .. current.prompt)
 end
+local function has_item(id)
+  for _, item in ipairs(assert(menu).items) do
+    if item.id == id then return true end
+  end
+  return false
+end
 local function type_in(text)
   local current = assert(input)
   input = nil
@@ -54,6 +60,7 @@ choose('inherit')
 assert(stored.resolve(base, workspace).workspaces[workspace].notes == nil)
 choose(nil)
 choose('lua_server')
+assert(not has_item('remove') and not has_item('uninstall'))
 choose('global')
 choose('on')
 resolved = stored.resolve(base, workspace)
@@ -111,3 +118,32 @@ require('codeit.providers').chat = function(_, _, specs, done)
 end
 plugin.send('Inspect available tools')
 assert(vim.deep_equal(advertised, { 'lua_server', 'notes', 'scoped' }))
+
+choose('custom')
+assert(not has_item('reset'))
+choose('delete')
+choose(nil)
+assert(stored.read().registries.custom.url == 'https://example.test/registry')
+choose('disable')
+choose('custom')
+choose('delete')
+choose('confirm')
+assert(not has_item('custom') and stored.read().registries.custom == nil)
+vim.cmd('CodeitMcpRegistry')
+assert(picked.custom == nil and picked.github and picked.private)
+assert(stored.resolve(base, workspace).servers.scoped)
+
+choose(nil)
+choose('servers')
+choose('scoped')
+assert(not registry.uninstall('scoped', workspace .. '/another'))
+choose('uninstall')
+choose(nil)
+assert(stored.resolve(base, workspace).servers.scoped)
+choose('uninstall')
+choose('confirm')
+assert(not has_item('scoped') and stored.resolve(base, workspace).servers.scoped == nil)
+choose('notes')
+choose('remove')
+choose('confirm')
+assert(not has_item('notes') and stored.read().servers.notes == nil)

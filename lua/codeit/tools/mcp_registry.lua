@@ -168,6 +168,17 @@ function M.update_install(id, server, workspace)
   return save(entries)
 end
 
+function M.uninstall(id, workspace)
+  local entries, err = load()
+  if not entries then return nil, err end
+  local entry = entries[id]
+  if type(entry) ~= 'table' or (entry.workspace and entry.workspace ~= workspace) then
+    return nil, 'MCP registry install is no longer available in this workspace'
+  end
+  entries[id] = nil
+  return save(entries)
+end
+
 function M.oauth_from_metadata(registry, manifest, envelope, url)
   local mapped = {}
   for field, path in pairs(registry.oauth_metadata or {}) do
@@ -346,10 +357,8 @@ function M.manage()
     if not id then return end
     vim.ui.select({ 'Cancel', 'Remove' }, { prompt = 'Remove ' .. id .. '?' }, function(answer)
       if answer ~= 'Remove' then return end
-      local current, failure = load()
-      if not current then return notify(failure) end
-      current[id] = nil
-      local ok, save_err = save(current)
+      local entry = entries[id]
+      local ok, save_err = M.uninstall(id, type(entry) == 'table' and entry.workspace or nil)
       notify(ok and ('Removed MCP server ' .. id) or save_err)
     end)
   end)

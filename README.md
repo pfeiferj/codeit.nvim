@@ -523,12 +523,15 @@ Open **`:CodeitSettings` → MCP servers and registries** to configure MCP witho
 editing Lua. In **Servers and workspace overrides**, add a global remote or
 stdio server, or select a server to change its global default and its current
 workspace override. Choose **Inherit** to remove an override. You can edit
-connections added in settings or installed from a registry; connections
-provided by `setup()` keep their Lua definitions. To remove a registry install,
-use `:CodeitMcpInstalled`.
+connections added in settings or installed from a registry. Choose **Remove
+global server** for a server added in Settings, or **Uninstall MCP server** for
+one installed from a registry. Servers defined in `setup()` can be disabled here,
+but must be removed from your Lua configuration.
 
 The **Registries** menu manages registry URLs and environment-variable names
-for authentication, and lets you disable or restore built-in registries. MCP
+for authentication. Choose **Delete custom registry** to remove a registry added
+in Settings. Built-in and `setup()` registries can be disabled or restored here.
+Deleting a registry does not uninstall any servers. MCP
 changes are saved from their own menus and take effect on the next chat turn
 or registry browse. Enter environment-variable names, not token values, and
 keep credentials out of endpoint URLs and stdio arguments.

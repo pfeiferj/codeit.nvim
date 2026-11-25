@@ -165,7 +165,11 @@ function M.show(context, live, back)
       { id = 'global', label = 'Global default: ' .. status(enabled) .. ' (effective: ' .. status(server.enabled) .. ')' },
     }
     if source ~= 'setup' then items[#items + 1] = { id = 'edit', label = 'Edit server connection' } end
-    if source == 'settings' then items[#items + 1] = { id = 'remove', label = 'Remove global server' } end
+    if source == 'settings' then
+      items[#items + 1] = { id = 'remove', label = 'Remove global server' }
+    elseif source == 'registry' then
+      items[#items + 1] = { id = 'uninstall', label = 'Uninstall MCP server' }
+    end
     items[#items + 1] = { label = source == 'setup' and 'Back (connection defined in setup())' or 'Back to servers' }
     local reopen = function() server_menu(id) end
     select('MCP server: ' .. id .. ' (' .. source .. ')', items, function(item)
@@ -178,6 +182,11 @@ function M.show(context, live, back)
         edit_server(id, source == 'settings' and (saved.servers or {})[id] or server, server.url ~= nil, source == 'registry', reopen)
       elseif item.id == 'remove' then
         confirm('Remove global MCP server ' .. id, function() set('servers', id, nil, servers) end, reopen)
+      elseif item.id == 'uninstall' then
+        confirm('Uninstall MCP server ' .. id, function()
+          local ok, err = registry.uninstall(id, workspace)
+          finish(ok, err, ok and servers or reopen)
+        end, reopen)
       else servers() end
     end)
   end
@@ -211,7 +220,13 @@ function M.show(context, live, back)
       items[#items + 1] = { id = 'oauth_metadata', label = 'OAuth metadata paths' }
       items[#items + 1] = { id = 'disable', label = 'Disable registry globally' }
     end
-    if previous ~= nil then items[#items + 1] = { id = 'reset', label = 'Remove saved override / restore setup default' } end
+    if previous ~= nil then
+      if base_registries[id] then
+        items[#items + 1] = { id = 'reset', label = 'Remove saved override / restore default' }
+      else
+        items[#items + 1] = { id = 'delete', label = 'Delete custom registry' }
+      end
+    end
     items[#items + 1] = { label = 'Back to registries' }
     select('MCP registry: ' .. id, items, function(item)
       if item.id == 'edit' then
@@ -245,6 +260,10 @@ function M.show(context, live, back)
         edit_paths()
       elseif item.id == 'disable' then set('registries', id, false, registries)
       elseif item.id == 'reset' then set('registries', id, nil, registries)
+      elseif item.id == 'delete' then
+        confirm('Delete custom MCP registry ' .. id, function()
+          set('registries', id, nil, registries)
+        end, reopen)
       else registries() end
     end)
   end
