@@ -46,7 +46,6 @@ local function handler(state, issuer, require_issuer, host, advertised_port)
 end
 
 function M.listen(port, state, active, done, issuer, require_issuer, path, advertised_port, host)
-  path = path or '/'
   host = host or '127.0.0.1'
   local bind_host = host == 'localhost' and '127.0.0.1' or host
   local handle = handler(state, issuer, require_issuer, host, advertised_port)
@@ -108,7 +107,7 @@ function M.listen(port, state, active, done, issuer, require_issuer, path, adver
     if not active() then close()
     elseif uv.hrtime() >= deadline then close(); done(nil, 'OAuth sign-in timed out') end
   end))
-  return 'http://' .. authority .. path, close
+  return 'http://' .. authority .. (path or ''), close
 end
 
 function M.listen_https(port, state, active, done, issuer, require_issuer, path, advertised_port, host, ready)
@@ -140,7 +139,7 @@ function M.listen_https(port, state, active, done, issuer, require_issuer, path,
     if bound_port then
       authority = host .. ':' .. bound_port
       deadline = uv.hrtime() + 180 * 1e9
-      ready('https://' .. authority .. path, stop)
+      ready('https://' .. authority .. (path or ''), stop)
     elseif line == 'certificate_error' then
       fail('Could not load the MCP OAuth TLS certificate and key or generate a self-signed certificate with OpenSSL')
     elseif line == 'listen_error' then

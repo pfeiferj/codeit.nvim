@@ -12,7 +12,8 @@ function M.secure_url(url)
 end
 
 local function split_redirect(url)
-  return url:match('^(https?)://([^:/]+):(%d+)(/[%w_./-]*)$')
+  local scheme, host, port, path = url:match('^(https?)://([^:/]+):(%d+)(.*)$')
+  if path and (path == '' or path:match('^/[%w_./-]*$')) then return scheme, host, port, path end
 end
 
 local function loopback_host(host)

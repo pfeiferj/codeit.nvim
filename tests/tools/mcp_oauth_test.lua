@@ -84,7 +84,7 @@ vim.ui.open = function(url)
   assert(auth_query.scope == 'read notes' and auth_query.resource == resource)
   assert(#auth_query.state >= 32)
   if expected_redirect then assert(auth_query.redirect_uri == expected_redirect, auth_query.redirect_uri)
-  else assert(auth_query.redirect_uri:match('^http://127%.0%.0%.1:%d+/$')) end
+  else assert(auth_query.redirect_uri:match('^http://127%.0%.0%.1:%d+$')) end
   if auth_query.client_id == 'registered-id' then assert(auth_query.redirect_uri == redirect) end
   local curl = { 'curl', '--disable', '--silent', '--noproxy', '*', '--max-time', '2', '--write-out', '%{http_code}' }
   if forwarded_port then
@@ -215,6 +215,7 @@ end
 for _, url in ipairs({
   'https://example.test:8765/callback', 'https://localhost/callback', 'http://localhost:08765/callback',
   'http://localhost:8765/../callback', 'http://localhost:8765/callback?query=yes',
+  'http://localhost:8765callback', 'http://localhost:8765?query=yes',
   'http://localhost.example.test:8765/callback', 'http://localhost.:8765/callback',
   'http://localhost@example.test:8765/callback', 'http://128.0.0.1:8765/callback',
   'http://127.256.0.1:8765/callback', 'http://127.00.0.1:8765/callback',
@@ -227,7 +228,7 @@ end
 local listen = require('codeit.tools.mcp_oauth_callback').listen
 local function active() return true end
 local function unexpected() error('unexpected OAuth callback') end
-local preferred = 'http://127.0.0.1:33418/'
+local preferred = 'http://127.0.0.1:33418'
 local probe = assert(vim.uv.new_tcp())
 local available = probe:bind('127.0.0.1', 33418) and probe:listen(1, unexpected)
 local probe_closed = false
@@ -238,7 +239,7 @@ assert(first, close_first)
 if available then assert(first == preferred, first) end
 local second, close_second = listen(nil, 'second', active, unexpected)
 assert(second and second ~= first and second ~= preferred, second or close_second)
-local busy_port = tonumber(first:match(':(%d+)/$'))
+local busy_port = assert(tonumber(first:match(':(%d+)$')))
 local fixed_redirect, fixed_error = listen(busy_port, 'fixed', active, unexpected)
 assert(fixed_redirect == nil and fixed_error:find('Could not listen', 1, true))
 close_second()
@@ -266,6 +267,10 @@ local function sign_in_with_redirect(url, port)
   assert(client, err).close()
 end
 sign_in_with_redirect(custom)
+for _, suffix in ipairs({ '', '/' }) do
+  expected_redirect = custom:gsub('/corporate/callback$', suffix)
+  sign_in_with_redirect(expected_redirect)
+end
 for _, host in ipairs({ 'localhost', '127.0.0.2' }) do
   expected_redirect = custom:gsub('127%.0%.0%.1', host)
   sign_in_with_redirect(expected_redirect)
@@ -293,6 +298,7 @@ assert(generated.code == 0, generated.stderr)
 vim.env.CODEIT_MCP_OAUTH_TLS_CERT = cert
 vim.env.CODEIT_MCP_OAUTH_TLS_KEY = key
 callback_ca = cert
+expected_redirect = expected_redirect:gsub('/redirect$', '')
 sign_in_with_redirect(expected_redirect)
 
 vim.env.CODEIT_MCP_OAUTH_TLS_KEY = nil

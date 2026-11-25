@@ -598,11 +598,11 @@ otherwise configure a registered client ID, for example:
 oauth = { client_id = 'your-public-client-id', redirect_port = 33418 }
 ```
 
-Codeit defaults to desktop VS Code's callback, `http://127.0.0.1:33418/`, and
-picks a free loopback port if the default is busy. If your issuer requires an
-exact redirect URL, register that URL and set `oauth.redirect_port = 33418`
-to prevent fallback. A fixed `oauth.redirect_url` must use HTTP or HTTPS with an explicit
-port and path, and can use `localhost` or a dotted-decimal IPv4 address in
+Codeit defaults to `http://127.0.0.1:33418` (no trailing slash) and picks a
+free loopback port if the default is busy. If your issuer requires an exact
+redirect URL, register that URL and set `oauth.redirect_port = 33418` to
+prevent fallback. A fixed `oauth.redirect_url` must use HTTP or HTTPS with an
+explicit port and an optional path, and can use `localhost` or a dotted-decimal IPv4 address in
 `127.0.0.0/8`, such as `http://localhost:33418/callback`. If Codeit rejects a
 redirect URL, the error shows the rejected URL. Codeit sends an accepted URL
 unchanged to the issuer and listens on its address and port by default
