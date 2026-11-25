@@ -6,9 +6,11 @@ local function decode(value)
   return (value:gsub('+', ' '):gsub('%%(%x%x)', function(hex) return string.char(tonumber(hex, 16)) end))
 end
 
-function M.listen(port, state, active, done, issuer, require_issuer, path, advertised_port)
+function M.listen(port, state, active, done, issuer, require_issuer, path, advertised_port, host)
   path = path or '/'
-  local advertised_authority = advertised_port and ('127.0.0.1:' .. advertised_port)
+  host = host or '127.0.0.1'
+  local bind_host = host == 'localhost' and '127.0.0.1' or host
+  local advertised_authority = advertised_port and (host .. ':' .. advertised_port)
   local server, authority
   local sockets, timer, closed = {}, nil, false
   local function close()
@@ -43,12 +45,12 @@ function M.listen(port, state, active, done, issuer, require_issuer, path, adver
       socket:read_stop()
       local request_path, query = input:match('^GET ([^?%s]+)%?([^%s]+) HTTP/1%.[01]\r\n')
       if request_path ~= path then query = nil end
-      local host, params = nil, {}
+      local request_host, params = nil, {}
       if boundary and boundary <= 8192 and query and not claimed then
         for name, value in input:sub(1, boundary + 1):gmatch('\r\n([^:\r\n]+):[ \t]*([^\r\n]+)') do
           if name:lower() == 'host' then
-            if host then host = false; break end
-            host = value
+            if request_host then request_host = false; break end
+            request_host = value:lower()
           end
         end
         for key, value in query:gmatch('([^&=]+)=([^&]*)') do
@@ -59,7 +61,7 @@ function M.listen(port, state, active, done, issuer, require_issuer, path, adver
       end
       local valid_issuer = params.iss == issuer or params.iss == nil and not require_issuer
       -- A port forward can preserve the browser's original loopback Host header.
-      local valid_host = host == authority or (advertised_authority ~= nil and host == advertised_authority)
+      local valid_host = request_host == authority or (advertised_authority ~= nil and request_host == advertised_authority)
       if not valid_host or params.state ~= state or not valid_issuer or not (params.error or params.code and #params.code > 0) then
         return respond(socket, '400 Bad Request', 'Invalid OAuth callback.')
       end
@@ -77,7 +79,7 @@ function M.listen(port, state, active, done, issuer, require_issuer, path, adver
   end
   local function listen(candidate)
     local socket = assert(uv.new_tcp())
-    local ok, err, code = socket:bind('127.0.0.1', candidate)
+    local ok, err, code = socket:bind(bind_host, candidate)
     if ok then ok, err, code = socket:listen(8, accept) end
     if ok then return socket end
     socket:close()
@@ -87,7 +89,7 @@ function M.listen(port, state, active, done, issuer, require_issuer, path, adver
   server, err = listen(port or default_port)
   if not server and not port and err and err:find('EADDRINUSE', 1, true) then server = listen(0) end
   if not server then return nil, 'Could not listen for the OAuth loopback callback' end
-  authority = '127.0.0.1:' .. server:getsockname().port
+  authority = host .. ':' .. server:getsockname().port
   local deadline = uv.hrtime() + 180 * 1e9
   timer = uv.new_timer()
   timer:start(100, 100, vim.schedule_wrap(function()

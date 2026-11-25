@@ -87,7 +87,8 @@ vim.ui.open = function(url)
   if auth_query.client_id == 'registered-id' then assert(auth_query.redirect_uri == redirect) end
   local curl = { 'curl', '--disable', '--silent', '--noproxy', '*', '--max-time', '2', '--write-out', '%{http_code}' }
   if forwarded_port then
-    vim.list_extend(curl, { '--connect-to', '127.0.0.1:1:127.0.0.1:' .. forwarded_port })
+    local authority = auth_query.redirect_uri:match('^http://([^/]+)/')
+    vim.list_extend(curl, { '--connect-to', authority .. ':127.0.0.1:' .. forwarded_port })
   end
   local function callback(query, done)
     local argv = vim.list_extend(vim.deepcopy(curl), { '--', auth_query.redirect_uri .. '?' .. query })
@@ -152,7 +153,20 @@ local pinned = setup({ servers = { demo = { url = resource, oauth = { client_id 
   resource = resource, token_url = issuer .. '/different-token' } } } }).servers.demo
 local pinned_client, pinned_error = connect(pinned, {})
 assert(not pinned_client and pinned_error:find('token_url', 1, true) and launches == 3)
-assert(not pcall(setup, { servers = { demo = { url = resource, oauth = { redirect_url = 'https://example.test/callback' } } } }))
+for _, host in ipairs({ 'localhost', 'LOCALHOST', '127.0.0.0', '127.0.0.2', '127.255.255.255' }) do
+  local url = 'http://' .. host .. ':8765/callback'
+  assert(oauth.configure({ redirect_url = url }, resource).redirect_url == url)
+end
+for _, url in ipairs({
+  'https://localhost:8765/callback', 'http://localhost/callback', 'http://localhost:08765/callback',
+  'http://localhost:8765/../callback', 'http://localhost:8765/callback?query=yes',
+  'http://localhost.example.test:8765/callback', 'http://localhost.:8765/callback',
+  'http://localhost@example.test:8765/callback', 'http://128.0.0.1:8765/callback',
+  'http://127.256.0.1:8765/callback', 'http://127.00.0.1:8765/callback',
+  'http://127.1:8765/callback', 'http://[::1]:8765/callback',
+}) do
+  assert(not pcall(oauth.configure, { redirect_url = url }, resource), url)
+end
 
 local listen = require('codeit.tools.mcp_oauth_callback').listen
 local function active() return true end
@@ -194,5 +208,12 @@ local function sign_in_with_redirect(url, port)
   assert(connect(configured, {})).close()
 end
 sign_in_with_redirect(custom)
-expected_redirect, forwarded_port = 'http://127.0.0.1:1/corporate/callback', custom:match(':(%d+)/')
-sign_in_with_redirect(expected_redirect, tonumber(forwarded_port))
+for _, host in ipairs({ 'localhost', '127.0.0.2' }) do
+  expected_redirect = custom:gsub('127%.0%.0%.1', host)
+  sign_in_with_redirect(expected_redirect)
+end
+forwarded_port = custom:match(':(%d+)/')
+for _, host in ipairs({ '127.0.0.1', 'localhost' }) do
+  expected_redirect = 'http://' .. host .. ':1/corporate/callback'
+  sign_in_with_redirect(expected_redirect, tonumber(forwarded_port))
+end

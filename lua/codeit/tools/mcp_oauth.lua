@@ -11,6 +11,21 @@ function M.secure_url(url)
   return origin:sub(1, 8) == 'https://' or origin == 'http://127.0.0.1' or origin:match('^http://127%.0%.0%.1:%d+$') ~= nil
 end
 
+local function split_redirect(url)
+  return url:match('^http://([^:/]+):(%d+)(/[%w_./-]*)$')
+end
+
+local function loopback_host(host)
+  if host:lower() == 'localhost' then return true end
+  local b, c, d = host:match('^127%.(%d+)%.(%d+)%.(%d+)$')
+  if not b then return false end
+  for _, octet in ipairs({ b, c, d }) do
+    local number = tonumber(octet)
+    if number > 255 or tostring(number) ~= octet then return false end
+  end
+  return true
+end
+
 function M.configure(value, url)
   if value == nil or value == false then return nil end
   if value == true then value = {} end
@@ -42,10 +57,11 @@ function M.configure(value, url)
     if not M.secure_url(endpoint) then error('codeit: invalid MCP OAuth ' .. field) end
   end
   if redirect_url ~= nil then
-    local fixed_port, path
-    if type(redirect_url) == 'string' then fixed_port, path = redirect_url:match('^http://127%.0%.0%.1:(%d+)(/[%w_./-]*)$') end
+    local host, fixed_port, path
+    if type(redirect_url) == 'string' then host, fixed_port, path = split_redirect(redirect_url) end
     local number = tonumber(fixed_port)
-    if not number or number < 1 or number > 65535 or tostring(number) ~= fixed_port or #path > 256
+    if not host or not loopback_host(host) or not number or number < 1 or number > 65535
+      or tostring(number) ~= fixed_port or #path > 256
       or path:find('//', 1, true) or (path .. '/'):find('/%.%.?/') then
       error('codeit: invalid MCP OAuth redirect_url (expected a fixed loopback URL)')
     end
@@ -217,14 +233,15 @@ function M.login(server, challenge, cache, active, done)
             if entry then store(entry) else done(nil, token_err) end
           end)
         end
-        local advertised_port, path
+        local host, advertised_port, path
         if server.oauth.redirect_url then
-          advertised_port, path = server.oauth.redirect_url:match(':(%d+)(/.*)$')
+          host, advertised_port, path = split_redirect(server.oauth.redirect_url)
         end
         local port = server.oauth.redirect_port or tonumber(advertised_port)
         local listener_url
         listener_url, stop = require('codeit.tools.mcp_oauth_callback').listen(port, state, active, use_code,
-          context.metadata.issuer, context.metadata.authorization_response_iss_parameter_supported == true, path, advertised_port)
+          context.metadata.issuer, context.metadata.authorization_response_iss_parameter_supported == true,
+          path, advertised_port, host and host:lower())
         if not listener_url then return done(nil, stop) end
         redirect = server.oauth.redirect_url or listener_url
         local function launch(client_id)
