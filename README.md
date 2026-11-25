@@ -598,7 +598,7 @@ oauth = { client_id = 'your-public-client-id', redirect_port = 33418 }
 Codeit defaults to desktop VS Code's callback, `http://127.0.0.1:33418/`, and
 picks a free loopback port if the default is busy. If your issuer requires an
 exact redirect URL, register that URL and set `oauth.redirect_port = 33418`
-to prevent fallback. A fixed `oauth.redirect_url` must use HTTP with an explicit
+to prevent fallback. A fixed `oauth.redirect_url` must use HTTP or HTTPS with an explicit
 port and path, and can use `localhost` or a dotted-decimal IPv4 address in
 `127.0.0.0/8`, such as `http://localhost:33418/callback`. If Codeit rejects a
 redirect URL, the error shows the rejected URL. Codeit sends an accepted URL
@@ -606,7 +606,17 @@ unchanged to the issuer and listens on its address and port by default
 (`localhost` binds to `127.0.0.1`). Setting
 `oauth.redirect_port` changes only the local listener port. If the ports differ,
 forward the redirect URL's port to the listener, and register the original
-redirect URL with your issuer.
+redirect URL with your issuer. The listener accepts valid OAuth callbacks on any
+path; this does not change the redirect URL Codeit sends to the issuer.
+
+For an HTTPS redirect such as `https://localhost:8080/redirect`, Codeit serves TLS
+on the loopback port using `python3`. Set `CODEIT_MCP_OAUTH_TLS_CERT` and
+`CODEIT_MCP_OAUTH_TLS_KEY` to the paths of a PEM certificate chain and its
+unencrypted private key. The certificate should cover the redirect host and be
+trusted by your browser. If neither variable is set, Codeit uses `openssl` to
+create a temporary self-signed certificate for that host on each sign-in. The
+browser may warn or refuse the callback because the certificate is not trusted.
+
 Set `oauth.scopes` only if you need to override the scopes advertised by the server.
 Tokens are kept in memory for the current Neovim session and refreshed when the
 issuer supplies a refresh token. An issuer that accepts `client_secret_post`
@@ -662,7 +672,7 @@ When you choose **Browser OAuth** for an install or preview, Codeit asks you to
 review the resolved values. It skips the client ID prompt if you accept a mapped
 ID. Missing values are left unset, and changing a mapping does not change existing
 installs. Mapped `resource` and `token_url` must agree with OAuth discovery.
-A mapped `redirect_url` must be a fixed `http://127.0.0.1:<port>/…` callback;
+A mapped `redirect_url` must also be a fixed HTTP or HTTPS loopback callback;
 Codeit cannot receive hosted redirects. Client secrets are not imported.
 
 Add another registry that implements the MCP Registry v0.1 API in `setup()`:

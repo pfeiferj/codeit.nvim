@@ -74,7 +74,7 @@ vim.ui.select = function(_, opts, done)
   assert(opts.prompt:find('https://auth.example.test', 1, true))
   done(choice)
 end
-local expected_redirect, forwarded_port
+local expected_redirect, forwarded_port, callback_ca, callback_path
 vim.ui.open = function(url)
   assert(url:find(issuer .. '/authorize?', 1, true) == 1)
   launches = launches + 1
@@ -87,11 +87,16 @@ vim.ui.open = function(url)
   if auth_query.client_id == 'registered-id' then assert(auth_query.redirect_uri == redirect) end
   local curl = { 'curl', '--disable', '--silent', '--noproxy', '*', '--max-time', '2', '--write-out', '%{http_code}' }
   if forwarded_port then
-    local authority = auth_query.redirect_uri:match('^http://([^/]+)/')
+    local authority = auth_query.redirect_uri:match('^https?://([^/]+)/')
     vim.list_extend(curl, { '--connect-to', authority .. ':127.0.0.1:' .. forwarded_port })
   end
+  if auth_query.redirect_uri:match('^https://') then
+    vim.list_extend(curl, callback_ca and { '--cacert', callback_ca } or { '--insecure' })
+  end
   local function callback(query, done)
-    local argv = vim.list_extend(vim.deepcopy(curl), { '--', auth_query.redirect_uri .. '?' .. query })
+    local target = auth_query.redirect_uri
+    if callback_path then target = assert(target:match('^https?://[^/]+')) .. callback_path end
+    local argv = vim.list_extend(vim.deepcopy(curl), { '--', target .. '?' .. query })
     return vim.system(argv, { text = true }, done and vim.schedule_wrap(done) or nil)
   end
   return callback('state=forged&code=invalid', function(result)
@@ -156,9 +161,11 @@ assert(not pinned_client and pinned_error:find('token_url', 1, true) and launche
 for _, host in ipairs({ 'localhost', 'LOCALHOST', '127.0.0.0', '127.0.0.2', '127.255.255.255' }) do
   local url = 'http://' .. host .. ':8765/callback'
   assert(oauth.configure({ redirect_url = url }, resource).redirect_url == url)
+  local tls_url = url:gsub('^http:', 'https:')
+  assert(oauth.configure({ redirect_url = tls_url }, resource).redirect_url == tls_url)
 end
 for _, url in ipairs({
-  'https://localhost:8765/callback', 'http://localhost/callback', 'http://localhost:08765/callback',
+  'https://example.test:8765/callback', 'https://localhost/callback', 'http://localhost:08765/callback',
   'http://localhost:8765/../callback', 'http://localhost:8765/callback?query=yes',
   'http://localhost.example.test:8765/callback', 'http://localhost.:8765/callback',
   'http://localhost@example.test:8765/callback', 'http://128.0.0.1:8765/callback',
@@ -192,21 +199,23 @@ close_first()
 local received
 local custom, close_custom = listen(nil, 'custom-state', active, function(code) received = code end, nil, false, '/corporate/callback')
 assert(custom and custom:match('/corporate/callback$'), close_custom)
-local function browser_get(target)
+local function browser_get(target, state)
   local result
   vim.system({ 'curl', '--disable', '--silent', '--noproxy', '*', '--max-time', '2', '--write-out', '%{http_code}', '--',
-    target .. '?state=custom-state&code=ok' }, { text = true }, function(value) result = value end)
+    target .. '?state=' .. state .. '&code=ok' }, { text = true }, function(value) result = value end)
   return wait(function() return result end).stdout:sub(-3)
 end
-assert(browser_get((custom:gsub('/corporate/callback$', '/'))) == '400' and received == nil)
-assert(browser_get(custom) == '200' and wait(function() return received end) == 'ok')
+local root = custom:gsub('/corporate/callback$', '/')
+assert(browser_get(root, 'forged') == '400' and received == nil)
+assert(browser_get(root, 'custom-state') == '200' and wait(function() return received end) == 'ok')
 
 expected_redirect = custom
 local function sign_in_with_redirect(url, port)
   local configured = setup({ servers = { demo = { url = resource, oauth = {
     client_id = 'public-id', redirect_url = url, redirect_port = port,
   } } } }).servers.demo
-  assert(connect(configured, {})).close()
+  local client, err = connect(configured, {})
+  assert(client, err).close()
 end
 sign_in_with_redirect(custom)
 for _, host in ipairs({ 'localhost', '127.0.0.2' }) do
@@ -218,3 +227,30 @@ for _, host in ipairs({ '127.0.0.1', 'localhost' }) do
   expected_redirect = 'http://' .. host .. ':1/corporate/callback'
   sign_in_with_redirect(expected_redirect, tonumber(forwarded_port))
 end
+
+vim.env.CODEIT_MCP_OAUTH_TLS_CERT = nil
+vim.env.CODEIT_MCP_OAUTH_TLS_KEY = nil
+expected_redirect = 'https://localhost:' .. forwarded_port .. '/redirect'
+forwarded_port = nil
+callback_path = '/auth/blah'
+sign_in_with_redirect(expected_redirect)
+callback_path = nil
+
+local cert_dir = vim.fn.stdpath('state') .. '/tls-test'
+vim.fn.mkdir(cert_dir, 'p', 448)
+local cert, key = cert_dir .. '/cert.pem', cert_dir .. '/key.pem'
+local generated = vim.system({ 'openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+  '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost', '-keyout', key, '-out', cert }):wait(5000)
+assert(generated.code == 0, generated.stderr)
+vim.env.CODEIT_MCP_OAUTH_TLS_CERT = cert
+vim.env.CODEIT_MCP_OAUTH_TLS_KEY = key
+callback_ca = cert
+sign_in_with_redirect(expected_redirect)
+
+vim.env.CODEIT_MCP_OAUTH_TLS_KEY = nil
+local before = launches
+local partial = setup({ servers = { demo = { url = resource, oauth = {
+  client_id = 'public-id', redirect_url = expected_redirect,
+} } } }).servers.demo
+local partial_client, partial_error = connect(partial, {})
+assert(not partial_client and partial_error:find('Set both', 1, true) and launches == before, partial_error)

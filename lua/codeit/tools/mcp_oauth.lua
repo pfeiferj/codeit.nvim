@@ -12,7 +12,7 @@ function M.secure_url(url)
 end
 
 local function split_redirect(url)
-  return url:match('^http://([^:/]+):(%d+)(/[%w_./-]*)$')
+  return url:match('^(https?)://([^:/]+):(%d+)(/[%w_./-]*)$')
 end
 
 local function loopback_host(host)
@@ -58,7 +58,10 @@ function M.configure(value, url)
   end
   if redirect_url ~= nil then
     local host, fixed_port, path
-    if type(redirect_url) == 'string' then host, fixed_port, path = split_redirect(redirect_url) end
+    if type(redirect_url) == 'string' then
+      local scheme
+      scheme, host, fixed_port, path = split_redirect(redirect_url)
+    end
     local number = tonumber(fixed_port)
     if not host or not loopback_host(host) or not number or number < 1 or number > 65535
       or tostring(number) ~= fixed_port or #path > 256
@@ -234,17 +237,12 @@ function M.login(server, challenge, cache, active, done)
             if entry then store(entry) else done(nil, token_err) end
           end)
         end
-        local host, advertised_port, path
+        local scheme, host, advertised_port, path
         if server.oauth.redirect_url then
-          host, advertised_port, path = split_redirect(server.oauth.redirect_url)
+          scheme, host, advertised_port, path = split_redirect(server.oauth.redirect_url)
+          host = host:lower()
         end
         local port = server.oauth.redirect_port or tonumber(advertised_port)
-        local listener_url
-        listener_url, stop = require('codeit.tools.mcp_oauth_callback').listen(port, state, active, use_code,
-          context.metadata.issuer, context.metadata.authorization_response_iss_parameter_supported == true,
-          path, advertised_port, host and host:lower())
-        if not listener_url then return done(nil, stop) end
-        redirect = server.oauth.redirect_url or listener_url
         local function launch(client_id)
           context.client_id = client_id
           local endpoint = context.metadata.authorization_endpoint
@@ -254,22 +252,35 @@ function M.login(server, challenge, cache, active, done)
           local ok, process = pcall(vim.ui.open, url)
           if not ok or not process then stop(); done(nil, 'Could not open a browser for MCP OAuth') end
         end
-        if server.oauth.client_id then return launch(server.oauth.client_id) end
-        local registration = context.metadata.registration_endpoint
-        if not M.secure_url(registration) then
-          stop()
-          return done(nil, 'MCP OAuth issuer does not offer dynamic registration; configure oauth.client_id')
+        local function ready(listener_url, close_or_error)
+          if not listener_url then return done(nil, close_or_error) end
+          stop = close_or_error
+          redirect = server.oauth.redirect_url or listener_url
+          if server.oauth.client_id then return launch(server.oauth.client_id) end
+          local registration = context.metadata.registration_endpoint
+          if not M.secure_url(registration) then
+            stop()
+            return done(nil, 'MCP OAuth issuer does not offer dynamic registration; configure oauth.client_id')
+          end
+          json('POST', registration, { client_name = 'Codeit.nvim', redirect_uris = { redirect },
+            token_endpoint_auth_method = 'none', grant_types = { 'authorization_code', 'refresh_token' }, response_types = { 'code' } },
+            active, function(client, registration_err)
+              if not client or not token_chars(client.client_id)
+                or client.token_endpoint_auth_method and client.token_endpoint_auth_method ~= 'none' then
+                stop()
+                return done(nil, 'MCP OAuth public-client registration failed' .. (registration_err and ': ' .. registration_err or ''))
+              end
+              launch(client.client_id)
+            end)
         end
-        json('POST', registration, { client_name = 'Codeit.nvim', redirect_uris = { redirect },
-          token_endpoint_auth_method = 'none', grant_types = { 'authorization_code', 'refresh_token' }, response_types = { 'code' } },
-          active, function(client, registration_err)
-            if not client or not token_chars(client.client_id)
-              or client.token_endpoint_auth_method and client.token_endpoint_auth_method ~= 'none' then
-              stop()
-              return done(nil, 'MCP OAuth public-client registration failed' .. (registration_err and ': ' .. registration_err or ''))
-            end
-            launch(client.client_id)
-          end)
+        local callback = require('codeit.tools.mcp_oauth_callback')
+        local require_issuer = context.metadata.authorization_response_iss_parameter_supported == true
+        if scheme == 'https' then
+          return callback.listen_https(port, state, active, use_code, context.metadata.issuer, require_issuer,
+            path, advertised_port, host, ready)
+        end
+        ready(callback.listen(port, state, active, use_code, context.metadata.issuer, require_issuer,
+          path, advertised_port, host))
       end)
     end)
   end
