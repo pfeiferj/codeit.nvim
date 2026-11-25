@@ -16,6 +16,7 @@ local registrations, launches, refreshes, tool_calls = 0, 0, 0, 0
 local choice, accepted, allow_tools = 'Open browser', 'first-token', true
 local redirect, auth_query, bad_callback_status
 local http_requests = {}
+local advertised_resource, expected_resource = resource, resource
 http.request = function(method, url, headers, body, _, done)
   http_requests[#http_requests + 1] = { url = url, method = method }
   local function reply(status, result, response_headers)
@@ -42,7 +43,7 @@ http.request = function(method, url, headers, body, _, done)
   end
   assert(headers.Authorization == nil, 'credentials must not be forwarded to discovery or issuer endpoints')
   if url == metadata then
-    return reply(200, { resource = resource, authorization_servers = { issuer } })
+    return reply(200, { resource = advertised_resource, authorization_servers = { issuer } })
   elseif url == 'https://auth.example.test/.well-known/oauth-authorization-server/tenant' then
     return reply(200, { issuer = issuer, authorization_endpoint = issuer .. '/authorize', token_endpoint = token_endpoint,
       registration_endpoint = issuer .. '/register', code_challenge_methods_supported = { 'S256' },
@@ -56,7 +57,7 @@ http.request = function(method, url, headers, body, _, done)
     assert(headers['Content-Type'] == 'application/x-www-form-urlencoded')
     assert(type(body) == 'string')
     local fields = parse(body)
-    assert(fields.resource == resource)
+    assert(fields.resource == expected_resource)
     if fields.grant_type == 'refresh_token' then
       assert(fields.refresh_token == 'test-refresh' and fields.client_id == 'registered-id')
       refreshes = refreshes + 1
@@ -81,7 +82,7 @@ vim.ui.open = function(url)
   launches = launches + 1
   auth_query = parse(url:match('%?(.*)$'))
   assert(auth_query.response_type == 'code' and auth_query.code_challenge_method == 'S256')
-  assert(auth_query.scope == 'read notes' and auth_query.resource == resource)
+  assert(auth_query.scope == 'read notes' and auth_query.resource == expected_resource)
   assert(#auth_query.state >= 32)
   if expected_redirect then assert(auth_query.redirect_uri == expected_redirect, auth_query.redirect_uri)
   else assert(auth_query.redirect_uri:match('^http://127%.0%.0%.1:%d+$')) end
@@ -197,6 +198,16 @@ end
 check_manual_error({ authorization_url = manual_options.authorization_url, client_id = 'public-id' }, 'requires')
 check_manual_error(vim.tbl_extend('force', manual_options, { client_secret_env = 'MCP_TEST_SECRET',
   token_url = 'https://other.example.test/token' }), 'pinned issuer origin')
+
+advertised_resource = 'https://mcp.example.test/different-resource'
+local mismatched_client, mismatched_error = connect(fixed, {})
+assert(not mismatched_client and mismatched_error:find('protected-resource metadata', 1, true) and launches == 5)
+expected_resource = 'urn:example:mcp:tenant'
+local override = setup({ servers = { demo = { url = resource, oauth = { client_id = 'public-id',
+  resource = expected_resource } } } }).servers.demo
+assert(connect(override, {})).close()
+assert(launches == 6)
+advertised_resource, expected_resource = resource, resource
 
 local slash_issuer = oauth.configure({ issuer = issuer .. '/' }, resource)
 assert(slash_issuer.issuer == issuer .. '/' and slash_issuer.token_url == nil)

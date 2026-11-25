@@ -620,9 +620,12 @@ trusted by your browser. If neither variable is set, Codeit uses `openssl` to
 create a temporary self-signed certificate for that host on each sign-in. The
 browser may warn or refuse the callback because the certificate is not trusted.
 
-By default Codeit uses OAuth discovery. If you set `oauth.issuer`,
-`oauth.resource`, or `oauth.token_url` in that mode, they must agree with the
-published metadata. Set `oauth.scopes` to override the advertised scopes.
+By default Codeit uses OAuth discovery. If you set `oauth.issuer` or
+`oauth.token_url` in that mode, they must agree with the published metadata.
+An explicit `oauth.resource` is sent as configured, even if it isn't a URL or
+it differs from the advertised resource. Without an override, the advertised
+resource must match the MCP endpoint. Set `oauth.scopes` to override the
+advertised scopes.
 
 For a server without discovery, set `oauth.authorization_url` (the browser
 endpoint), `oauth.token_url`, and `oauth.client_id`. Setting `authorization_url`
@@ -697,9 +700,10 @@ When you choose **Browser OAuth** for an install or preview, Codeit asks you to
 review the resolved values. It skips the client ID prompt if you accept a
 resolved ID. Changing a default or mapping does not change existing installs.
 You can also supply `authorization_url` and `token_url` through registry OAuth
-settings to opt out of discovery. Otherwise, the resolved `resource` and
-`token_url` must agree with discovery. In either mode, `redirect_url` must be a
-fixed HTTP or HTTPS loopback callback. Codeit cannot
+settings to opt out of discovery. Otherwise, the resolved `token_url` must
+agree with discovery. A resolved `resource` overrides the advertised resource.
+In either mode, `redirect_url` must be a fixed HTTP or HTTPS loopback callback.
+Codeit cannot
 receive hosted redirects. Registry OAuth settings do not accept client secrets.
 
 Add another registry that implements the MCP Registry v0.1 API in `setup()`:

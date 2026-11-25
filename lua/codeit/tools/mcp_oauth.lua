@@ -55,7 +55,10 @@ function M.configure(value, url)
   end
   local resource, token_url, redirect_url = value.resource, value.token_url, value.redirect_url
   local authorization_url = value.authorization_url
-  for field, endpoint in pairs({ resource = resource, token_url = token_url, authorization_url = authorization_url }) do
+  if resource ~= nil and (type(resource) ~= 'string' or resource == '' or #resource > 4096 or resource:find('%c')) then
+    error('codeit: invalid MCP OAuth resource')
+  end
+  for field, endpoint in pairs({ token_url = token_url, authorization_url = authorization_url }) do
     if not M.secure_url(endpoint) then error('codeit: invalid MCP OAuth ' .. field) end
   end
   if redirect_url ~= nil then
@@ -146,8 +149,8 @@ local function discover(server, challenge, active, done)
   local urls = metadata_url and { metadata_url } or { origin .. '/.well-known/oauth-protected-resource' .. path,
     origin .. '/.well-known/oauth-protected-resource' }
   first_metadata(urls, active, function(value)
-    -- A configured resource pin still has to agree with the endpoint's discovery metadata.
-    return M.secure_url(value.resource) and value.resource:gsub('/+$', '') == (server.oauth.resource or server.url):gsub('/+$', '')
+    return (server.oauth.resource ~= nil
+        or M.secure_url(value.resource) and value.resource:gsub('/+$', '') == server.url:gsub('/+$', ''))
       and vim.islist(value.authorization_servers) and #value.authorization_servers > 0
   end, function(resource)
     if not resource then return done(nil, 'Could not discover OAuth protected-resource metadata for this MCP endpoint') end
@@ -175,7 +178,7 @@ local function discover(server, challenge, active, done)
         if server.oauth.client_secret_env and split(metadata.token_endpoint) ~= base then
           return done(nil, 'MCP OAuth token endpoint must share the pinned issuer origin when using a client secret')
         end
-        done({ resource = resource.resource, metadata = metadata, secret_env = server.oauth.client_secret_env,
+        done({ resource = server.oauth.resource or resource.resource, metadata = metadata, secret_env = server.oauth.client_secret_env,
           scope = challenge_param(challenge, 'scope')
           or vim.islist(resource.scopes_supported) and table.concat(vim.tbl_filter(function(scope)
             return type(scope) == 'string' and not scope:find('%c')
